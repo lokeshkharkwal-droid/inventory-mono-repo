@@ -1,3 +1,5 @@
+import { STAFF_ROLE_KEYS, PROFILE_LABELS } from './profile-registry.constant';
+
 /**
  * Inventory permission catalogue + role baselines (the RBAC matrix). Ported from
  * the legacy ion_auth permission keys (`inventory.product_edit`, …) into the
@@ -215,23 +217,15 @@ export interface ManageableRole {
   isSuperuser: boolean;
 }
 
-export const MANAGEABLE_ROLES: ManageableRole[] = [
-  { key: 'business_admin', label: 'Business Admin', isSuperuser: true },
-  { key: 'administrator', label: 'Administrator', isSuperuser: true },
-  { key: 'owner', label: 'Owner', isSuperuser: true },
-  { key: 'super_owner', label: 'Super Owner', isSuperuser: true },
-  { key: 'inventory_manager', label: 'Inventory Manager', isSuperuser: false },
-  { key: 'chemist', label: 'Chemist', isSuperuser: false },
-  { key: 'chemist_assistant', label: 'Chemist Assistant', isSuperuser: false },
-  { key: 'logistics_executive', label: 'Logistics Executive', isSuperuser: false },
-  { key: 'finance_manager', label: 'Finance Manager', isSuperuser: false },
-  { key: 'finance_assistant', label: 'Finance Assistant', isSuperuser: false },
-  // kalnostics clinical/business profile keys — editable so an admin can grant
-  // them inventory permissions (they default to view-only until customised).
-  { key: 'doctor', label: 'Doctor', isSuperuser: false },
-  { key: 'branch_admin', label: 'Branch Admin', isSuperuser: false },
-  { key: 'receptionist', label: 'Receptionist', isSuperuser: false },
-  { key: 'lab_technician', label: 'Lab Technician', isSuperuser: false },
-  { key: 'marketing_executive', label: 'Marketing Executive', isSuperuser: false },
-  { key: 'phlebotomist', label: 'Phlebotomist', isSuperuser: false },
-];
+/**
+ * Every manageable role — derived from the kalnostics-new profile registry
+ * (`STAFF_ROLE_KEYS` + `PROFILE_LABELS`) so the inventory role list stays in sync
+ * with kalnostics. Superuser roles always have full access and are not editable;
+ * every other role is editable and defaults to its code baseline (view-only
+ * unless listed in `ROLE_BASELINE`) until an admin customises it.
+ */
+export const MANAGEABLE_ROLES: ManageableRole[] = STAFF_ROLE_KEYS.map((key) => ({
+  key,
+  label: PROFILE_LABELS[key],
+  isSuperuser: SUPERUSER_PROFILES.has(key),
+}));

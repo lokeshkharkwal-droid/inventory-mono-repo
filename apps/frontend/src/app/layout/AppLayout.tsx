@@ -44,7 +44,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/app/providers/AuthProvider';
-import { useI18n, LOCALES, type LocaleCode } from '@/app/providers/I18nProvider';
+import { useI18n } from '@/app/providers/I18nProvider';
 import { Button } from '@/components/ui/button';
 import { NotificationBell } from '@/components/shared/NotificationBell';
 import { ProfileSwitcher } from '@/components/shared/ProfileSwitcher';
@@ -179,7 +179,7 @@ function activeGroupTitle(pathname: string): string | undefined {
 /** Authenticated app shell: collapsible grouped sidebar + header + content. */
 export function AppLayout() {
   const { logout } = useAuth();
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
   const { pathname } = useLocation();
   const activeTitle = activeGroupTitle(pathname);
 
@@ -321,7 +321,7 @@ export function AppLayout() {
       </aside>
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-2 border-b border-border/60 bg-background/70 px-4 backdrop-blur-xl lg:px-6">
+        <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-2 border-b border-border/60 bg-[#F0F8FF] px-4 backdrop-blur-xl lg:px-6">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -337,19 +337,15 @@ export function AppLayout() {
           </div>
           <div className="flex items-center gap-1">
             <ProfileSwitcher />
-            <select
-              aria-label="Language"
-              className="h-9 rounded-lg border border-input bg-background px-2 text-sm shadow-xs"
-              value={locale}
-              onChange={(e) => setLocale(e.target.value as LocaleCode)}
-            >
-              {LOCALES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
             <NotificationBell />
+            {/* Back to Kaltros — /launch lands the user on their default module
+                (shared same-origin session), not the login page. */}
+            <Button variant="outline" size="sm" asChild title="Back to Kaltros">
+              <a href="/launch">
+                <ArrowLeftRight className="h-4 w-4" />
+                <span className="hidden sm:inline">Kaltros</span>
+              </a>
+            </Button>
             <Button variant="ghost" size="sm" onClick={logout}>
               <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline">{t('app.logout')}</span>
