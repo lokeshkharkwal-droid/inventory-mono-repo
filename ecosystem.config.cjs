@@ -26,7 +26,7 @@ module.exports = {
       name: 'inventory-frontend',
       cwd: `${ROOT}/apps/frontend`,
       script: `${ROOT}/apps/frontend/node_modules/vite/bin/vite.js`,
-      args: 'preview --port 5174 --host 127.0.0.1 --strictPort',
+      args: 'preview --port 5174 --host 0.0.0.0 --strictPort',
       interpreter: 'node',
       autorestart: true,
       max_restarts: 10,
