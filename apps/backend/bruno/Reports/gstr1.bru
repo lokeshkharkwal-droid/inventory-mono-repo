@@ -1,0 +1,20 @@
+meta {
+  name: GSTR-1
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/reports/gstr1
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

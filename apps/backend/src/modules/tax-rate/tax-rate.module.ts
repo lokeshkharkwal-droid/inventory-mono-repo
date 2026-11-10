@@ -1,0 +1,13 @@
+import { Module } from '@nestjs/common';
+import { PrismaModule } from '../../prisma/prisma.module';
+import { TaxRateController } from './tax-rate.controller';
+import { TaxRateService } from './tax-rate.service';
+
+/** Tax rate feature module. */
+@Module({
+  imports: [PrismaModule],
+  controllers: [TaxRateController],
+  providers: [TaxRateService],
+  exports: [TaxRateService],
+})
+export class TaxRateModule {}

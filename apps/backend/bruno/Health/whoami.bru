@@ -1,0 +1,26 @@
+meta {
+  name: Whoami
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/health/whoami
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}
+
+docs {
+  Authenticated identity probe. Proves JWT validation + tenant context + the
+  kalnostics integration client (lists inventory branches). Set `token` in the
+  environment to a valid kalnostics business JWT.
+}

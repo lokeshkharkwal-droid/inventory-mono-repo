@@ -1,0 +1,1806 @@
+// inventory-backend Prisma schema.
+//
+// OWNERSHIP BOUNDARY (see Master plan §3.3): this schema manages ONLY the
+// `inventory_*` tables inside the SHARED kalnostics-new PostgreSQL database.
+// kalnostics-owned tables (tenants, branches, patients, orders, …) are NOT
+// declared or migrated here — inventory references them by id and reads them at
+// runtime through the kalnostics-new API (the IntegrationModule).
+//
+// Conventions (CLAUDE.md §3–§4): PascalCase singular models → snake_case plural
+// tables via @@map; snake_case columns via @map; UUID PKs; createdAt/updatedAt/
+// deletedAt on every model; tenantId (+ @@index) on tenant-scoped models;
+// nullable branchId (+ @@index) on branch-level models; booleans is/has/can-
+// prefixed; `legacy*` columns to make the MySQL→Postgres migration idempotent.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Product category — tenant-level master data (not per-warehouse), mirroring
+/// the legacy `ez_categories` table. Subcategories arrive as a separate model in
+/// Phase 1.
+model InventoryCategory {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  /// Short code shown on lists / used in imports (unique per tenant when set).
+  code        String?
+  name        String
+  description String?
+  isActive    Boolean @default(true) @map("is_active")
+  /// Display ordering on pickers/lists.
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  /// Provenance for the legacy MySQL migration (idempotent re-runs).
+  legacyCategoryId String? @map("legacy_category_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyCategoryId])
+  @@map("inventory_categories")
+
+  subCategories InventorySubCategory[]
+  products      InventoryProduct[]
+}
+
+/// Product sub-category — tenant-level, nested under a category (legacy
+/// `ez_subcategories`).
+model InventorySubCategory {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  categoryId  String  @map("category_id")
+  code        String?
+  name        String
+  description String?
+  isActive    Boolean @default(true) @map("is_active")
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  legacySubCategoryId String? @map("legacy_sub_category_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  category InventoryCategory @relation(fields: [categoryId], references: [id])
+  products InventoryProduct[]
+
+  @@index([tenantId])
+  @@index([categoryId])
+  @@index([deletedAt])
+  @@index([legacySubCategoryId])
+  @@map("inventory_sub_categories")
+}
+
+/// Unit of measure — tenant-level master data with optional base-unit conversion
+/// (legacy `ez_units`: base_unit + operator `*`/`/` + operation_value).
+model InventoryUnit {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  code       String?
+  name       String
+  /// Optional base unit for conversion (self-relation).
+  baseUnitId String?  @map("base_unit_id")
+  /// Conversion operator against the base unit: '*' or '/'.
+  operator   String?
+  /// Conversion factor applied with `operator` to reach the base unit.
+  operationValue Decimal? @map("operation_value") @db.Decimal(18, 6)
+  isActive   Boolean  @default(true) @map("is_active")
+
+  legacyUnitId String? @map("legacy_unit_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  baseUnit    InventoryUnit?  @relation("UnitBase", fields: [baseUnitId], references: [id])
+  derivedUnits InventoryUnit[] @relation("UnitBase")
+  products     InventoryProduct[]
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyUnitId])
+  @@map("inventory_units")
+}
+
+/// Brand / manufacturer — tenant-level master data (legacy `ez_brands`).
+model InventoryBrand {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  code        String?
+  name        String
+  description String?
+  /// Logo/image URL (stored via the shared uploads service).
+  imageUrl    String? @map("image_url")
+  isActive    Boolean @default(true) @map("is_active")
+
+  legacyBrandId String? @map("legacy_brand_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  products InventoryProduct[]
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyBrandId])
+  @@map("inventory_brands")
+}
+
+/// Manufacturer — a company/party master (legacy `companies` group_name=manufacturer).
+/// Distinct from Brand (a product attribute): this is a maker organisation with a
+/// logo and contact details.
+model InventoryManufacturer {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  code        String?
+  name        String
+  companyName String? @map("company_name")
+  phone       String?
+  email       String?
+  website     String?
+  address     String?
+  /// Logo/image URL (stored via the shared uploads service).
+  imageUrl    String? @map("image_url")
+  note        String?
+  isActive    Boolean @default(true) @map("is_active")
+
+  legacyManufacturerId String? @map("legacy_manufacturer_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyManufacturerId])
+  @@map("inventory_manufacturers")
+}
+
+/// Tax rate — tenant-level master data with HSN/SAC (legacy `ez_tax_rates`).
+model InventoryTaxRate {
+  id       String  @id @default(uuid())
+  tenantId String  @map("tenant_id")
+  code     String?
+  name     String
+  /// The rate value; interpreted by `type`.
+  rate     Decimal @db.Decimal(8, 4)
+  /// 'percentage' (default) or 'fixed'.
+  type     String  @default("percentage")
+  /// HSN/SAC code (India GST).
+  hsnCode  String? @map("hsn_code")
+  isActive Boolean @default(true) @map("is_active")
+
+  legacyTaxRateId String? @map("legacy_tax_rate_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  products InventoryProduct[]
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyTaxRateId])
+  @@map("inventory_tax_rates")
+}
+
+/// Variant/option template — tenant-level (legacy `ez_variants`). `values` holds
+/// the option values (e.g. Size → [S, M, L]); per-product variants live on the
+/// product in Phase 1b.
+model InventoryVariant {
+  id       String   @id @default(uuid())
+  tenantId String   @map("tenant_id")
+  name     String
+  values   String[]
+  isActive Boolean  @default(true) @map("is_active")
+
+  legacyVariantId String? @map("legacy_variant_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyVariantId])
+  @@map("inventory_variants")
+}
+
+/// Product — tenant-level catalogue item (legacy `ez_products`). Stock is held
+/// per branch in InventoryWarehouseProduct (branch = warehouse).
+model InventoryProduct {
+  id            String  @id @default(uuid())
+  tenantId      String  @map("tenant_id")
+  code          String
+  name          String
+  categoryId    String  @map("category_id")
+  subCategoryId String? @map("sub_category_id")
+  unitId        String? @map("unit_id")
+  brandId       String? @map("brand_id")
+  taxRateId     String? @map("tax_rate_id")
+  /// STANDARD | COMBO | SERVICE.
+  type          String  @default("STANDARD")
+  cost          Decimal @default(0) @db.Decimal(18, 4)
+  price         Decimal @default(0) @db.Decimal(18, 4)
+  /// Reorder alert threshold.
+  alertQuantity Decimal @default(0) @map("alert_quantity") @db.Decimal(18, 4)
+  /// Whether stock is tracked (false = service/non-stock item).
+  isStockTracked Boolean @default(true) @map("is_stock_tracked")
+  /// Whether the price already includes tax.
+  isTaxIncluded Boolean @default(false) @map("is_tax_included")
+  isActive      Boolean @default(true) @map("is_active")
+  barcodeSymbology String? @map("barcode_symbology")
+  imageUrl      String? @map("image_url")
+  description   String?
+  /// Pharmaceutical metadata (optional).
+  genericName   String? @map("generic_name")
+  strength      String?
+  /// Homoeopathy potency (e.g. 30C, 200CH) + HSN/SAC code.
+  potency       String?
+  hsnCode       String? @map("hsn_code")
+  /// Track individual serial numbers for this product.
+  isSerialized  Boolean @default(false) @map("is_serialized")
+
+  legacyProductId String? @map("legacy_product_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  category    InventoryCategory     @relation(fields: [categoryId], references: [id])
+  subCategory InventorySubCategory? @relation(fields: [subCategoryId], references: [id])
+  unit        InventoryUnit?        @relation(fields: [unitId], references: [id])
+  brand       InventoryBrand?       @relation(fields: [brandId], references: [id])
+  taxRate     InventoryTaxRate?     @relation(fields: [taxRateId], references: [id])
+
+  variants       InventoryProductVariant[]
+  warehouseStocks InventoryWarehouseProduct[]
+  adjustments    InventoryStockAdjustment[]
+  batches        InventoryProductBatch[]
+  serials        InventoryProductSerial[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([deletedAt])
+  @@index([legacyProductId])
+  @@map("inventory_products")
+}
+
+/// A product variant/option (e.g. a specific size), with price/cost deltas.
+model InventoryProductVariant {
+  id             String  @id @default(uuid())
+  tenantId       String  @map("tenant_id")
+  productId      String  @map("product_id")
+  name           String
+  sku            String?
+  costAdjustment Decimal @default(0) @map("cost_adjustment") @db.Decimal(18, 4)
+  priceAdjustment Decimal @default(0) @map("price_adjustment") @db.Decimal(18, 4)
+
+  legacyVariantId String? @map("legacy_variant_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  product InventoryProduct @relation(fields: [productId], references: [id])
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([deletedAt])
+  @@map("inventory_product_variants")
+}
+
+/// Per-branch (warehouse) stock for a product: on-hand quantity + average cost +
+/// rack location (legacy `ez_warehouses_products`). Branch = warehouse.
+model InventoryWarehouseProduct {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  branchId  String  @map("branch_id")
+  productId String  @map("product_id")
+  quantity  Decimal @default(0) @db.Decimal(18, 4)
+  avgCost   Decimal @default(0) @map("avg_cost") @db.Decimal(18, 4)
+  rack      String?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  product InventoryProduct @relation(fields: [productId], references: [id])
+
+  @@unique([productId, branchId])
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([productId])
+  @@map("inventory_warehouse_products")
+}
+
+/// A manual stock adjustment at a branch (addition/subtraction with a reason)
+/// (legacy quantity adjustments).
+model InventoryStockAdjustment {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  branchId  String  @map("branch_id")
+  productId String  @map("product_id")
+  /// Signed quantity delta (positive = addition, negative = subtraction).
+  quantity  Decimal @db.Decimal(18, 4)
+  /// ADDITION | SUBTRACTION (mirrors the sign of `quantity`).
+  type      String
+  reason    String?
+  note      String?
+  createdBy String? @map("created_by")
+
+  legacyAdjustmentId String? @map("legacy_adjustment_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  product InventoryProduct @relation(fields: [productId], references: [id])
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([productId])
+  @@index([deletedAt])
+  @@map("inventory_stock_adjustments")
+}
+
+/// Product batch / serial with expiry, per branch (legacy `ez_product_serials`).
+model InventoryProductBatch {
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  branchId   String    @map("branch_id")
+  productId  String    @map("product_id")
+  batchNo    String?   @map("batch_no")
+  serialNo   String?   @map("serial_no")
+  expiryDate DateTime? @map("expiry_date")
+  quantity   Decimal   @default(0) @db.Decimal(18, 4)
+  cost       Decimal?  @db.Decimal(18, 4)
+
+  legacySerialId String? @map("legacy_serial_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  product InventoryProduct @relation(fields: [productId], references: [id])
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([productId])
+  @@index([expiryDate])
+  @@index([deletedAt])
+  @@map("inventory_product_batches")
+}
+
+// ── Parties ───────────────────────────────────────────────────────────────────
+
+/// Supplier / vendor — tenant-level (legacy `ez_companies` group=supplier).
+model InventorySupplier {
+  id             String  @id @default(uuid())
+  tenantId       String  @map("tenant_id")
+  code           String?
+  name           String
+  companyName    String? @map("company_name")
+  phone          String?
+  email          String?
+  address        String?
+  taxNumber      String? @map("tax_number")
+  openingBalance Decimal @default(0) @map("opening_balance") @db.Decimal(18, 4)
+  isActive       Boolean @default(true) @map("is_active")
+
+  legacySupplierId String? @map("legacy_supplier_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  purchases InventoryPurchase[]
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacySupplierId])
+  @@map("inventory_suppliers")
+}
+
+/// Customer — tenant-level (legacy `ez_companies` group=customer). Clinical
+/// customers may link to a kalnostics patient via `patientId` (resolved by API).
+model InventoryCustomer {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  code        String?
+  name        String
+  companyName String?  @map("company_name")
+  phone       String?
+  email       String?
+  address     String?
+  taxNumber   String?  @map("tax_number")
+  creditLimit Decimal? @map("credit_limit") @db.Decimal(18, 4)
+  /// Optional link to a kalnostics Patient (id only; details fetched via API).
+  patientId   String?  @map("patient_id")
+  /// Accrued loyalty/award points (legacy award_points).
+  loyaltyPoints Int    @default(0) @map("loyalty_points")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  legacyCustomerId String? @map("legacy_customer_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  sales InventorySale[]
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([patientId])
+  @@index([legacyCustomerId])
+  @@map("inventory_customers")
+}
+
+// ── Purchases ─────────────────────────────────────────────────────────────────
+
+/// Purchase order / goods receipt from a supplier (legacy `ez_purchases`).
+model InventoryPurchase {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  branchId      String   @map("branch_id")
+  supplierId    String   @map("supplier_id")
+  reference     String
+  date          DateTime
+  /// RECEIVED (stock in) | ORDERED | PENDING.
+  status        String   @default("RECEIVED")
+  subtotal      Decimal  @default(0) @db.Decimal(18, 4)
+  orderTax      Decimal  @default(0) @map("order_tax") @db.Decimal(18, 4)
+  orderDiscount Decimal  @default(0) @map("order_discount") @db.Decimal(18, 4)
+  shipping      Decimal  @default(0) @db.Decimal(18, 4)
+  grandTotal    Decimal  @default(0) @map("grand_total") @db.Decimal(18, 4)
+  paid          Decimal  @default(0) @db.Decimal(18, 4)
+  /// PENDING | PARTIAL | PAID.
+  paymentStatus String   @default("PENDING") @map("payment_status")
+  note          String?
+  createdBy     String?  @map("created_by")
+
+  /// Blood-donation PO (legacy BD purchase): stock-in sourced from a donor.
+  isBloodDonation Boolean @default(false) @map("is_blood_donation")
+  donorName       String? @map("donor_name")
+
+  legacyPurchaseId String? @map("legacy_purchase_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  supplier InventorySupplier          @relation(fields: [supplierId], references: [id])
+  items    InventoryPurchaseItem[]
+  payments InventoryPurchasePayment[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([supplierId])
+  @@index([deletedAt])
+  @@index([legacyPurchaseId])
+  @@map("inventory_purchases")
+}
+
+/// A purchase line (snapshots product name/code at purchase time).
+model InventoryPurchaseItem {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  purchaseId  String    @map("purchase_id")
+  productId   String    @map("product_id")
+  productName String    @map("product_name")
+  productCode String?   @map("product_code")
+  quantity    Decimal   @db.Decimal(18, 4)
+  cost        Decimal   @db.Decimal(18, 4)
+  taxRate     Decimal   @default(0) @map("tax_rate") @db.Decimal(8, 4)
+  taxAmount   Decimal   @default(0) @map("tax_amount") @db.Decimal(18, 4)
+  discount    Decimal   @default(0) @db.Decimal(18, 4)
+  subtotal    Decimal   @db.Decimal(18, 4)
+  batchNo     String?   @map("batch_no")
+  expiryDate  DateTime? @map("expiry_date")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  purchase InventoryPurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([purchaseId])
+  @@index([productId])
+  @@map("inventory_purchase_items")
+}
+
+/// A payment made against a purchase (legacy `ez_purchase_payments`).
+model InventoryPurchasePayment {
+  id         String  @id @default(uuid())
+  tenantId   String  @map("tenant_id")
+  purchaseId String  @map("purchase_id")
+  amount     Decimal @db.Decimal(18, 4)
+  method     String  @default("CASH")
+  reference  String?
+  date       DateTime
+  note       String?
+  createdBy  String? @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  purchase InventoryPurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([purchaseId])
+  @@map("inventory_purchase_payments")
+}
+
+// ── Sales ─────────────────────────────────────────────────────────────────────
+
+/// Sales invoice to a customer (legacy `ez_sales`).
+model InventorySale {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  branchId      String   @map("branch_id")
+  customerId    String   @map("customer_id")
+  billerName    String?  @map("biller_name")
+  reference     String
+  date          DateTime
+  /// COMPLETED (stock out) | PENDING.
+  status        String   @default("COMPLETED")
+  subtotal      Decimal  @default(0) @db.Decimal(18, 4)
+  orderTax      Decimal  @default(0) @map("order_tax") @db.Decimal(18, 4)
+  orderDiscount Decimal  @default(0) @map("order_discount") @db.Decimal(18, 4)
+  shipping      Decimal  @default(0) @db.Decimal(18, 4)
+  grandTotal    Decimal  @default(0) @map("grand_total") @db.Decimal(18, 4)
+  paid          Decimal  @default(0) @db.Decimal(18, 4)
+  paymentStatus String   @default("PENDING") @map("payment_status")
+  note          String?
+  createdBy     String?  @map("created_by")
+  /// Set when this sale was rung up through a POS register session.
+  posSessionId  String?  @map("pos_session_id")
+
+  legacySaleId String? @map("legacy_sale_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  customer InventoryCustomer      @relation(fields: [customerId], references: [id])
+  items    InventorySaleItem[]
+  payments InventorySalePayment[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([deletedAt])
+  @@index([legacySaleId])
+  @@index([posSessionId])
+  @@map("inventory_sales")
+}
+
+/// A sale line (snapshots product name/code + unit cost at sale time).
+model InventorySaleItem {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  saleId      String  @map("sale_id")
+  productId   String  @map("product_id")
+  productName String  @map("product_name")
+  productCode String? @map("product_code")
+  quantity    Decimal @db.Decimal(18, 4)
+  price       Decimal @db.Decimal(18, 4)
+  cost        Decimal @default(0) @db.Decimal(18, 4)
+  taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(8, 4)
+  taxAmount   Decimal @default(0) @map("tax_amount") @db.Decimal(18, 4)
+  discount    Decimal @default(0) @db.Decimal(18, 4)
+  subtotal    Decimal @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  sale InventorySale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@index([productId])
+  @@map("inventory_sale_items")
+}
+
+/// A payment received against a sale (legacy `ez_sale_payments`).
+model InventorySalePayment {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  saleId    String  @map("sale_id")
+  amount    Decimal @db.Decimal(18, 4)
+  method    String  @default("CASH")
+  reference String?
+  date      DateTime
+  note      String?
+  createdBy String? @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  sale InventorySale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@map("inventory_sale_payments")
+}
+
+// ── Transfers ─────────────────────────────────────────────────────────────────
+
+/// Inter-branch (warehouse) stock transfer, two-stage (legacy `ez_transfers`).
+model InventoryTransfer {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  fromBranchId String   @map("from_branch_id")
+  toBranchId   String   @map("to_branch_id")
+  reference    String
+  date         DateTime
+  /// PENDING | IN_TRANSIT (sent, stock left source) | COMPLETED (received).
+  status       String   @default("PENDING")
+  note         String?
+  createdBy    String?  @map("created_by")
+
+  legacyTransferId String? @map("legacy_transfer_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  items InventoryTransferItem[]
+
+  @@index([tenantId])
+  @@index([fromBranchId])
+  @@index([toBranchId])
+  @@index([deletedAt])
+  @@index([legacyTransferId])
+  @@map("inventory_transfers")
+}
+
+/// A transfer line.
+model InventoryTransferItem {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  transferId  String  @map("transfer_id")
+  productId   String  @map("product_id")
+  productName String  @map("product_name")
+  productCode String? @map("product_code")
+  quantity    Decimal @db.Decimal(18, 4)
+  cost        Decimal @default(0) @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  transfer InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([transferId])
+  @@index([productId])
+  @@map("inventory_transfer_items")
+}
+
+// ── Requisitions ──────────────────────────────────────────────────────────────
+
+/// Internal stock requisition from a requesting branch to a source branch
+/// (legacy `ez_requisitions`).
+model InventoryRequisition {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  branchId     String   @map("branch_id")
+  fromBranchId String?  @map("from_branch_id")
+  reference    String
+  date         DateTime
+  /// PENDING | APPROVED | REJECTED | RECEIVED.
+  status       String   @default("PENDING")
+  note         String?
+  createdBy    String?  @map("created_by")
+  approvedBy   String?  @map("approved_by")
+
+  legacyRequisitionId String? @map("legacy_requisition_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  items InventoryRequisitionItem[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@index([legacyRequisitionId])
+  @@map("inventory_requisitions")
+}
+
+/// A requisition line.
+model InventoryRequisitionItem {
+  id            String  @id @default(uuid())
+  tenantId      String  @map("tenant_id")
+  requisitionId String  @map("requisition_id")
+  productId     String  @map("product_id")
+  productName   String  @map("product_name")
+  productCode   String? @map("product_code")
+  quantity      Decimal @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  requisition InventoryRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([requisitionId])
+  @@index([productId])
+  @@map("inventory_requisition_items")
+}
+
+// ── Settings master data (Phase 2) ──────────────────────────────────────────────
+
+/// Currency — tenant-level (legacy `ez_currencies`). `exchangeRate` is relative
+/// to the tenant's base currency.
+model InventoryCurrency {
+  id           String  @id @default(uuid())
+  tenantId     String  @map("tenant_id")
+  code         String
+  name         String
+  symbol       String?
+  exchangeRate Decimal @default(1) @map("exchange_rate") @db.Decimal(18, 6)
+  isActive     Boolean @default(true) @map("is_active")
+
+  legacyCurrencyId String? @map("legacy_currency_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyCurrencyId])
+  @@map("inventory_currencies")
+}
+
+/// Customer group — tenant-level price tier (legacy `ez_customer_groups`).
+model InventoryCustomerGroup {
+  id              String  @id @default(uuid())
+  tenantId        String  @map("tenant_id")
+  code            String?
+  name            String
+  /// Percentage applied to base price for this group (+/-).
+  percentage      Decimal @default(0) @db.Decimal(8, 4)
+  isActive        Boolean @default(true) @map("is_active")
+
+  legacyGroupId String? @map("legacy_group_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyGroupId])
+  @@map("inventory_customer_groups")
+}
+
+/// Expense category — tenant-level (legacy expense categories).
+model InventoryExpenseCategory {
+  id       String  @id @default(uuid())
+  tenantId String  @map("tenant_id")
+  code     String?
+  name     String
+  isActive Boolean @default(true) @map("is_active")
+
+  legacyCategoryId String? @map("legacy_category_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyCategoryId])
+  @@map("inventory_expense_categories")
+}
+
+/// Income category — tenant-level (legacy income categories).
+model InventoryIncomeCategory {
+  id       String  @id @default(uuid())
+  tenantId String  @map("tenant_id")
+  code     String?
+  name     String
+  isActive Boolean @default(true) @map("is_active")
+
+  legacyCategoryId String? @map("legacy_category_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyCategoryId])
+  @@map("inventory_income_categories")
+}
+
+/// Biller — an invoice-issuing entity/company (legacy `ez_companies` group=biller).
+model InventoryBiller {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  code        String?
+  name        String
+  companyName String? @map("company_name")
+  phone       String?
+  email       String?
+  address     String?
+  taxNumber   String? @map("tax_number")
+  logoUrl     String? @map("logo_url")
+  isActive    Boolean @default(true) @map("is_active")
+
+  legacyBillerId String? @map("legacy_biller_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([legacyBillerId])
+  @@map("inventory_billers")
+}
+
+/// Per-tenant inventory settings singleton (business settings + numbering).
+model InventorySetting {
+  id                  String  @id @default(uuid())
+  tenantId            String  @unique @map("tenant_id")
+  defaultCurrencyCode String? @map("default_currency_code")
+  /// Allow stock to go negative (legacy `overselling`).
+  isOversellingAllowed Boolean @default(false) @map("is_overselling_allowed")
+  rowsPerPage         Int     @default(20) @map("rows_per_page")
+  decimalPlaces       Int     @default(2) @map("decimal_places")
+  /// Document numbering prefixes.
+  purchasePrefix      String  @default("PO") @map("purchase_prefix")
+  salePrefix          String  @default("SALE") @map("sale_prefix")
+  transferPrefix      String  @default("TR") @map("transfer_prefix")
+  requisitionPrefix   String  @default("REQ") @map("requisition_prefix")
+  /// Optional POS cashier PIN for sensitive till actions (plain — low-security till PIN).
+  posPin              String? @map("pos_pin")
+
+  /// Business profile (name/address/phone/email) shown on documents.
+  businessName    String? @map("business_name")
+  businessAddress String? @map("business_address")
+  businessPhone   String? @map("business_phone")
+  businessEmail   String? @map("business_email")
+  /// Per-tenant payment-gateway config (enabled flags / public keys). Secrets
+  /// stay in env; this only holds non-secret toggles + display values.
+  paymentGateways Json?   @map("payment_gateways")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("inventory_settings")
+}
+
+/// Per-tenant, per-role permission override. When a row exists for a
+/// (tenantId, profileKey) pair, its `permissions` array is the role's EFFECTIVE
+/// permission set in this tenant; absent → the code baseline applies. Lets an
+/// admin grant/revoke permissions to a role at runtime (no redeploy).
+model InventoryRolePermission {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  profileKey  String   @map("profile_key")
+  /// Granted permission keys (`inventory:<section>__<action>`).
+  permissions String[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, profileKey])
+  @@index([tenantId])
+  @@map("inventory_role_permissions")
+}
+
+/// A custom, admin-created role (distinct from the built-in profile keys). Holds
+/// its own permission set; assignable to users via InventoryUserRole.
+model InventoryRole {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  /// Stable key used in resolution/assignment (e.g. `custom_warehouse_clerk`).
+  key         String
+  label       String
+  permissions String[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("inventory_roles")
+}
+
+/// Inventory-side role assignment: overrides the JWT profile for inventory
+/// authorization. `roleKey` may be a built-in profile key or a custom role key.
+model InventoryUserRole {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  personId  String   @map("person_id")
+  roleKey   String   @map("role_key")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, personId])
+  @@index([tenantId])
+  @@map("inventory_user_roles")
+}
+
+// ── Quotes (Phase 3) ────────────────────────────────────────────────────────────
+
+/// Sales or purchase quotation (legacy `ez_quotes`). No stock movement; can be
+/// converted into a sale (or purchase).
+model InventoryQuote {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  branchId      String?  @map("branch_id")
+  /// SALE | PURCHASE.
+  type          String   @default("SALE")
+  /// Customer (SALE quotes) or supplier (PURCHASE quotes) — validated by service.
+  customerId    String?  @map("customer_id")
+  supplierId    String?  @map("supplier_id")
+  reference     String
+  date          DateTime
+  /// DRAFT | SENT | APPROVED | REJECTED | CONVERTED.
+  status        String   @default("DRAFT")
+  subtotal      Decimal  @default(0) @db.Decimal(18, 4)
+  orderTax      Decimal  @default(0) @map("order_tax") @db.Decimal(18, 4)
+  orderDiscount Decimal  @default(0) @map("order_discount") @db.Decimal(18, 4)
+  shipping      Decimal  @default(0) @db.Decimal(18, 4)
+  grandTotal    Decimal  @default(0) @map("grand_total") @db.Decimal(18, 4)
+  note          String?
+  /// Id of the sale/purchase created when this quote was converted.
+  convertedToId String?  @map("converted_to_id")
+  createdBy     String?  @map("created_by")
+
+  legacyQuoteId String? @map("legacy_quote_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  items InventoryQuoteItem[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@index([legacyQuoteId])
+  @@map("inventory_quotes")
+}
+
+/// A quote line.
+model InventoryQuoteItem {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  quoteId     String  @map("quote_id")
+  productId   String  @map("product_id")
+  productName String  @map("product_name")
+  productCode String? @map("product_code")
+  quantity    Decimal @db.Decimal(18, 4)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(18, 4)
+  taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(8, 4)
+  taxAmount   Decimal @default(0) @map("tax_amount") @db.Decimal(18, 4)
+  discount    Decimal @default(0) @db.Decimal(18, 4)
+  subtotal    Decimal @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  quote InventoryQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([quoteId])
+  @@index([productId])
+  @@map("inventory_quote_items")
+}
+
+// ── Proformas (Phase 3) ──────────────────────────────────────────────────────────
+
+/// Proforma invoice (legacy `ez_proformas`) — a pre-invoice document. `labTests`
+/// holds optional lab/radiology lines (name + price) sourced from kalnostics; a
+/// deeper live order integration is a later enhancement.
+model InventoryProforma {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  branchId      String?  @map("branch_id")
+  customerId    String?  @map("customer_id")
+  reference     String
+  date          DateTime
+  /// DRAFT | SENT | INVOICED.
+  status        String   @default("DRAFT")
+  subtotal      Decimal  @default(0) @db.Decimal(18, 4)
+  orderTax      Decimal  @default(0) @map("order_tax") @db.Decimal(18, 4)
+  orderDiscount Decimal  @default(0) @map("order_discount") @db.Decimal(18, 4)
+  shipping      Decimal  @default(0) @db.Decimal(18, 4)
+  grandTotal    Decimal  @default(0) @map("grand_total") @db.Decimal(18, 4)
+  /// Optional lab/radiology lines: [{ name, price }].
+  labTests      Json?    @map("lab_tests")
+  note          String?
+  createdBy     String?  @map("created_by")
+
+  legacyProformaId String? @map("legacy_proforma_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  items InventoryProformaItem[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@index([legacyProformaId])
+  @@map("inventory_proformas")
+}
+
+/// A proforma line (product).
+model InventoryProformaItem {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  proformaId  String  @map("proforma_id")
+  productId   String  @map("product_id")
+  productName String  @map("product_name")
+  productCode String? @map("product_code")
+  quantity    Decimal @db.Decimal(18, 4)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(18, 4)
+  taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(8, 4)
+  taxAmount   Decimal @default(0) @map("tax_amount") @db.Decimal(18, 4)
+  discount    Decimal @default(0) @db.Decimal(18, 4)
+  subtotal    Decimal @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  proforma InventoryProforma @relation(fields: [proformaId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([proformaId])
+  @@index([productId])
+  @@map("inventory_proforma_items")
+}
+
+// ── Materials (Phase 3) ──────────────────────────────────────────────────────────
+
+/// Consumable / equipment material tracked simply per branch (legacy
+/// `ez_materials`). Separate from the product catalogue.
+model InventoryMaterial {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  branchId   String?  @map("branch_id")
+  code       String?
+  name       String
+  category   String?
+  unit       String?
+  quantity   Decimal  @default(0) @db.Decimal(18, 4)
+  cost       Decimal  @default(0) @db.Decimal(18, 4)
+  note       String?
+  isActive   Boolean  @default(true) @map("is_active")
+
+  legacyMaterialId String? @map("legacy_material_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  damages InventoryMaterialDamage[]
+  repairs InventoryMaterialRepair[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@index([legacyMaterialId])
+  @@map("inventory_materials")
+}
+
+/// A recorded material damage/loss.
+model InventoryMaterialDamage {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  materialId String   @map("material_id")
+  quantity   Decimal  @db.Decimal(18, 4)
+  reason     String?
+  date       DateTime
+  note       String?
+  createdBy  String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  material InventoryMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([materialId])
+  @@map("inventory_material_damages")
+}
+
+/// A recorded material repair.
+model InventoryMaterialRepair {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  materialId String   @map("material_id")
+  cost       Decimal  @default(0) @db.Decimal(18, 4)
+  status     String   @default("PENDING")
+  date       DateTime
+  note       String?
+  createdBy  String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  material InventoryMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([materialId])
+  @@map("inventory_material_repairs")
+}
+
+// ── POS (Phase 4) ────────────────────────────────────────────────────────────────
+
+/// A POS register (till) at a branch (legacy `ez_pos_registers`).
+model InventoryPosRegister {
+  id       String  @id @default(uuid())
+  tenantId String  @map("tenant_id")
+  branchId String  @map("branch_id")
+  name     String
+  isActive Boolean @default(true) @map("is_active")
+
+  legacyRegisterId String? @map("legacy_register_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  sessions InventoryPosRegisterSession[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@map("inventory_pos_registers")
+}
+
+/// An open/close register session with cash reconciliation (legacy register
+/// sessions). One OPEN session per register at a time.
+model InventoryPosRegisterSession {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  branchId    String   @map("branch_id")
+  registerId  String   @map("register_id")
+  /// OPEN | CLOSED.
+  status      String   @default("OPEN")
+  openingCash Decimal  @default(0) @map("opening_cash") @db.Decimal(18, 4)
+  /// Set at close: cash counted in the drawer.
+  closingCash Decimal? @map("closing_cash") @db.Decimal(18, 4)
+  /// Set at close: opening + cash sales taken during the session.
+  expectedCash Decimal? @map("expected_cash") @db.Decimal(18, 4)
+  openedBy    String?  @map("opened_by")
+  closedBy    String?  @map("closed_by")
+  openedAt    DateTime @default(now()) @map("opened_at")
+  closedAt    DateTime? @map("closed_at")
+  note        String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  register InventoryPosRegister @relation(fields: [registerId], references: [id])
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([registerId])
+  @@index([status])
+  @@map("inventory_pos_register_sessions")
+}
+
+// ── Blood bank (Phase 6, inventory-owned) ────────────────────────────────────────
+
+/// Blood donor. May link to a kalnostics patient via `patientId` (id only).
+model InventoryBloodDonor {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  branchId         String?   @map("branch_id")
+  patientId        String?   @map("patient_id")
+  name             String
+  bloodGroup       String    @map("blood_group")
+  phone            String?
+  email            String?
+  lastDonationDate DateTime? @map("last_donation_date")
+  /// ACTIVE | DEFERRED | REJECTED.
+  status           String    @default("ACTIVE")
+  note             String?
+
+  legacyDonorId String? @map("legacy_donor_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  donations InventoryBloodDonation[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([bloodGroup])
+  @@index([deletedAt])
+  @@map("inventory_blood_donors")
+}
+
+/// A blood donation/unit. Units with status AVAILABLE form the blood inventory.
+model InventoryBloodDonation {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  branchId    String?   @map("branch_id")
+  donorId     String    @map("donor_id")
+  bloodGroup  String    @map("blood_group")
+  /// WHOLE_BLOOD | RBC | PLASMA | PLATELETS.
+  component   String    @default("WHOLE_BLOOD")
+  volumeMl    Decimal?  @map("volume_ml") @db.Decimal(10, 2)
+  bagNumber   String?   @map("bag_number")
+  collectedAt DateTime  @map("collected_at")
+  expiryDate  DateTime? @map("expiry_date")
+  /// COLLECTED | TESTED | AVAILABLE | ISSUED | DISCARDED.
+  status      String    @default("COLLECTED")
+  note        String?
+
+  legacyDonationId String? @map("legacy_donation_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  donor InventoryBloodDonor @relation(fields: [donorId], references: [id])
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([bloodGroup])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("inventory_blood_donations")
+}
+
+/// A blood request (transfusion order). May link to a kalnostics patient.
+model InventoryBloodRequest {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  branchId    String?  @map("branch_id")
+  patientId   String?  @map("patient_id")
+  patientName String?  @map("patient_name")
+  bloodGroup  String   @map("blood_group")
+  component   String   @default("WHOLE_BLOOD")
+  units       Int      @default(1)
+  /// PENDING | FULFILLED | CANCELLED.
+  status      String   @default("PENDING")
+  note        String?
+
+  legacyRequestId String? @map("legacy_request_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("inventory_blood_requests")
+}
+
+// ── IPD (Phase 6, inventory-owned) ───────────────────────────────────────────────
+
+/// Inpatient admission. Links to a kalnostics patient via `patientId` (id only).
+model InventoryIpdAdmission {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  branchId        String?   @map("branch_id")
+  patientId       String?   @map("patient_id")
+  patientName     String    @map("patient_name")
+  admissionNo     String    @map("admission_no")
+  ward            String?
+  bed             String?
+  referringDoctor String?   @map("referring_doctor")
+  admittedAt      DateTime  @map("admitted_at")
+  dischargedAt    DateTime? @map("discharged_at")
+  /// ADMITTED | DISCHARGED.
+  status          String    @default("ADMITTED")
+  note            String?
+
+  legacyAdmissionId String? @map("legacy_admission_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("inventory_ipd_admissions")
+}
+
+// ── Returns, deliveries, financials, gift cards (deferred extensions) ─────────────
+
+/// A purchase return (goods sent back to the supplier). Reverses inbound stock.
+model InventoryPurchaseReturn {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  branchId   String   @map("branch_id")
+  purchaseId String   @map("purchase_id")
+  reference  String
+  date       DateTime
+  total      Decimal  @default(0) @db.Decimal(18, 4)
+  note       String?
+  createdBy  String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  items InventoryPurchaseReturnItem[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([purchaseId])
+  @@index([deletedAt])
+  @@map("inventory_purchase_returns")
+}
+
+/// A purchase-return line.
+model InventoryPurchaseReturnItem {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  returnId    String  @map("return_id")
+  productId   String  @map("product_id")
+  productName String  @map("product_name")
+  productCode String? @map("product_code")
+  quantity    Decimal @db.Decimal(18, 4)
+  cost        Decimal @db.Decimal(18, 4)
+  subtotal    Decimal @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  return InventoryPurchaseReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([returnId])
+  @@index([productId])
+  @@map("inventory_purchase_return_items")
+}
+
+/// A sale return (goods returned by the customer). Restocks + optional refund.
+model InventorySaleReturn {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  branchId     String   @map("branch_id")
+  saleId       String   @map("sale_id")
+  reference    String
+  date         DateTime
+  total        Decimal  @default(0) @db.Decimal(18, 4)
+  refundAmount Decimal  @default(0) @map("refund_amount") @db.Decimal(18, 4)
+  note         String?
+  createdBy    String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  items InventorySaleReturnItem[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([saleId])
+  @@index([deletedAt])
+  @@map("inventory_sale_returns")
+}
+
+/// A sale-return line.
+model InventorySaleReturnItem {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  returnId    String  @map("return_id")
+  productId   String  @map("product_id")
+  productName String  @map("product_name")
+  productCode String? @map("product_code")
+  quantity    Decimal @db.Decimal(18, 4)
+  price       Decimal @db.Decimal(18, 4)
+  subtotal    Decimal @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  return InventorySaleReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([returnId])
+  @@index([productId])
+  @@map("inventory_sale_return_items")
+}
+
+/// A delivery record for a sale (legacy deliveries).
+model InventorySaleDelivery {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  branchId   String?  @map("branch_id")
+  saleId     String   @map("sale_id")
+  reference  String
+  /// PENDING | DISPATCHED | DELIVERED.
+  status     String   @default("PENDING")
+  trackingNo String?  @map("tracking_no")
+  deliveredTo String? @map("delivered_to")
+  address    String?
+  date       DateTime
+  note       String?
+  createdBy  String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@index([deletedAt])
+  @@map("inventory_sale_deliveries")
+}
+
+/// A standalone operating expense (tied to an expense category).
+model InventoryExpense {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  branchId   String?  @map("branch_id")
+  categoryId String?  @map("category_id")
+  reference  String
+  amount     Decimal  @db.Decimal(18, 4)
+  date       DateTime
+  note       String?
+  createdBy  String?  @map("created_by")
+
+  legacyExpenseId String? @map("legacy_expense_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@map("inventory_expenses")
+}
+
+/// A standalone (non-sale) income (tied to an income category).
+model InventoryIncome {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  branchId   String?  @map("branch_id")
+  categoryId String?  @map("category_id")
+  reference  String
+  amount     Decimal  @db.Decimal(18, 4)
+  date       DateTime
+  note       String?
+  createdBy  String?  @map("created_by")
+
+  legacyIncomeId String? @map("legacy_income_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@map("inventory_incomes")
+}
+
+/// A gift card with a redeemable balance (legacy `ez_gift_cards`).
+model InventoryGiftCard {
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  branchId   String?   @map("branch_id")
+  code       String
+  value      Decimal   @db.Decimal(18, 4)
+  balance    Decimal   @db.Decimal(18, 4)
+  customerId String?   @map("customer_id")
+  expiryDate DateTime? @map("expiry_date")
+  /// ACTIVE | USED | EXPIRED | CANCELLED.
+  status     String    @default("ACTIVE")
+  note       String?
+
+  legacyGiftCardId String? @map("legacy_gift_card_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@map("inventory_gift_cards")
+}
+
+// ── Blood cross-matching + IPD billing (clinical extensions) ──────────────────────
+
+/// A cross-match between a blood request and a candidate donation unit.
+model InventoryBloodCrossMatch {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  branchId    String?  @map("branch_id")
+  requestId   String   @map("request_id")
+  donationId  String   @map("donation_id")
+  /// COMPATIBLE | INCOMPATIBLE.
+  result      String
+  /// True when derived from ABO/Rh rules, false when manually overridden.
+  isAutoResult Boolean @default(true) @map("is_auto_result")
+  note        String?
+  crossMatchedBy String? @map("cross_matched_by")
+  date        DateTime
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([requestId])
+  @@index([donationId])
+  @@index([deletedAt])
+  @@map("inventory_blood_cross_matches")
+}
+
+/// A billable charge against an IPD admission (room, procedure, consumable…).
+model InventoryIpdCharge {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  admissionId String   @map("admission_id")
+  description String
+  category    String?
+  amount      Decimal  @db.Decimal(18, 4)
+  date        DateTime
+  createdBy   String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([admissionId])
+  @@index([deletedAt])
+  @@map("inventory_ipd_charges")
+}
+
+// ── Notifications, Calendar & cron (Phase 5/7) ────────────────────────────────
+
+/// An in-app notification for a tenant (alerts, reminders, system messages).
+model InventoryNotification {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  branchId  String? @map("branch_id")
+  /// Machine category: LOW_STOCK | EXPIRY | SYSTEM | INFO…
+  type      String
+  title     String
+  body      String?
+  /// Optional deep-link the frontend can route to (e.g. /products).
+  link      String?
+  isRead    Boolean @default(false) @map("is_read")
+  /// De-duplication key so a recurring alert isn't re-created each run.
+  dedupeKey String? @map("dedupe_key")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  readAt    DateTime? @map("read_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([isRead])
+  @@index([dedupeKey])
+  @@index([deletedAt])
+  @@map("inventory_notifications")
+}
+
+/// A calendar event (reminders, appointments, follow-ups) — FullCalendar parity.
+model InventoryCalendarEvent {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  branchId    String?  @map("branch_id")
+  title       String
+  description String?
+  /// Event color (hex) for the calendar UI.
+  color       String?
+  startAt     DateTime @map("start_at")
+  endAt       DateTime? @map("end_at")
+  isAllDay    Boolean  @default(false) @map("is_all_day")
+  createdBy   String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([startAt])
+  @@index([deletedAt])
+  @@map("inventory_calendar_events")
+}
+
+/// Platform-level registry of tenants with inventory activity. NOT tenant-scoped
+/// and NOT under RLS — it is the enumeration source the cross-tenant alert cron
+/// loops over (the inventory app does not own the kalnostics `tenants` table).
+model InventoryTenantRegistry {
+  tenantId   String   @id @map("tenant_id")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+
+  @@map("inventory_tenant_registry")
+}
+
+// ── Parties & finance extensions (legacy parity) ──────────────────────────────
+
+/// Customer deposit / advance ledger entry (legacy Customers::deposits).
+model InventoryCustomerDeposit {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  customerId String   @map("customer_id")
+  /// DEPOSIT (add funds) | WITHDRAWAL (use funds) | ADJUSTMENT.
+  type       String   @default("DEPOSIT")
+  amount     Decimal  @db.Decimal(18, 4)
+  note       String?
+  date       DateTime
+  createdBy  String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([deletedAt])
+  @@map("inventory_customer_deposits")
+}
+
+/// A purchase expense (freight / insurance / misc) attached to a purchase
+/// (legacy Purchases::expenses).
+model InventoryPurchaseExpense {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  purchaseId String   @map("purchase_id")
+  category   String?
+  amount     Decimal  @db.Decimal(18, 4)
+  reference  String?
+  note       String?
+  date       DateTime
+  createdBy  String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([purchaseId])
+  @@index([deletedAt])
+  @@map("inventory_purchase_expenses")
+}
+
+/// A supplier-level payment (not tied to one purchase) — legacy
+/// Purchases::supplier_payments.
+model InventorySupplierPayment {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  supplierId String   @map("supplier_id")
+  amount     Decimal  @db.Decimal(18, 4)
+  method     String   @default("CASH")
+  reference  String?
+  note       String?
+  date       DateTime
+  createdBy  String?  @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([supplierId])
+  @@index([deletedAt])
+  @@map("inventory_supplier_payments")
+}
+
+/// A reusable email/message template (legacy System_settings email templates).
+model InventoryEmailTemplate {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  subject   String?
+  body      String?
+  /// Free-form category (e.g. SALE, PURCHASE, GENERAL).
+  type      String?
+  isActive  Boolean  @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@map("inventory_email_templates")
+}
+
+// ── Legacy-parity extensions (serials, held bills, promotions, templates) ─────
+
+/// An individual product serial/IMEI unit (legacy serial tracking).
+model InventoryProductSerial {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  branchId  String? @map("branch_id")
+  productId String  @map("product_id")
+  serialNo  String  @map("serial_no")
+  /// IN_STOCK | SOLD | RETURNED.
+  status    String  @default("IN_STOCK")
+  reference String?
+  note      String?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  product InventoryProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([serialNo])
+  @@index([deletedAt])
+  @@map("inventory_product_serials")
+}
+
+/// A suspended/held POS bill (legacy POS opened_bills). Cart stored as JSON.
+model InventoryPosHeldBill {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  branchId  String? @map("branch_id")
+  label     String
+  /// Held cart payload (line items + customer).
+  cart      Json
+  createdBy String? @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@map("inventory_pos_held_bills")
+}
+
+/// A marketing promotion / banner (legacy Welcome promotions).
+model InventoryPromotion {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  title       String
+  description String?
+  imageUrl    String?   @map("image_url")
+  startsAt    DateTime? @map("starts_at")
+  endsAt      DateTime? @map("ends_at")
+  isActive    Boolean   @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@map("inventory_promotions")
+}
+
+/// A reusable product template (legacy SITE-level master_products). Copied into
+/// real products via "create from template".
+model InventoryProductTemplate {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  code        String?
+  name        String
+  category    String?
+  unit        String?
+  price       Decimal @default(0) @db.Decimal(18, 4)
+  cost        Decimal @default(0) @db.Decimal(18, 4)
+  hsnCode     String? @map("hsn_code")
+  description String?
+  isActive    Boolean @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@map("inventory_product_templates")
+}

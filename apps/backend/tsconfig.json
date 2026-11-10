@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2023",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    // CLAUDE.md §1 mandates strict mode. We keep the full umbrella ON, with one
+    // deliberate, flagged exception: strictPropertyInitialization is OFF because
+    // class-validator hydrates DTO instances at runtime, so "no initializer"
+    // (TS2564) on DTO fields is a known NestJS non-bug, not a real defect.
+    "strictPropertyInitialization": false,
+    // CLAUDE.md §1 also calls for "no unchecked index access".
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true
+  }
+}

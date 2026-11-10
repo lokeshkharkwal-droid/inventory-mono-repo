@@ -1,0 +1,20 @@
+{
+  "name": "inventory",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Inventory / POS / pharmacy suite — NestJS backend + React frontend, migrated from the legacy EzHealthTrack inventory module. Turborepo monorepo (pnpm workspaces).",
+  "packageManager": "pnpm@11.4.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "validate": "turbo run validate",
+    "check:migration-ownership": "turbo run check:migration-ownership"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3"
+  }
+}

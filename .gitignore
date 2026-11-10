@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Turborepo
+.turbo/
+
+# Env (never commit secrets; .env.example is committed)
+.env
+.env.*
+!.env.example
+
+# Test / coverage
+coverage/
+
+# TS incremental
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+DEV_TOKEN.txt
