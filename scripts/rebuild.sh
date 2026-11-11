@@ -2,13 +2,15 @@
 # Low-memory rebuild + restart for the inventory monorepo (512 MB RAM + 1 GB swap).
 #
 # Usage:
-#   ./scripts/rebuild.sh            # build backend, then frontend, then restart pm2
+#   ./scripts/rebuild.sh            # apply DB migrations, build backend, then
+#                                   # frontend, then restart pm2
 #
 # Optional env overrides:
 #   HEAP_MB=512 ./scripts/rebuild.sh          # lower Node heap cap if 640 still OOMs
 #   VITE_BASE_PATH=/ ./scripts/rebuild.sh                 # standalone mode (default: /inventory-app/)
 #   KEEP_RUNNING=1 ./scripts/rebuild.sh       # don't stop pm2 apps during build
 #                                             # (no downtime, but higher OOM risk)
+#   SKIP_MIGRATIONS=1 ./scripts/rebuild.sh    # build/restart only, don't touch the DB
 #
 # Builds run one at a time and bypass turbo on purpose: turbo would run them in
 # parallel, and its strict env mode would drop VITE_BASE_PATH.
@@ -42,6 +44,19 @@ if [[ "${KEEP_RUNNING:-0}" != "1" ]]; then
   pm2 stop all
   STOPPED=1
 fi
+
+if [[ "${SKIP_MIGRATIONS:-0}" != "1" ]]; then
+  # Runs before the builds: if a migration fails it rolls back and the trap
+  # restarts the old dist/, which still matches the unchanged schema.
+  log "Checking migration table ownership"
+  pnpm --filter ./apps/backend run check:migration-ownership
+
+  log "Applying pending DB migrations (inventory_schema_migrations ledger)"
+  pnpm --filter ./apps/backend run migrate:schema
+fi
+
+log "Generating Prisma client"
+pnpm --filter ./apps/backend run prisma:generate
 
 log "Building backend (heap cap ${HEAP_MB} MB)"
 pnpm --filter ./apps/backend run build
