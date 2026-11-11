@@ -14,21 +14,19 @@ import {
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { getApiErrorMessage } from '@/lib/http';
 import {
-  useGiftCards,
+  useInfiniteGiftCards,
   useCreateGiftCard,
   useRedeemGiftCard,
   useDeleteGiftCard,
   type GiftCard,
 } from '@/features/gift-cards/api';
 
-const LIMIT = 20;
-
 /** Gift cards: list, create, redeem balance. */
 export function GiftCardsPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
-  const { data, isLoading } = useGiftCards({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteGiftCards({ search });
   const create = useCreateGiftCard();
   const redeem = useRedeemGiftCard();
   const del = useDeleteGiftCard();
@@ -114,23 +112,17 @@ export function GiftCardsPage() {
       <Input
         placeholder="Search by code…"
         value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
+        onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No gift cards yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>

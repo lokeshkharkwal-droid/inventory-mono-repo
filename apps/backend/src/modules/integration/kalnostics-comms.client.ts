@@ -44,8 +44,7 @@ export class KalnosticsCommsClient {
    */
   async sendEmail(bearerToken: string, params: SendEmailParams): Promise<void> {
     const baseUrl = this.config.get<string>('kalnostics.baseUrl');
-    const timeoutMs =
-      this.config.get<number>('kalnostics.timeoutMs') ?? 15000;
+    const timeoutMs = this.config.get<number>('kalnostics.timeoutMs') ?? 15000;
     if (!baseUrl) {
       throw new KaltrosException(
         'COMMS_NOT_CONFIGURED',

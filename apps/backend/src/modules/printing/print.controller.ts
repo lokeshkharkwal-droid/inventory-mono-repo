@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { PrintService } from './print.service';
 import {
   BarcodeSheetDto,
@@ -17,8 +25,12 @@ export class PrintController {
   constructor(private readonly printService: PrintService) {}
 
   @Get('sale/:id')
-  saleInvoice(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.printService.saleInvoice(id, tenantId);
+  saleInvoice(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Query('template') template?: string,
+  ) {
+    return this.printService.saleInvoice(id, tenantId, template);
   }
 
   @Get('sale/:id/receipt')

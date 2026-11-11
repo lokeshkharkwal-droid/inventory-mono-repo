@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface PurchaseListRow {
   id: string;
@@ -57,6 +58,15 @@ export function usePurchases(params: { page: number; limit: number; search?: str
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+export function useInfinitePurchases(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<PurchaseListRow>(['purchases'], '/purchases', params);
 }
 
 export function usePurchase(id: string | null) {

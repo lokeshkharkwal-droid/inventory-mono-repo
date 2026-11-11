@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -10,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { getApiErrorMessage } from '@/lib/http';
-import { useProducts, useBulkPrice } from '@/features/products/api';
+import { useInfiniteProducts, useBulkPrice } from '@/features/products/api';
 
 interface Props {
   open: boolean;
@@ -25,9 +26,10 @@ interface Edit {
 /** Bulk price/cost update across products (legacy Products::update_price). */
 export function BulkPriceDialog({ open, onOpenChange }: Props) {
   const [search, setSearch] = useState('');
-  const { data } = useProducts({ page: 1, limit: 100, search });
+  const { rows, hasMore, isFetchingMore, fetchMore } = useInfiniteProducts({ search });
   const bulk = useBulkPrice();
   const [edits, setEdits] = useState<Record<string, Edit>>({});
+  const sentinelRef = useRef<HTMLTableRowElement | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -36,7 +38,20 @@ export function BulkPriceDialog({ open, onOpenChange }: Props) {
     }
   }, [open]);
 
-  const rows = data?.data ?? [];
+  // Infinite scroll inside the product table.
+  useEffect(() => {
+    if (!open || !hasMore) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !isFetchingMore) fetchMore();
+      },
+      { rootMargin: '120px', threshold: 0 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [open, hasMore, isFetchingMore, fetchMore]);
 
   const setEdit = (id: string, patch: Partial<Edit>) =>
     setEdits((prev) => ({
@@ -121,6 +136,17 @@ export function BulkPriceDialog({ open, onOpenChange }: Props) {
                   <tr>
                     <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
                       No products.
+                    </td>
+                  </tr>
+                )}
+                {hasMore && (
+                  <tr ref={sentinelRef} aria-hidden>
+                    <td colSpan={4} className="px-3 py-2 text-center text-muted-foreground">
+                      {isFetchingMore && (
+                        <span className="inline-flex items-center gap-2 text-xs">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Loading more…
+                        </span>
+                      )}
                     </td>
                   </tr>
                 )}

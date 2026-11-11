@@ -10,6 +10,7 @@ import {
   Barcode,
   Tag,
   ListOrdered,
+  Eye,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,33 +20,33 @@ import { ImportDialog } from '@/components/shared/ImportDialog';
 import { getApiErrorMessage } from '@/lib/http';
 import { exportCsv } from '@/lib/csv';
 import {
-  useProducts,
+  useInfiniteProducts,
   useProduct,
   useDeleteProduct,
   type ProductListRow,
 } from '@/features/products/api';
 import { ProductFormDialog } from '@/features/products/ProductFormDialog';
+import { ProductDetailDialog } from '@/features/products/ProductDetailDialog';
 import { ProductStockDialog } from '@/features/products/ProductStockDialog';
 import { PrintBarcodesDialog } from '@/features/products/PrintBarcodesDialog';
 import { BulkPriceDialog } from '@/features/products/BulkPriceDialog';
 import { ProductSerialsDialog } from '@/features/products/ProductSerialsDialog';
 import { usePermissions, permKey } from '@/features/permissions/api';
 
-const LIMIT = 20;
-
 /** Products list — search, CRUD, and per-branch stock/adjustments. */
 export function ProductsPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [stockRow, setStockRow] = useState<ProductListRow | null>(null);
+  const [viewRow, setViewRow] = useState<ProductListRow | null>(null);
   const [serialsRow, setSerialsRow] = useState<ProductListRow | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [barcodesOpen, setBarcodesOpen] = useState(false);
   const [bulkPriceOpen, setBulkPriceOpen] = useState(false);
 
-  const { data, isLoading } = useProducts({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteProducts({ search });
   const { data: editing } = useProduct(editingId);
   const del = useDeleteProduct();
   const { can } = usePermissions();
@@ -90,6 +91,14 @@ export function ProductsPage() {
       className: 'text-right',
       render: (r) => (
         <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            title="View details"
+            onClick={() => setViewRow(r)}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
           <PrintButton
             path={`/print/product/${r.id}/label`}
             title="Print label"
@@ -142,7 +151,6 @@ export function ProductsPage() {
           <Button
             variant="outline"
             onClick={() => {
-              const rows = data?.data ?? [];
               if (rows.length === 0) {
                 toast.error('Nothing to export.');
                 return;
@@ -195,26 +203,27 @@ export function ProductsPage() {
         value={search}
         onChange={(e) => {
           setSearch(e.target.value);
-          setPage(1);
         }}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No products yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <ProductSerialsDialog
         product={serialsRow}
         onOpenChange={(o) => !o && setSerialsRow(null)}
+      />
+
+      <ProductDetailDialog
+        product={viewRow}
+        onOpenChange={(o) => !o && setViewRow(null)}
       />
 
       <ProductFormDialog

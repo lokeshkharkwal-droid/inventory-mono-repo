@@ -90,6 +90,7 @@ const GROUPS: NavGroup[] = [
       { to: '/brands', label: 'Brands', icon: Factory },
       { to: '/manufacturers', label: 'Manufacturers', icon: Factory },
       { to: '/product-templates', label: 'Product templates', icon: FileSpreadsheet },
+      { to: '/master-data', label: 'Master Data', icon: Package },
       { to: '/tax-rates', label: 'Tax rates', icon: Percent },
       { to: '/variants', label: 'Variants', icon: Shapes },
     ],

@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface ProformaListRow {
   id: string;
@@ -24,6 +25,15 @@ export function useProformas(params: { page: number; limit: number; search?: str
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+export function useInfiniteProformas(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<ProformaListRow>(KEY, '/proformas', params);
 }
 
 export function useCreateProforma() {

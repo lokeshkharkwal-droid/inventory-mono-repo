@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface TransferListRow {
   id: string;
@@ -25,6 +26,15 @@ export function useTransfers(params: { page: number; limit: number; search?: str
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+export function useInfiniteTransfers(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<TransferListRow>(KEY, '/transfers', params);
 }
 
 export function useCreateTransfer() {

@@ -29,6 +29,7 @@ import { UserRolesPage } from '@/pages/settings/UserRolesPage';
 import { EmailTemplatesPage } from '@/pages/settings/EmailTemplatesPage';
 import { PromotionsPage } from '@/pages/settings/PromotionsPage';
 import { ProductTemplatesPage } from '@/pages/masters/ProductTemplatesPage';
+import { MasterDataPage } from '@/pages/masters/MasterDataPage';
 import { QuotesPage } from '@/pages/quotes/QuotesPage';
 import { ProformasPage } from '@/pages/proformas/ProformasPage';
 import { MaterialsPage } from '@/pages/materials/MaterialsPage';
@@ -69,6 +70,7 @@ export function AppRouter() {
             <Route path="brands" element={<BrandsPage />} />
             <Route path="manufacturers" element={<ManufacturersPage />} />
             <Route path="product-templates" element={<ProductTemplatesPage />} />
+            <Route path="master-data" element={<MasterDataPage />} />
             <Route path="tax-rates" element={<TaxRatesPage />} />
             <Route path="variants" element={<VariantsPage />} />
             <Route path="suppliers" element={<SuppliersPage />} />

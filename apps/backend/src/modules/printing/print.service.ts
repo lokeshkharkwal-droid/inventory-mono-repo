@@ -107,8 +107,7 @@ export class PrintService {
             : 'Proforma invoice';
     const subject = dto.subject ?? `${label} from your supplier`;
     const body =
-      dto.message ??
-      `Please find your ${label.toLowerCase()} attached.`;
+      dto.message ?? `Please find your ${label.toLowerCase()} attached.`;
     await this.comms.sendEmail(bearerToken, {
       subject,
       body,
@@ -216,8 +215,21 @@ export class PrintService {
     return docShell(`Material ${m.name}`, body);
   }
 
-  /** A full-page sales invoice. */
-  async saleInvoice(id: string, tenantId: string): Promise<string> {
+  /**
+   * A full-page sales invoice. The `template` selects a layout variant (legacy
+   * receipt/tax-invoice template choice):
+   * - `standard` (default): full breakdown (subtotal, tax, discount, shipping).
+   * - `tax`: titled "Tax Invoice" with the same breakdown.
+   * - `simple`: items + grand total + paid only.
+   */
+  async saleInvoice(
+    id: string,
+    tenantId: string,
+    template?: string,
+  ): Promise<string> {
+    const tpl = ['standard', 'tax', 'simple'].includes(template ?? '')
+      ? (template as 'standard' | 'tax' | 'simple')
+      : 'standard';
     const s = await this.saleService.findById(id, tenantId);
     const rows = s.items
       .map(
@@ -225,11 +237,14 @@ export class PrintService {
           `<tr><td>${esc(i.productName)}</td><td class="right">${money(i.quantity)}</td><td class="right">${money(i.price)}</td><td class="right">${money(i.subtotal)}</td></tr>`,
       )
       .join('');
-    const body = `
-      <h1>Invoice ${esc(s.reference)}</h1>
-      <div class="muted">Date: ${d(s.date)} · Customer: ${esc(s.customer?.name ?? '')}</div>
-      <table><thead><tr><th>Product</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Subtotal</th></tr></thead><tbody>${rows}</tbody></table>
-      <table class="totals">
+    const heading = tpl === 'tax' ? 'Tax Invoice' : 'Invoice';
+    const totals =
+      tpl === 'simple'
+        ? `<table class="totals">
+        <tr><td><b>Grand total</b></td><td class="right"><b>${money(s.grandTotal)}</b></td></tr>
+        <tr><td>Paid</td><td class="right">${money(s.paid)}</td></tr>
+      </table>`
+        : `<table class="totals">
         <tr><td>Subtotal</td><td class="right">${money(s.subtotal)}</td></tr>
         <tr><td>Tax</td><td class="right">${money(s.orderTax)}</td></tr>
         <tr><td>Discount</td><td class="right">${money(s.orderDiscount)}</td></tr>
@@ -237,7 +252,12 @@ export class PrintService {
         <tr><td><b>Grand total</b></td><td class="right"><b>${money(s.grandTotal)}</b></td></tr>
         <tr><td>Paid</td><td class="right">${money(s.paid)}</td></tr>
       </table>`;
-    return docShell(`Invoice ${s.reference}`, body);
+    const body = `
+      <h1>${heading} ${esc(s.reference)}</h1>
+      <div class="muted">Date: ${d(s.date)} · Customer: ${esc(s.customer?.name ?? '')}</div>
+      <table><thead><tr><th>Product</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Subtotal</th></tr></thead><tbody>${rows}</tbody></table>
+      ${totals}`;
+    return docShell(`${heading} ${s.reference}`, body);
   }
 
   /** A compact thermal-style POS receipt. */
@@ -340,17 +360,20 @@ export class PrintService {
     const sz = SIZES[dto.style ?? '40'] ?? SIZES['40']!;
     const showName = dto.showName !== false;
     const showPrice = dto.showPrice !== false;
+    const useQr = dto.symbology === 'QR';
 
     const labels: string[] = [];
     for (const item of dto.items) {
       const p = await this.productService.findById(item.productId, tenantId);
-      const svg = this.barcode.code39Svg(p.code, sz.bh);
+      const code = useQr
+        ? `<img src="${await this.barcode.qrDataUrl(p.code)}" alt="${esc(p.code)}" style="height:${sz.bh + 20}px" />`
+        : this.barcode.code39Svg(p.code, sz.bh);
       const qty = Math.max(1, Math.min(item.quantity, 500));
       const label = `
         <div class="lbl" style="width:${sz.w}px">
           ${dto.showBusinessName && dto.businessName ? `<div class="biz">${esc(dto.businessName)}</div>` : ''}
           ${showName ? `<div class="nm">${esc(p.name)}</div>` : ''}
-          <div class="bc">${svg}</div>
+          <div class="bc">${code}</div>
           <div class="cd">${esc(p.code)}</div>
           ${showPrice ? `<div class="pr">${money(p.price)}</div>` : ''}
         </div>`;

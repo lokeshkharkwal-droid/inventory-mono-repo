@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getApiErrorMessage } from '@/lib/http';
-import { customerHooks } from '@/features/customers/api';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import {
   useRegisters,
   useCreateRegister,
@@ -54,7 +54,6 @@ export function PosPage() {
   const checkout = useCheckout();
   const verifyPin = useVerifyPin();
   const { data: gateways } = useGatewayBalances();
-  const { data: customers } = customerHooks.useList({ page: 1, limit: 200 });
   const { data: heldBills } = useHeldBills();
   const holdBill = useHoldBill();
   const deleteHeldBill = useDeleteHeldBill();
@@ -513,17 +512,17 @@ export function PosPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="customer">Customer</Label>
-              <select
+              <InfiniteSelect
                 id="customer"
-                className={selectCls}
                 value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
-              >
-                <option value="">—</option>
-                {(customers?.data ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+                onChange={setCustomerId}
+                queryKey={['customers']}
+                path="/customers"
+                getOptionValue={(c) => c.id}
+                getOptionLabel={(c) => c.name}
+                placeholder="Select customer…"
+                clearable
+              />
             </div>
 
             <div className="space-y-1.5">

@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface SaleListRow {
   id: string;
@@ -52,6 +53,15 @@ export function useSales(params: { page: number; limit: number; search?: string 
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+export function useInfiniteSales(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<SaleListRow>(['sales'], '/sales', params);
 }
 
 export function useSale(id: string | null) {

@@ -4,6 +4,23 @@ import type { FieldConfig } from '@/components/shared/CrudFormDialog';
 import { billerHooks, type Biller } from '@/features/billers/api';
 
 const columns: Column<Biller>[] = [
+  {
+    key: 'logoUrl',
+    header: 'Logo',
+    render: (r) =>
+      r.logoUrl ? (
+        <img
+          src={r.logoUrl}
+          alt={`${r.name} logo`}
+          className="h-8 w-8 rounded object-contain"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none';
+          }}
+        />
+      ) : (
+        '—'
+      ),
+  },
   { key: 'name', header: 'Name' },
   { key: 'companyName', header: 'Company', render: (r) => r.companyName ?? '—' },
   { key: 'phone', header: 'Phone', render: (r) => r.phone ?? '—' },

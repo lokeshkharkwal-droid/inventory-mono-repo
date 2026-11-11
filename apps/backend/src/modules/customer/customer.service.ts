@@ -9,7 +9,10 @@ import {
   ImportCustomersDto,
   CreateCustomerDepositDto,
 } from './dto/customer.dto';
-import { CustomerNotFoundException } from './exceptions/customer.exceptions';
+import {
+  CustomerNotFoundException,
+  SelfReferralException,
+} from './exceptions/customer.exceptions';
 import {
   runBulkImport,
   type ImportSummary,
@@ -21,6 +24,9 @@ export class CustomerService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(tenantId: string, dto: CreateCustomerDto) {
+    if (dto.referredByCustomerId) {
+      await this.findById(dto.referredByCustomerId, tenantId);
+    }
     return this.prisma.inventoryCustomer.create({
       data: {
         tenantId,
@@ -33,6 +39,7 @@ export class CustomerService {
         taxNumber: dto.taxNumber,
         creditLimit: dto.creditLimit,
         patientId: dto.patientId,
+        referredByCustomerId: dto.referredByCustomerId,
         isActive: dto.isActive ?? true,
       },
     });
@@ -97,6 +104,12 @@ export class CustomerService {
 
   async update(id: string, tenantId: string, dto: UpdateCustomerDto) {
     await this.findById(id, tenantId);
+    if (dto.referredByCustomerId) {
+      if (dto.referredByCustomerId === id) {
+        throw new SelfReferralException();
+      }
+      await this.findById(dto.referredByCustomerId, tenantId);
+    }
     return this.prisma.inventoryCustomer.update({
       where: { id },
       data: {
@@ -109,6 +122,7 @@ export class CustomerService {
         taxNumber: dto.taxNumber,
         creditLimit: dto.creditLimit,
         patientId: dto.patientId,
+        referredByCustomerId: dto.referredByCustomerId,
         isActive: dto.isActive,
       },
     });

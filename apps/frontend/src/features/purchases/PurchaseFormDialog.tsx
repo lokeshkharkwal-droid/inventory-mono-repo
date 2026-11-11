@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import {
@@ -12,13 +12,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
-import { supplierHooks } from '@/features/suppliers/api';
-import { useProducts } from '@/features/products/api';
 import { useCreatePurchase } from './api';
 
 interface LineRow {
   productId: string;
+  productName?: string;
   quantity: string;
   cost: string;
   taxRate: string;
@@ -40,6 +40,7 @@ interface FormValues {
 
 const EMPTY_ROW: LineRow = {
   productId: '',
+  productName: '',
   quantity: '1',
   cost: '0',
   taxRate: '0',
@@ -57,19 +58,8 @@ interface Props {
 /** Create-purchase dialog: supplier + line items (qty × cost) → inbound stock. */
 export function PurchaseFormDialog({ open, onOpenChange }: Props) {
   const create = useCreatePurchase();
-  const { data: suppliers } = supplierHooks.useList({ page: 1, limit: 200 });
-  const { data: products } = useProducts({ page: 1, limit: 200 });
 
-  const supplierOptions = useMemo(
-    () => (suppliers?.data ?? []).map((s) => ({ value: s.id, label: s.name })),
-    [suppliers],
-  );
-  const productOptions = useMemo(
-    () => products?.data ?? [],
-    [products],
-  );
-
-  const { register, handleSubmit, control, watch, reset } = useForm<FormValues>({
+  const { register, handleSubmit, control, watch, reset, setValue } = useForm<FormValues>({
     defaultValues: {
       supplierId: '',
       reference: '',
@@ -140,12 +130,22 @@ export function PurchaseFormDialog({ open, onOpenChange }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="supplierId">Supplier</Label>
-              <select id="supplierId" className={selectCls} {...register('supplierId', { required: true })}>
-                <option value="">—</option>
-                {supplierOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="supplierId"
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <InfiniteSelect
+                    value={field.value}
+                    onChange={field.onChange}
+                    queryKey={['suppliers']}
+                    path="/suppliers"
+                    getOptionValue={(s) => s.id}
+                    getOptionLabel={(s) => s.name}
+                    placeholder="Select supplier…"
+                  />
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="date">Date</Label>
@@ -174,12 +174,23 @@ export function PurchaseFormDialog({ open, onOpenChange }: Props) {
             </div>
             {fields.map((f, i) => (
               <div key={f.id} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2">
-                <select className={selectCls} {...register(`items.${i}.productId`)}>
-                  <option value="">Select product…</option>
-                  {productOptions.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <Controller
+                  control={control}
+                  name={`items.${i}.productId`}
+                  render={({ field }) => (
+                    <InfiniteSelect
+                      value={field.value}
+                      onChange={field.onChange}
+                      onSelect={(p) => setValue(`items.${i}.productName`, p.name)}
+                      queryKey={['products']}
+                      path="/products"
+                      getOptionValue={(p) => p.id}
+                      getOptionLabel={(p) => p.name}
+                      selectedLabel={watch(`items.${i}.productName`)}
+                      placeholder="Select product…"
+                    />
+                  )}
+                />
                 <Input placeholder="Qty" type="number" step="any" {...register(`items.${i}.quantity`)} />
                 <Input placeholder="Cost" type="number" step="any" {...register(`items.${i}.cost`)} />
                 <Input placeholder="Tax %" type="number" step="any" {...register(`items.${i}.taxRate`)} />

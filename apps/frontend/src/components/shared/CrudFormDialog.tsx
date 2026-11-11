@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import {
   Dialog,
   DialogContent,
@@ -10,15 +10,37 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { cn } from '@/lib/utils';
 
 /** One field in a field-driven CRUD form. */
 export interface FieldConfig {
   name: string;
   label: string;
-  type: 'text' | 'number' | 'textarea' | 'select' | 'tags' | 'bool' | 'date';
+  type:
+    | 'text'
+    | 'number'
+    | 'textarea'
+    | 'select'
+    | 'async-select'
+    | 'tags'
+    | 'bool'
+    | 'date';
   required?: boolean;
+  /** Fixed options for a `'select'` field. */
   options?: { value: string; label: string }[];
+  /**
+   * For `'async-select'`: the searchable, infinitely-scrolling source. `label`
+   * on a loaded row is read via `optionLabelKey` (defaults to `name`); the value
+   * is always the row `id`.
+   */
+  async?: {
+    queryKey: readonly unknown[];
+    path: string;
+    optionLabelKey?: string;
+    placeholder?: string;
+    clearable?: boolean;
+  };
   /** Force a field to span the full dialog width (default: textarea/bool do). */
   fullWidth?: boolean;
 }
@@ -56,7 +78,7 @@ export function CrudFormDialog({
   submitting,
   onSubmit,
 }: Props) {
-  const { register, handleSubmit, reset } = useForm<FormShape>({
+  const { register, handleSubmit, reset, control } = useForm<FormShape>({
     defaultValues: initialValues,
   });
 
@@ -118,6 +140,27 @@ export function CrudFormDialog({
                       </option>
                     ))}
                   </select>
+                ) : f.type === 'async-select' && f.async ? (
+                  <Controller
+                    name={f.name}
+                    control={control}
+                    rules={{ required: f.required }}
+                    render={({ field }) => (
+                      <InfiniteSelect
+                        id={f.name}
+                        value={typeof field.value === 'string' ? field.value : ''}
+                        onChange={field.onChange}
+                        queryKey={f.async!.queryKey}
+                        path={f.async!.path}
+                        getOptionValue={(r) => String(r.id ?? '')}
+                        getOptionLabel={(r) =>
+                          String(r[f.async!.optionLabelKey ?? 'name'] ?? '')
+                        }
+                        placeholder={f.async!.placeholder}
+                        clearable={f.async!.clearable}
+                      />
+                    )}
+                  />
                 ) : f.type === 'bool' ? (
                   <label className="flex h-10 items-center gap-2.5 rounded-lg border border-input bg-background px-3.5 text-sm shadow-xs">
                     <input

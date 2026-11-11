@@ -9,13 +9,11 @@ import { PrintButton } from '@/components/shared/PrintButton';
 import { getApiErrorMessage } from '@/lib/http';
 import { exportCsv } from '@/lib/csv';
 import {
-  useTransfers,
+  useInfiniteTransfers,
   useTransferAction,
   type TransferListRow,
 } from '@/features/transfers/api';
 import { TransferFormDialog } from '@/features/transfers/TransferFormDialog';
-
-const LIMIT = 20;
 
 /** Group flat CSV line rows into transfer documents keyed by reference. */
 function groupTransferRows(records: Record<string, string>[]): unknown[] {
@@ -43,11 +41,11 @@ function groupTransferRows(records: Record<string, string>[]): unknown[] {
 
 /** Transfers list + create + two-stage send/receive. */
 export function TransfersPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const { data, isLoading } = useTransfers({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteTransfers({ search });
   const action = useTransferAction();
 
   const run = async (id: string, act: 'send' | 'receive') => {
@@ -98,7 +96,6 @@ export function TransfersPage() {
           <Button
             variant="outline"
             onClick={() => {
-              const rows = data?.data ?? [];
               if (rows.length === 0) {
                 toast.error('Nothing to export.');
                 return;
@@ -128,23 +125,17 @@ export function TransfersPage() {
       <Input
         placeholder="Search by reference…"
         value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
+        onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No transfers yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <TransferFormDialog open={formOpen} onOpenChange={setFormOpen} />

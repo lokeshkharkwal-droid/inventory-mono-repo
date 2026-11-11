@@ -33,6 +33,8 @@ export class CreateCustomerDto {
 
   /** Optional link to a kalnostics patient id. */
   @IsOptional() @IsString() patientId?: string;
+  /** Existing customer who referred this one (referral suggestions). */
+  @IsOptional() @IsString() referredByCustomerId?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
@@ -52,6 +54,7 @@ export class UpdateCustomerDto {
   creditLimit?: number;
 
   @IsOptional() @IsString() patientId?: string;
+  @IsOptional() @IsString() referredByCustomerId?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 

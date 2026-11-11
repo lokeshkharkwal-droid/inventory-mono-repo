@@ -251,6 +251,8 @@ model InventoryProduct {
   isSerialized  Boolean @default(false) @map("is_serialized")
 
   legacyProductId String? @map("legacy_product_id")
+  /// When imported from the global master catalogue, the source master id.
+  sourceMasterProductId String? @map("source_master_product_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -274,6 +276,7 @@ model InventoryProduct {
   @@index([brandId])
   @@index([deletedAt])
   @@index([legacyProductId])
+  @@index([sourceMasterProductId])
   @@map("inventory_products")
 }
 
@@ -430,6 +433,8 @@ model InventoryCustomer {
   patientId   String?  @map("patient_id")
   /// Accrued loyalty/award points (legacy award_points).
   loyaltyPoints Int    @default(0) @map("loyalty_points")
+  /// The existing customer who referred this one (legacy referral suggestions).
+  referredByCustomerId String? @map("referred_by_customer_id")
   isActive    Boolean  @default(true) @map("is_active")
 
   legacyCustomerId String? @map("legacy_customer_id")
@@ -440,9 +445,13 @@ model InventoryCustomer {
 
   sales InventorySale[]
 
+  referredBy InventoryCustomer?  @relation("CustomerReferral", fields: [referredByCustomerId], references: [id], onDelete: SetNull)
+  referrals  InventoryCustomer[] @relation("CustomerReferral")
+
   @@index([tenantId])
   @@index([deletedAt])
   @@index([patientId])
+  @@index([referredByCustomerId])
   @@index([legacyCustomerId])
   @@map("inventory_customers")
 }
@@ -1779,6 +1788,128 @@ model InventoryPromotion {
   @@index([tenantId])
   @@index([deletedAt])
   @@map("inventory_promotions")
+}
+
+/// Platform-level canonical CATEGORY for the global catalogue (SiteAdmin-managed).
+/// No tenant_id (sits above tenants, no RLS). Imports find-or-create the tenant
+/// category by this name; the master-product form picks from these.
+model InventoryMasterCategory {
+  id          String  @id @default(uuid())
+  name        String
+  code        String?
+  description String?
+  isActive    Boolean @default(true) @map("is_active")
+  createdBy   String? @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  subCategories InventoryMasterSubCategory[]
+
+  @@index([deletedAt])
+  @@map("inventory_master_categories")
+}
+
+/// Platform-level canonical SUB-CATEGORY (belongs to a master category).
+model InventoryMasterSubCategory {
+  id         String  @id @default(uuid())
+  categoryId String  @map("category_id")
+  name       String
+  code       String?
+  isActive   Boolean @default(true) @map("is_active")
+  createdBy  String? @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  category InventoryMasterCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+  @@index([deletedAt])
+  @@map("inventory_master_sub_categories")
+}
+
+/// Platform-level canonical UNIT (SiteAdmin-managed).
+model InventoryMasterUnit {
+  id        String  @id @default(uuid())
+  name      String
+  code      String?
+  isActive  Boolean @default(true) @map("is_active")
+  createdBy String? @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([deletedAt])
+  @@map("inventory_master_units")
+}
+
+/// Platform-level canonical BRAND (SiteAdmin-managed).
+model InventoryMasterBrand {
+  id        String  @id @default(uuid())
+  name      String
+  code      String?
+  isActive  Boolean @default(true) @map("is_active")
+  createdBy String? @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([deletedAt])
+  @@map("inventory_master_brands")
+}
+
+/// Platform-level canonical TAX RATE (name + percentage; SiteAdmin-managed).
+model InventoryMasterTaxRate {
+  id        String   @id @default(uuid())
+  name      String
+  rate      Decimal  @default(0) @db.Decimal(9, 4)
+  code      String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([deletedAt])
+  @@map("inventory_master_tax_rates")
+}
+
+/// Platform-level master product catalogue (legacy `tenant_id=0` master_products),
+/// maintained centrally by a SiteAdmin. Has NO tenant_id — it sits above tenants
+/// and carries no RLS policy. Tenants browse importable masters and import copies
+/// into their own `inventory_products` (linked back via `sourceMasterProductId`).
+model InventoryMasterProduct {
+  id          String  @id @default(uuid())
+  code        String?
+  name        String
+  category    String?
+  /// Sub-classification name (find-or-created under `category` on import).
+  subCategory String? @map("sub_category")
+  unit        String?
+  /// Brand name (find-or-created on import).
+  brand       String?
+  price       Decimal @default(0) @db.Decimal(18, 4)
+  cost        Decimal @default(0) @db.Decimal(18, 4)
+  hsnCode     String? @map("hsn_code")
+  /// Tax-rate name + its percentage (the rate lets import create it if absent).
+  taxName     String? @map("tax_name")
+  taxRate     Decimal? @map("tax_rate") @db.Decimal(9, 4)
+  description String?
+  genericName String? @map("generic_name")
+  strength    String?
+  /// Whether tenants may import this master (legacy `import_status`).
+  isImportable Boolean @default(true) @map("is_importable")
+  isActive    Boolean @default(true) @map("is_active")
+  /// SiteAdmin id (from the SiteAdmin JWT) that created the master.
+  createdBy   String? @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([deletedAt])
+  @@map("inventory_master_products")
 }
 
 /// A reusable product template (legacy SITE-level master_products). Copied into

@@ -49,7 +49,9 @@ export class KalnosticsUserClient {
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        this.logger.error(`users fetch failed: ${res.status} ${text.slice(0, 300)}`);
+        this.logger.error(
+          `users fetch failed: ${res.status} ${text.slice(0, 300)}`,
+        );
         throw new KaltrosException(
           'IDENTITY_FETCH_FAILED',
           'Could not load the user list.',

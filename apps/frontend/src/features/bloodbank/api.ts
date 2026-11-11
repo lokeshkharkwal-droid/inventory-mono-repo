@@ -5,6 +5,7 @@ import {
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
 import { makeCrudHooks } from '@/features/_shared/crud';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface BloodDonor {
   id: string;
@@ -61,6 +62,13 @@ export function useDonations(params: { page: number; limit: number }) {
   });
 }
 
+/** Infinite-scroll variant of {@link useDonations}. */
+export function useInfiniteDonations(
+  params: { search?: string; extra?: Record<string, string | number | boolean | undefined> } = {},
+) {
+  return useInfiniteList<BloodDonation>([...KEY, 'donations'], '/blood/donations', params);
+}
+
 export function useCreateDonation() {
   const qc = useQueryClient();
   return useMutation({
@@ -95,6 +103,13 @@ export function useBloodRequests(params: { page: number; limit: number }) {
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+/** Infinite-scroll variant of {@link useBloodRequests}. */
+export function useInfiniteBloodRequests(
+  params: { search?: string; extra?: Record<string, string | number | boolean | undefined> } = {},
+) {
+  return useInfiniteList<BloodRequest>([...KEY, 'requests'], '/blood/requests', params);
 }
 
 export function useCreateBloodRequest() {

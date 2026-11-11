@@ -7,20 +7,18 @@ import { DataTable, type Column } from '@/components/shared/DataTable';
 import { PrintButton } from '@/components/shared/PrintButton';
 import { getApiErrorMessage } from '@/lib/http';
 import {
-  useRequisitions,
+  useInfiniteRequisitions,
   useRequisitionAction,
   type RequisitionListRow,
 } from '@/features/requisitions/api';
 import { RequisitionFormDialog } from '@/features/requisitions/RequisitionFormDialog';
 
-const LIMIT = 20;
-
 /** Requisitions list + create + approve/reject/receive workflow. */
 export function RequisitionsPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
-  const { data, isLoading } = useRequisitions({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteRequisitions({ search });
   const action = useRequisitionAction();
 
   const run = async (id: string, act: 'approve' | 'reject' | 'receive') => {
@@ -83,23 +81,17 @@ export function RequisitionsPage() {
       <Input
         placeholder="Search by reference…"
         value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
+        onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No requisitions yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <RequisitionFormDialog open={formOpen} onOpenChange={setFormOpen} />

@@ -8,10 +8,8 @@ import { PrintButton } from '@/components/shared/PrintButton';
 import { EmailDocumentButton } from '@/components/shared/EmailDocumentButton';
 import { ImportDialog } from '@/components/shared/ImportDialog';
 import { exportCsv } from '@/lib/csv';
-import { useSales, type SaleListRow } from '@/features/sales/api';
+import { useInfiniteSales, type SaleListRow } from '@/features/sales/api';
 import { SaleFormDialog } from '@/features/sales/SaleFormDialog';
-
-const LIMIT = 20;
 
 /** Group flat CSV line rows into sale documents keyed by reference/customer. */
 function groupSaleRows(records: Record<string, string>[]): unknown[] {
@@ -42,12 +40,12 @@ function groupSaleRows(records: Record<string, string>[]): unknown[] {
 
 /** Sales list + create. */
 export function SalesPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const { data, isLoading } = useSales({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteSales({ search });
 
   const columns: Column<SaleListRow>[] = [
     { key: 'reference', header: 'Reference' },
@@ -75,6 +73,13 @@ export function SalesPage() {
           </Button>
           <PrintButton path={`/print/sale/${r.id}`} title="Print invoice" />
           <PrintButton
+            path={`/print/sale/${r.id}?template=tax`}
+            title="Print tax invoice"
+            variant="outline"
+          >
+            Tax
+          </PrintButton>
+          <PrintButton
             path={`/print/sale/${r.id}/receipt`}
             title="Print receipt"
             variant="outline"
@@ -98,7 +103,6 @@ export function SalesPage() {
           <Button
             variant="outline"
             onClick={() => {
-              const rows = data?.data ?? [];
               if (rows.length === 0) {
                 toast.error('Nothing to export.');
                 return;
@@ -138,21 +142,17 @@ export function SalesPage() {
         value={search}
         onChange={(e) => {
           setSearch(e.target.value);
-          setPage(1);
         }}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No sales yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <SaleFormDialog

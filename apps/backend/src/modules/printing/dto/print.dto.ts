@@ -40,6 +40,11 @@ export class BarcodeSheetDto {
   @IsIn(['20', '30', '40', '50'])
   style?: '20' | '30' | '40' | '50';
 
+  /** Barcode symbology printed on each label. */
+  @IsOptional()
+  @IsIn(['CODE39', 'QR'])
+  symbology?: 'CODE39' | 'QR';
+
   @IsOptional() @IsBoolean() showName?: boolean;
   @IsOptional() @IsBoolean() showPrice?: boolean;
   @IsOptional() @IsBoolean() showBusinessName?: boolean;

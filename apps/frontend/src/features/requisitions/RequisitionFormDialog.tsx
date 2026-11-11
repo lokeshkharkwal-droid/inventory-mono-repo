@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import {
@@ -12,13 +12,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
 import { useBranchOptions } from '@/features/_shared/branches';
-import { useProducts } from '@/features/products/api';
 import { useCreateRequisition } from './api';
 
 interface LineRow {
   productId: string;
+  productName?: string;
   quantity: string;
 }
 
@@ -42,20 +43,19 @@ interface Props {
 export function RequisitionFormDialog({ open, onOpenChange }: Props) {
   const create = useCreateRequisition();
   const { data: branches } = useBranchOptions();
-  const { data: products } = useProducts({ page: 1, limit: 200 });
 
   const branchOptions = useMemo(() => branches ?? [], [branches]);
-  const productOptions = useMemo(() => products?.data ?? [], [products]);
 
-  const { register, handleSubmit, control, reset } = useForm<FormValues>({
-    defaultValues: {
-      fromBranchId: '',
-      reference: '',
-      date: '',
-      note: '',
-      items: [{ productId: '', quantity: '1' }],
-    },
-  });
+  const { register, handleSubmit, control, reset, setValue, watch } =
+    useForm<FormValues>({
+      defaultValues: {
+        fromBranchId: '',
+        reference: '',
+        date: '',
+        note: '',
+        items: [{ productId: '', quantity: '1' }],
+      },
+    });
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
 
   const submit = handleSubmit(async (v) => {
@@ -118,12 +118,23 @@ export function RequisitionFormDialog({ open, onOpenChange }: Props) {
             </div>
             {fields.map((f, i) => (
               <div key={f.id} className="grid grid-cols-[3fr_1fr_auto] gap-2">
-                <select className={selectCls} {...register(`items.${i}.productId`)}>
-                  <option value="">Select product…</option>
-                  {productOptions.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <Controller
+                  control={control}
+                  name={`items.${i}.productId`}
+                  render={({ field }) => (
+                    <InfiniteSelect
+                      value={field.value}
+                      onChange={field.onChange}
+                      onSelect={(p) => setValue(`items.${i}.productName`, p.name)}
+                      queryKey={['products']}
+                      path="/products"
+                      getOptionValue={(p) => p.id}
+                      getOptionLabel={(p) => p.name}
+                      selectedLabel={watch(`items.${i}.productName`)}
+                      placeholder="Select product…"
+                    />
+                  )}
+                />
                 <Input placeholder="Qty" type="number" step="any" {...register(`items.${i}.quantity`)} />
                 <Button type="button" variant="ghost" size="icon" onClick={() => remove(i)}>
                   <Trash2 className="h-4 w-4 text-destructive" />

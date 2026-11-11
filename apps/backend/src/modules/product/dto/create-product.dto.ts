@@ -135,6 +135,11 @@ export class CreateProductDto {
   @IsBoolean()
   isSerialized?: boolean;
 
+  /** Set when the product is imported from a global master (back-link). */
+  @IsOptional()
+  @IsString()
+  sourceMasterProductId?: string;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

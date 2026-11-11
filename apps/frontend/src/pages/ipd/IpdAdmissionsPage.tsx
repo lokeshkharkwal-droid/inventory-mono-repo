@@ -14,7 +14,7 @@ import {
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { getApiErrorMessage } from '@/lib/http';
 import {
-  useAdmissions,
+  useInfiniteAdmissions,
   useAdmit,
   useDischarge,
   useDeleteAdmission,
@@ -22,14 +22,12 @@ import {
 } from '@/features/ipd/api';
 import { IpdChargesDialog } from '@/features/ipd/IpdChargesDialog';
 
-const LIMIT = 20;
-
 /** IPD admissions: list, admit, discharge. */
 export function IpdAdmissionsPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
-  const { data, isLoading } = useAdmissions({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteAdmissions({ search });
   const admit = useAdmit();
   const discharge = useDischarge();
   const del = useDeleteAdmission();
@@ -134,23 +132,17 @@ export function IpdAdmissionsPage() {
       <Input
         placeholder="Search by patient or admission #…"
         value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
+        onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No admissions yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>

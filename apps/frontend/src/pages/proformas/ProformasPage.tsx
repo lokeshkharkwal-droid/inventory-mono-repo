@@ -8,20 +8,18 @@ import { PrintButton } from '@/components/shared/PrintButton';
 import { EmailDocumentButton } from '@/components/shared/EmailDocumentButton';
 import { getApiErrorMessage } from '@/lib/http';
 import {
-  useProformas,
+  useInfiniteProformas,
   useDeleteProforma,
   type ProformaListRow,
 } from '@/features/proformas/api';
 import { ProformaFormDialog } from '@/features/proformas/ProformaFormDialog';
 
-const LIMIT = 20;
-
 /** Proformas list + create. */
 export function ProformasPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
-  const { data, isLoading } = useProformas({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteProformas({ search });
   const del = useDeleteProforma();
 
   const onDelete = async (r: ProformaListRow) => {
@@ -76,23 +74,17 @@ export function ProformasPage() {
       <Input
         placeholder="Search by reference…"
         value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
+        onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No proformas yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <ProformaFormDialog open={formOpen} onOpenChange={setFormOpen} />

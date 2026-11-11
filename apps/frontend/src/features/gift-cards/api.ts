@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface GiftCard {
   id: string;
@@ -25,6 +26,13 @@ export function useGiftCards(params: { page: number; limit: number; search?: str
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+/** Infinite-scroll variant of {@link useGiftCards}. */
+export function useInfiniteGiftCards(
+  params: { search?: string; extra?: Record<string, string | number | boolean | undefined> } = {},
+) {
+  return useInfiniteList<GiftCard>(KEY, '/gift-cards', params);
 }
 
 export function useCreateGiftCard() {

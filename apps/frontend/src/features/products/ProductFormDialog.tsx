@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from 'react';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { useEffect } from 'react';
+import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import {
@@ -12,12 +12,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
-import { useCategories } from '@/features/categories/api';
-import { subCategoryHooks } from '@/features/sub-categories/api';
-import { unitHooks } from '@/features/units/api';
-import { brandHooks } from '@/features/brands/api';
-import { taxRateHooks } from '@/features/tax-rates/api';
 import {
   useCreateProduct,
   useUpdateProduct,
@@ -89,21 +85,7 @@ export function ProductFormDialog({ open, onOpenChange, product }: Props) {
   const create = useCreateProduct();
   const update = useUpdateProduct();
 
-  const { data: cats } = useCategories({ page: 1, limit: 100 });
-  const { data: subs } = subCategoryHooks.useList({ page: 1, limit: 200 });
-  const { data: units } = unitHooks.useList({ page: 1, limit: 200 });
-  const { data: brands } = brandHooks.useList({ page: 1, limit: 200 });
-  const { data: taxes } = taxRateHooks.useList({ page: 1, limit: 200 });
-
-  const opt = (rows?: { id: string; name: string }[]) =>
-    (rows ?? []).map((r) => ({ value: r.id, label: r.name }));
-  const categoryOptions = useMemo(() => opt(cats?.data), [cats]);
-  const subOptions = useMemo(() => opt(subs?.data), [subs]);
-  const unitOptions = useMemo(() => opt(units?.data), [units]);
-  const brandOptions = useMemo(() => opt(brands?.data), [brands]);
-  const taxOptions = useMemo(() => opt(taxes?.data), [taxes]);
-
-  const { register, handleSubmit, reset, control } = useForm<FormValues>({
+  const { register, handleSubmit, reset, control, watch } = useForm<FormValues>({
     defaultValues: EMPTY,
   });
   const { fields, append, remove } = useFieldArray({ control, name: 'variants' });
@@ -208,48 +190,109 @@ export function ProductFormDialog({ open, onOpenChange, product }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="categoryId">Category</Label>
-              <select id="categoryId" className={selectCls} {...register('categoryId', { required: true })}>
-                <option value="">—</option>
-                {categoryOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="categoryId"
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <InfiniteSelect
+                    id="categoryId"
+                    value={field.value}
+                    onChange={field.onChange}
+                    queryKey={['categories']}
+                    path="/categories"
+                    getOptionValue={(c: { id: string }) => c.id}
+                    getOptionLabel={(c: { name: string }) => c.name}
+                    selectedLabel={product?.category?.name}
+                    placeholder="—"
+                  />
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="subCategoryId">Sub-category</Label>
-              <select id="subCategoryId" className={selectCls} {...register('subCategoryId')}>
-                <option value="">—</option>
-                {subOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="subCategoryId"
+                render={({ field }) => (
+                  <InfiniteSelect
+                    id="subCategoryId"
+                    value={field.value}
+                    onChange={field.onChange}
+                    queryKey={['sub-categories']}
+                    path="/sub-categories"
+                    getOptionValue={(s: { id: string }) => s.id}
+                    getOptionLabel={(s: { name: string }) => s.name}
+                    selectedLabel={product?.subCategory?.name}
+                    extra={{ categoryId: watch('categoryId') || undefined }}
+                    placeholder="—"
+                    clearable
+                  />
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="unitId">Unit</Label>
-              <select id="unitId" className={selectCls} {...register('unitId')}>
-                <option value="">—</option>
-                {unitOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="unitId"
+                render={({ field }) => (
+                  <InfiniteSelect
+                    id="unitId"
+                    value={field.value}
+                    onChange={field.onChange}
+                    queryKey={['units']}
+                    path="/units"
+                    getOptionValue={(u: { id: string }) => u.id}
+                    getOptionLabel={(u: { name: string }) => u.name}
+                    selectedLabel={product?.unit?.name}
+                    placeholder="—"
+                    clearable
+                  />
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="brandId">Brand</Label>
-              <select id="brandId" className={selectCls} {...register('brandId')}>
-                <option value="">—</option>
-                {brandOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="brandId"
+                render={({ field }) => (
+                  <InfiniteSelect
+                    id="brandId"
+                    value={field.value}
+                    onChange={field.onChange}
+                    queryKey={['brands']}
+                    path="/brands"
+                    getOptionValue={(b: { id: string }) => b.id}
+                    getOptionLabel={(b: { name: string }) => b.name}
+                    selectedLabel={product?.brand?.name}
+                    placeholder="—"
+                    clearable
+                  />
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="taxRateId">Tax rate</Label>
-              <select id="taxRateId" className={selectCls} {...register('taxRateId')}>
-                <option value="">—</option>
-                {taxOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="taxRateId"
+                render={({ field }) => (
+                  <InfiniteSelect
+                    id="taxRateId"
+                    value={field.value}
+                    onChange={field.onChange}
+                    queryKey={['tax-rates']}
+                    path="/tax-rates"
+                    getOptionValue={(t: { id: string }) => t.id}
+                    getOptionLabel={(t: { name: string }) => t.name}
+                    selectedLabel={product?.taxRate?.name}
+                    placeholder="—"
+                    clearable
+                  />
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="type">Type</Label>

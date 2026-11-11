@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface Admission {
   id: string;
@@ -28,6 +29,13 @@ export function useAdmissions(params: { page: number; limit: number; search?: st
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+/** Infinite-scroll variant of {@link useAdmissions}. */
+export function useInfiniteAdmissions(
+  params: { search?: string; extra?: Record<string, string | number | boolean | undefined> } = {},
+) {
+  return useInfiniteList<Admission>(KEY, '/ipd/admissions', params);
 }
 
 export function useAdmit() {
