@@ -242,28 +242,26 @@ export function AppLayout() {
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-xl transition-transform duration-200 ease-out lg:static lg:z-auto lg:w-60 lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col gradient-primary text-white transition-transform duration-200 ease-out lg:static lg:z-auto lg:w-60 lg:translate-x-0',
           mobileOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full',
         )}
       >
-        <div className="flex h-16 shrink-0 items-center justify-between px-5">
-          <div className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-sidebar-primary/10 text-sidebar-primary">
-              <Package className="h-4 w-4" />
-            </span>
-            {t('app.title')}
+        {/* Branch/role switcher — mirrors the kaltros-fe sidebar head. */}
+        <div className="flex flex-col gap-2 border-b border-white/15 px-3 py-3">
+          <div className="flex items-center justify-end lg:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white hover:bg-white/10 hover:text-white"
+              onClick={() => setMobileOpen(false)}
+            >
+              <X className="h-5 w-5" />
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={() => setMobileOpen(false)}
-          >
-            <X className="h-5 w-5" />
-          </Button>
+          <ProfileSwitcher />
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
           {GROUPS.map((group) => {
             const isOpen = openGroups.has(group.title);
             const hasActive = group.title === activeTitle;
@@ -276,14 +274,14 @@ export function AppLayout() {
                   className={cn(
                     'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide transition-colors',
                     hasActive
-                      ? 'text-sidebar-foreground'
-                      : 'text-sidebar-muted hover:text-sidebar-foreground',
+                      ? 'text-white'
+                      : 'text-blue-100 hover:text-white',
                   )}
                 >
                   <GroupIcon className="h-4 w-4 shrink-0" />
                   <span className="flex-1">{t(`nav.${group.title}`)}</span>
                   {hasActive && !isOpen && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-sidebar-primary" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-white" />
                   )}
                   <ChevronDown
                     className={cn(
@@ -302,10 +300,10 @@ export function AppLayout() {
                         end={end}
                         className={({ isActive }) =>
                           cn(
-                            'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150 ease-out active:scale-[0.98]',
+                            'flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-150 ease-out active:scale-[0.98]',
                             isActive
-                              ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
-                              : 'text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                              ? 'bg-white/20 text-white shadow-sm'
+                              : 'text-blue-100 hover:bg-white/10 hover:text-white',
                           )
                         }
                       >
@@ -322,32 +320,45 @@ export function AppLayout() {
       </aside>
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-2 border-b border-border/60 bg-[#F0F8FF] px-4 backdrop-blur-xl lg:px-6">
+        <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-2 border-b border-black bg-black px-4 text-white backdrop-blur-xl lg:px-6">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden"
+              className="text-white hover:bg-white/10 hover:text-white lg:hidden"
               onClick={() => setMobileOpen(true)}
             >
               <Menu className="h-5 w-5" />
             </Button>
-            <span className="text-sm font-medium text-muted-foreground">
+            <span className="flex items-center gap-2 text-sm font-medium text-white">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/15 text-white">
+                <Package className="h-4 w-4" />
+              </span>
               Kalnostics · Inventory
             </span>
           </div>
           <div className="flex items-center gap-1">
-            <ProfileSwitcher />
-            <NotificationBell />
+            <NotificationBell className="text-white hover:bg-white/10 hover:text-white" />
             {/* Back to Kaltros — /launch lands the user on their default module
                 (shared same-origin session), not the login page. */}
-            <Button variant="outline" size="sm" asChild title="Back to Kaltros">
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              title="Back to Kaltros"
+              className="border-white bg-white text-black hover:bg-white/90 hover:text-black"
+            >
               <a href="/launch">
                 <ArrowLeftRight className="h-4 w-4" />
                 <span className="hidden sm:inline">Kaltros</span>
               </a>
             </Button>
-            <Button variant="ghost" size="sm" onClick={logout}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={logout}
+              className="text-white hover:bg-white/10 hover:text-white"
+            >
               <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline">{t('app.logout')}</span>
             </Button>
