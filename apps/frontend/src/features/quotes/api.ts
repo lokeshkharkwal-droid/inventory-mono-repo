@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface QuoteListRow {
   id: string;
@@ -27,6 +28,15 @@ export function useQuotes(params: { page: number; limit: number; search?: string
   });
 }
 
+export function useInfiniteQuotes(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<QuoteListRow>(KEY, '/quotes', params);
+}
+
 export function useCreateQuote() {
   const qc = useQueryClient();
   return useMutation({
@@ -43,6 +53,7 @@ export function useConvertQuote() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY });
       qc.invalidateQueries({ queryKey: ['sales'] });
+      qc.invalidateQueries({ queryKey: ['purchases'] });
     },
   });
 }

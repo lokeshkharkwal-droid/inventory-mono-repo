@@ -10,15 +10,13 @@ import { PrintButton } from '@/components/shared/PrintButton';
 import { getApiErrorMessage } from '@/lib/http';
 import { exportCsv } from '@/lib/csv';
 import {
-  useMaterials,
+  useInfiniteMaterials,
   useCreateMaterial,
   useUpdateMaterial,
   useDeleteMaterial,
   type Material,
 } from '@/features/materials/api';
 import { MaterialActionsDialog } from '@/features/materials/MaterialActionsDialog';
-
-const LIMIT = 20;
 
 const fields: FieldConfig[] = [
   { name: 'name', label: 'Name', type: 'text', required: true },
@@ -33,14 +31,14 @@ const fields: FieldConfig[] = [
 
 /** Materials list + CRUD + damage/repair actions. */
 export function MaterialsPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Material | null>(null);
   const [actionsRow, setActionsRow] = useState<Material | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
-  const { data, isLoading } = useMaterials({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteMaterials({ search });
   const create = useCreateMaterial();
   const update = useUpdateMaterial();
   const del = useDeleteMaterial();
@@ -149,7 +147,6 @@ export function MaterialsPage() {
           <Button
             variant="outline"
             onClick={() => {
-              const rows = data?.data ?? [];
               if (rows.length === 0) {
                 toast.error('Nothing to export.');
                 return;
@@ -184,23 +181,17 @@ export function MaterialsPage() {
       <Input
         placeholder="Search by name or code…"
         value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
+        onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No materials yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <CrudFormDialog

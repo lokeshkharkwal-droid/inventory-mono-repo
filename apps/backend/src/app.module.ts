@@ -46,6 +46,8 @@ import { PrintingModule } from './modules/printing/printing.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { EmailTemplateModule } from './modules/email-template/email-template.module';
 import { ProductTemplateModule } from './modules/product-template/product-template.module';
+import { MasterProductModule } from './modules/master-product/master-product.module';
+import { MasterReferenceModule } from './modules/master-reference/master-reference.module';
 import { PromotionModule } from './modules/promotion/promotion.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
@@ -109,6 +111,8 @@ import { AlertsModule } from './modules/alerts/alerts.module';
     AlertsModule,
     EmailTemplateModule,
     ProductTemplateModule,
+    MasterProductModule,
+    MasterReferenceModule,
     PromotionModule,
   ],
   providers: [

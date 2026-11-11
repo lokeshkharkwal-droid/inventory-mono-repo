@@ -26,8 +26,13 @@ export function IncomesPage() {
     {
       name: 'categoryId',
       label: 'Category',
-      type: 'select',
-      options: categories.map((c) => ({ value: c.id, label: c.name })),
+      type: 'async-select',
+      async: {
+        queryKey: ['income-categories'],
+        path: '/income-categories',
+        placeholder: 'Select category…',
+        clearable: true,
+      },
     },
     { name: 'reference', label: 'Reference', type: 'text' },
     { name: 'date', label: 'Date', type: 'date' },

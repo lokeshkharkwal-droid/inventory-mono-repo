@@ -1,5 +1,4 @@
-import { useMemo } from 'react';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import {
@@ -12,13 +11,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
-import { customerHooks } from '@/features/customers/api';
-import { useProducts } from '@/features/products/api';
 import { useCreateProforma } from './api';
 
 interface LineRow {
   productId: string;
+  productName?: string;
   quantity: string;
   unitPrice: string;
   taxRate: string;
@@ -41,6 +40,7 @@ interface FormValues {
 
 const EMPTY_ROW: LineRow = {
   productId: '',
+  productName: '',
   quantity: '1',
   unitPrice: '0',
   taxRate: '0',
@@ -58,13 +58,8 @@ interface Props {
 /** Create-proforma dialog: customer + product lines + optional lab/radiology lines. */
 export function ProformaFormDialog({ open, onOpenChange }: Props) {
   const create = useCreateProforma();
-  const { data: customers } = customerHooks.useList({ page: 1, limit: 200 });
-  const { data: products } = useProducts({ page: 1, limit: 200 });
 
-  const customerOptions = useMemo(() => customers?.data ?? [], [customers]);
-  const productOptions = useMemo(() => products?.data ?? [], [products]);
-
-  const { register, handleSubmit, control, reset } = useForm<FormValues>({
+  const { register, handleSubmit, control, reset, setValue, watch } = useForm<FormValues>({
     defaultValues: {
       customerId: '',
       reference: '',
@@ -125,12 +120,23 @@ export function ProformaFormDialog({ open, onOpenChange }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="customerId">Customer</Label>
-              <select id="customerId" className={selectCls} {...register('customerId')}>
-                <option value="">—</option>
-                {customerOptions.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="customerId"
+                render={({ field }) => (
+                  <InfiniteSelect
+                    id="customerId"
+                    value={field.value}
+                    onChange={field.onChange}
+                    queryKey={['customers']}
+                    path="/customers"
+                    getOptionValue={(c) => c.id}
+                    getOptionLabel={(c) => c.name}
+                    placeholder="Select customer…"
+                    clearable
+                  />
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="date">Date</Label>
@@ -151,12 +157,23 @@ export function ProformaFormDialog({ open, onOpenChange }: Props) {
             </div>
             {items.fields.map((f, i) => (
               <div key={f.id} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2">
-                <select className={selectCls} {...register(`items.${i}.productId`)}>
-                  <option value="">Select product…</option>
-                  {productOptions.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <Controller
+                  control={control}
+                  name={`items.${i}.productId`}
+                  render={({ field }) => (
+                    <InfiniteSelect
+                      value={field.value}
+                      onChange={field.onChange}
+                      onSelect={(p) => setValue(`items.${i}.productName`, p.name)}
+                      selectedLabel={watch(`items.${i}.productName`)}
+                      queryKey={['products']}
+                      path="/products"
+                      getOptionValue={(p) => p.id}
+                      getOptionLabel={(p) => p.name}
+                      placeholder="Select product…"
+                    />
+                  )}
+                />
                 <Input placeholder="Qty" type="number" step="any" {...register(`items.${i}.quantity`)} />
                 <Input placeholder="Price" type="number" step="any" {...register(`items.${i}.unitPrice`)} />
                 <Input placeholder="Tax %" type="number" step="any" {...register(`items.${i}.taxRate`)} />

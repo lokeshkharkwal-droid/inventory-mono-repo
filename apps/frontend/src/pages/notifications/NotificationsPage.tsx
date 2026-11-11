@@ -5,21 +5,19 @@ import { Check, CheckCheck, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getApiErrorMessage } from '@/lib/http';
 import {
-  useNotifications,
+  useInfiniteNotifications,
   useMarkRead,
   useMarkAllRead,
   useDeleteNotification,
   type Notification,
 } from '@/features/notifications/api';
 
-const LIMIT = 20;
-
 /** In-app notifications: list, mark read, delete; click to follow the link. */
 export function NotificationsPage() {
   const navigate = useNavigate();
-  const [page, setPage] = useState(1);
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const { data, isLoading } = useNotifications({ page, limit: LIMIT, unreadOnly });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteNotifications({ extra: { unreadOnly: unreadOnly || undefined } });
   const markRead = useMarkRead();
   const markAll = useMarkAllRead();
   const del = useDeleteNotification();
@@ -44,9 +42,6 @@ export function NotificationsPage() {
     }
   };
 
-  const rows = data?.data ?? [];
-  const totalPages = data?.meta.totalPages ?? 1;
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -59,10 +54,7 @@ export function NotificationsPage() {
         <div className="flex gap-2">
           <Button
             variant="outline"
-            onClick={() => {
-              setUnreadOnly((v) => !v);
-              setPage(1);
-            }}
+            onClick={() => setUnreadOnly((v) => !v)}
           >
             {unreadOnly ? 'Show all' : 'Unread only'}
           </Button>
@@ -134,29 +126,16 @@ export function NotificationsPage() {
           </ul>
         )}
 
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t px-4 py-3">
-            <span className="text-sm text-muted-foreground">
-              Page {page} of {totalPages}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                Prev
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
+        {hasMore && (
+          <div className="flex justify-center border-t px-4 py-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isFetchingMore}
+              onClick={() => fetchMore()}
+            >
+              {isFetchingMore ? 'Loading…' : 'Load more'}
+            </Button>
           </div>
         )}
       </div>

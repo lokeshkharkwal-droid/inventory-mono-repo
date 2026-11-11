@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface Notification {
   id: string;
@@ -34,6 +35,13 @@ export function useNotifications(params: {
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+/** Infinite-scroll variant of {@link useNotifications}. */
+export function useInfiniteNotifications(
+  params: { search?: string; extra?: Record<string, string | number | boolean | undefined> } = {},
+) {
+  return useInfiniteList<Notification>(KEY, '/notifications', params);
 }
 
 /** Unread count — polled so the bell badge stays fresh. */

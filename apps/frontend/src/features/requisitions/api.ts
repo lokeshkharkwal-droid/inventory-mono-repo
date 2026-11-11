@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface RequisitionListRow {
   id: string;
@@ -24,6 +25,15 @@ export function useRequisitions(params: { page: number; limit: number; search?: 
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+export function useInfiniteRequisitions(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<RequisitionListRow>(KEY, '/requisitions', params);
 }
 
 export function useCreateRequisition() {

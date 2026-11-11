@@ -224,8 +224,10 @@ export interface ManageableRole {
  * every other role is editable and defaults to its code baseline (view-only
  * unless listed in `ROLE_BASELINE`) until an admin customises it.
  */
-export const MANAGEABLE_ROLES: ManageableRole[] = STAFF_ROLE_KEYS.map((key) => ({
-  key,
-  label: PROFILE_LABELS[key],
-  isSuperuser: SUPERUSER_PROFILES.has(key),
-}));
+export const MANAGEABLE_ROLES: ManageableRole[] = STAFF_ROLE_KEYS.map(
+  (key) => ({
+    key,
+    label: PROFILE_LABELS[key],
+    isSuperuser: SUPERUSER_PROFILES.has(key),
+  }),
+);

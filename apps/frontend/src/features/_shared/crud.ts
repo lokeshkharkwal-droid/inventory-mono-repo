@@ -4,6 +4,10 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged, type PageMeta } from '@/lib/http';
+import {
+  useInfiniteList as useSharedInfiniteList,
+  type InfiniteListParams,
+} from './useInfiniteList';
 
 export interface ListParams {
   page: number;
@@ -40,6 +44,11 @@ export function makeCrudHooks<T, TInput>(resource: string, key: string) {
     });
   }
 
+  /** Infinite-scroll list for this resource (preferred over `useList`). */
+  function useInfiniteList(params: InfiniteListParams = {}) {
+    return useSharedInfiniteList<T>(KEY, `/${resource}`, params);
+  }
+
   function useCreate() {
     const qc = useQueryClient();
     return useMutation({
@@ -66,5 +75,5 @@ export function makeCrudHooks<T, TInput>(resource: string, key: string) {
     });
   }
 
-  return { useList, useCreate, useUpdate, useRemove };
+  return { useList, useInfiniteList, useCreate, useUpdate, useRemove };
 }

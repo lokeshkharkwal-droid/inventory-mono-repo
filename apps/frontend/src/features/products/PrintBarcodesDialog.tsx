@@ -40,6 +40,7 @@ export function PrintBarcodesDialog({ open, onOpenChange }: Props) {
   const { data } = useProducts({ page: 1, limit: 20, search });
   const [rows, setRows] = useState<Row[]>([]);
   const [style, setStyle] = useState<'20' | '30' | '40' | '50'>('40');
+  const [symbology, setSymbology] = useState<'CODE39' | 'QR'>('CODE39');
   const [showName, setShowName] = useState(true);
   const [showPrice, setShowPrice] = useState(true);
   const [showBusinessName, setShowBusinessName] = useState(false);
@@ -70,6 +71,7 @@ export function PrintBarcodesDialog({ open, onOpenChange }: Props) {
       const ok = await openPrintDocumentPost('/print/barcodes', {
         items: rows.map((r) => ({ productId: r.productId, quantity: r.quantity })),
         style,
+        symbology,
         showName,
         showPrice,
         showBusinessName,
@@ -181,6 +183,19 @@ export function PrintBarcodesDialog({ open, onOpenChange }: Props) {
               </select>
             </div>
             <div className="space-y-1.5">
+              <Label>Barcode type</Label>
+              <select
+                className={selectCls}
+                value={symbology}
+                onChange={(e) =>
+                  setSymbology(e.target.value as 'CODE39' | 'QR')
+                }
+              >
+                <option value="CODE39">Barcode (Code 39)</option>
+                <option value="QR">QR code</option>
+              </select>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
               <Label>Business name (optional)</Label>
               <Input
                 value={businessName}

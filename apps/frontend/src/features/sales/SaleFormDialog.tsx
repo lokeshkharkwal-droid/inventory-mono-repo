@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import {
@@ -12,13 +12,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
-import { customerHooks } from '@/features/customers/api';
-import { useProducts } from '@/features/products/api';
 import { useCreateSale, useUpdateSale, useSale } from './api';
 
 interface LineRow {
   productId: string;
+  productName?: string;
   quantity: string;
   price: string;
   taxRate: string;
@@ -38,6 +38,7 @@ interface FormValues {
 
 const EMPTY_ROW: LineRow = {
   productId: '',
+  productName: '',
   quantity: '1',
   price: '0',
   taxRate: '0',
@@ -59,16 +60,8 @@ export function SaleFormDialog({ open, onOpenChange, editId }: Props) {
   const create = useCreateSale();
   const update = useUpdateSale();
   const { data: editing } = useSale(editId ?? null);
-  const { data: customers } = customerHooks.useList({ page: 1, limit: 200 });
-  const { data: products } = useProducts({ page: 1, limit: 200 });
 
-  const customerOptions = useMemo(
-    () => (customers?.data ?? []).map((c) => ({ value: c.id, label: c.name })),
-    [customers],
-  );
-  const productOptions = useMemo(() => products?.data ?? [], [products]);
-
-  const { register, handleSubmit, control, watch, reset } = useForm<FormValues>({
+  const { register, handleSubmit, control, watch, reset, setValue } = useForm<FormValues>({
     defaultValues: {
       customerId: '',
       reference: '',
@@ -96,6 +89,7 @@ export function SaleFormDialog({ open, onOpenChange, editId }: Props) {
         note: editing.note ?? '',
         items: editing.items.map((i) => ({
           productId: i.productId,
+          productName: i.productName,
           quantity: String(i.quantity),
           price: String(i.price),
           taxRate: String(i.taxRate ?? 0),
@@ -176,12 +170,23 @@ export function SaleFormDialog({ open, onOpenChange, editId }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="customerId">Customer</Label>
-              <select id="customerId" className={selectCls} {...register('customerId', { required: true })}>
-                <option value="">—</option>
-                {customerOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="customerId"
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <InfiniteSelect
+                    value={field.value}
+                    onChange={field.onChange}
+                    queryKey={['customers']}
+                    path="/customers"
+                    getOptionValue={(c) => c.id}
+                    getOptionLabel={(c) => c.name}
+                    selectedLabel={editing?.customer?.name}
+                    placeholder="Select customer…"
+                  />
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="date">Date</Label>
@@ -209,12 +214,23 @@ export function SaleFormDialog({ open, onOpenChange, editId }: Props) {
             </div>
             {fields.map((f, i) => (
               <div key={f.id} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2">
-                <select className={selectCls} {...register(`items.${i}.productId`)}>
-                  <option value="">Select product…</option>
-                  {productOptions.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <Controller
+                  control={control}
+                  name={`items.${i}.productId`}
+                  render={({ field }) => (
+                    <InfiniteSelect
+                      value={field.value}
+                      onChange={field.onChange}
+                      onSelect={(p) => setValue(`items.${i}.productName`, p.name)}
+                      queryKey={['products']}
+                      path="/products"
+                      getOptionValue={(p) => p.id}
+                      getOptionLabel={(p) => p.name}
+                      selectedLabel={watch(`items.${i}.productName`)}
+                      placeholder="Select product…"
+                    />
+                  )}
+                />
                 <Input placeholder="Qty" type="number" step="any" {...register(`items.${i}.quantity`)} />
                 <Input placeholder="Price" type="number" step="any" {...register(`items.${i}.price`)} />
                 <Input placeholder="Tax %" type="number" step="any" {...register(`items.${i}.taxRate`)} />

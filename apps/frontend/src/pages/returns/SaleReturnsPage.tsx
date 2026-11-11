@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,18 +12,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { DataTable, type Column } from '@/components/shared/DataTable';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
-import { useSales } from '@/features/sales/api';
-import { useProducts } from '@/features/products/api';
 import {
-  useSaleReturns,
+  useInfiniteSaleReturns,
   useCreateSaleReturn,
   type ReturnRow,
 } from '@/features/returns/api';
-
-const LIMIT = 20;
-const selectCls =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm';
 
 interface Line {
   productId: string;
@@ -33,15 +28,10 @@ interface Line {
 
 /** Sale returns: list + create (restocks + optional refund). */
 export function SaleReturnsPage() {
-  const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
-  const { data, isLoading } = useSaleReturns({ page, limit: LIMIT });
-  const { data: sales } = useSales({ page: 1, limit: 100 });
-  const { data: products } = useProducts({ page: 1, limit: 200 });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteSaleReturns();
   const create = useCreateSaleReturn();
-
-  const saleOptions = useMemo(() => sales?.data ?? [], [sales]);
-  const productOptions = useMemo(() => products?.data ?? [], [products]);
 
   const [saleId, setSaleId] = useState('');
   const [refund, setRefund] = useState('0');
@@ -87,14 +77,11 @@ export function SaleReturnsPage() {
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No sale returns yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -106,12 +93,16 @@ export function SaleReturnsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Sale</Label>
-                <select className={selectCls} value={saleId} onChange={(e) => setSaleId(e.target.value)}>
-                  <option value="">—</option>
-                  {saleOptions.map((s) => (
-                    <option key={s.id} value={s.id}>{s.reference}</option>
-                  ))}
-                </select>
+                <InfiniteSelect
+                  value={saleId}
+                  onChange={setSaleId}
+                  queryKey={['sales']}
+                  path="/sales"
+                  getOptionValue={(s) => s.id}
+                  getOptionLabel={(s) => s.reference}
+                  placeholder="Select sale…"
+                  clearable
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Refund amount</Label>
@@ -126,16 +117,15 @@ export function SaleReturnsPage() {
             </div>
             {lines.map((l, i) => (
               <div key={i} className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2">
-                <select
-                  className={selectCls}
+                <InfiniteSelect
                   value={l.productId}
-                  onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, productId: e.target.value } : x)))}
-                >
-                  <option value="">Select product…</option>
-                  {productOptions.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                  onChange={(id) => setLines(lines.map((x, j) => (j === i ? { ...x, productId: id } : x)))}
+                  queryKey={['products']}
+                  path="/products"
+                  getOptionValue={(p) => p.id}
+                  getOptionLabel={(p) => p.name}
+                  placeholder="Select product…"
+                />
                 <Input placeholder="Qty" type="number" step="any" value={l.quantity} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))} />
                 <Input placeholder="Price" type="number" step="any" value={l.price} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))} />
                 <Button type="button" variant="ghost" size="icon" onClick={() => setLines(lines.filter((_, j) => j !== i))}>

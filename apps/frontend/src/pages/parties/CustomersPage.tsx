@@ -33,6 +33,18 @@ const fields: FieldConfig[] = [
   { name: 'address', label: 'Address', type: 'textarea' },
   { name: 'taxNumber', label: 'Tax number', type: 'text' },
   { name: 'creditLimit', label: 'Credit limit', type: 'number' },
+  {
+    name: 'referredByCustomerId',
+    label: 'Referred by',
+    type: 'async-select',
+    async: {
+      queryKey: ['customers', 'referrer-pick'],
+      path: '/customers',
+      optionLabelKey: 'name',
+      placeholder: 'Search a customer…',
+      clearable: true,
+    },
+  },
   { name: 'isActive', label: 'Active', type: 'bool' },
 ];
 
@@ -75,6 +87,7 @@ export function CustomersPage({ patientsOnly = false }: { patientsOnly?: boolean
         address: '',
         taxNumber: '',
         creditLimit: '',
+        referredByCustomerId: '',
         isActive: true,
       }}
       toFormValues={(r) => ({
@@ -86,6 +99,7 @@ export function CustomersPage({ patientsOnly = false }: { patientsOnly?: boolean
         address: r.address ?? '',
         taxNumber: r.taxNumber ?? '',
         creditLimit: r.creditLimit != null ? String(r.creditLimit) : '',
+        referredByCustomerId: r.referredByCustomerId ?? '',
         isActive: r.isActive,
       })}
       rowLabel={(r) => r.name}

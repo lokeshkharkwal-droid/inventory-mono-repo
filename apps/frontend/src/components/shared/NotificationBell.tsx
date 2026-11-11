@@ -1,10 +1,11 @@
 import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useUnreadCount } from '@/features/notifications/api';
 
 /** Header bell showing the unread notification count; routes to the list. */
-export function NotificationBell() {
+export function NotificationBell({ className }: { className?: string }) {
   const navigate = useNavigate();
   const { data } = useUnreadCount();
   const count = data?.count ?? 0;
@@ -13,7 +14,7 @@ export function NotificationBell() {
     <Button
       variant="ghost"
       size="icon"
-      className="relative"
+      className={cn('relative', className)}
       title="Notifications"
       onClick={() => navigate('/notifications')}
     >

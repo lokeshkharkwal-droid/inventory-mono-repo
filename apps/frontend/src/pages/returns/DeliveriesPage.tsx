@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,29 +12,26 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { DataTable, type Column } from '@/components/shared/DataTable';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
-import { useSales } from '@/features/sales/api';
 import {
-  useDeliveries,
+  useInfiniteDeliveries,
   useCreateDelivery,
   useDeliveryStatus,
   type DeliveryRow,
 } from '@/features/returns/api';
 
-const LIMIT = 20;
 const STATUSES = ['PENDING', 'DISPATCHED', 'DELIVERED'];
 const selectCls = 'flex h-9 rounded-md border border-input bg-background px-2 text-sm';
 
 /** Sale deliveries: list + create + status updates. */
 export function DeliveriesPage() {
-  const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
-  const { data, isLoading } = useDeliveries({ page, limit: LIMIT });
-  const { data: sales } = useSales({ page: 1, limit: 100 });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteDeliveries();
   const create = useCreateDelivery();
   const status = useDeliveryStatus();
 
-  const saleOptions = useMemo(() => sales?.data ?? [], [sales]);
   const [form, setForm] = useState({ saleId: '', trackingNo: '', deliveredTo: '', address: '' });
 
   const submit = async () => {
@@ -96,14 +93,11 @@ export function DeliveriesPage() {
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No deliveries yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -114,16 +108,16 @@ export function DeliveriesPage() {
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>Sale</Label>
-              <select
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              <InfiniteSelect
                 value={form.saleId}
-                onChange={(e) => setForm({ ...form, saleId: e.target.value })}
-              >
-                <option value="">—</option>
-                {saleOptions.map((s) => (
-                  <option key={s.id} value={s.id}>{s.reference}</option>
-                ))}
-              </select>
+                onChange={(id) => setForm({ ...form, saleId: id })}
+                queryKey={['sales']}
+                path="/sales"
+                getOptionValue={(s) => s.id}
+                getOptionLabel={(s) => s.reference}
+                placeholder="Select sale…"
+                clearable
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

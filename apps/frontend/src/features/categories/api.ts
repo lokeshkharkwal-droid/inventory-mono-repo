@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged, type PageMeta } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 import type { Category, CategoryInput } from './types';
 
 const KEY = ['categories'] as const;
@@ -28,6 +29,16 @@ export function useCategories(params: ListParams) {
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+/** Infinite-scroll category list. */
+export function useInfiniteCategories(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<Category>([...KEY], '/categories', params);
 }
 
 export type { PageMeta };

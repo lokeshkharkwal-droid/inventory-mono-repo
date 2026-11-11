@@ -17,6 +17,7 @@ export interface Customer {
   taxNumber: string | null;
   creditLimit: number | null;
   patientId: string | null;
+  referredByCustomerId: string | null;
   loyaltyPoints: number;
   isActive: boolean;
 }

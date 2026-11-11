@@ -86,6 +86,7 @@ export class ProductService {
           potency: dto.potency,
           hsnCode: dto.hsnCode,
           isSerialized: dto.isSerialized ?? false,
+          sourceMasterProductId: dto.sourceMasterProductId,
           variants: dto.variants?.length
             ? {
                 create: dto.variants.map((v) => ({

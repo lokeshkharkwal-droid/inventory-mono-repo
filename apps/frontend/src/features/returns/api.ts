@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface ReturnRow {
   id: string;
@@ -30,6 +31,18 @@ export function usePurchaseReturns(params: { page: number; limit: number }) {
     placeholderData: (p) => p,
   });
 }
+export function useInfinitePurchaseReturns(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<ReturnRow>(
+    ['purchase-returns'],
+    '/purchase-returns',
+    params,
+  );
+}
 export function useCreatePurchaseReturn() {
   const qc = useQueryClient();
   return useMutation({
@@ -53,6 +66,14 @@ export function useSaleReturns(params: { page: number; limit: number }) {
     placeholderData: (p) => p,
   });
 }
+export function useInfiniteSaleReturns(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<ReturnRow>(['sale-returns'], '/sale-returns', params);
+}
 export function useCreateSaleReturn() {
   const qc = useQueryClient();
   return useMutation({
@@ -75,6 +96,18 @@ export function useDeliveries(params: { page: number; limit: number }) {
       }),
     placeholderData: (p) => p,
   });
+}
+export function useInfiniteDeliveries(
+  params: {
+    search?: string;
+    extra?: Record<string, string | number | boolean | undefined>;
+  } = {},
+) {
+  return useInfiniteList<DeliveryRow>(
+    ['sale-deliveries'],
+    '/sale-deliveries',
+    params,
+  );
 }
 export function useCreateDelivery() {
   const qc = useQueryClient();

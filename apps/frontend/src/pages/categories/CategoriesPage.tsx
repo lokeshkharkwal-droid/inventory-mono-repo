@@ -6,22 +6,20 @@ import { Input } from '@/components/ui/input';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { getApiErrorMessage } from '@/lib/http';
 import {
-  useCategories,
+  useInfiniteCategories,
   useDeleteCategory,
 } from '@/features/categories/api';
 import { CategoryFormDialog } from '@/features/categories/CategoryFormDialog';
 import type { Category } from '@/features/categories/types';
 
-const LIMIT = 20;
-
 /** Inventory categories list (Phase-0 vertical slice: full CRUD). */
 export function CategoriesPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
 
-  const { data, isLoading } = useCategories({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteCategories({ search });
   const del = useDeleteCategory();
 
   const openCreate = () => {
@@ -88,21 +86,17 @@ export function CategoriesPage() {
         value={search}
         onChange={(e) => {
           setSearch(e.target.value);
-          setPage(1);
         }}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No categories yet. Create your first one."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <CategoryFormDialog

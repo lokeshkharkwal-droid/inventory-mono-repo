@@ -7,6 +7,7 @@ import { CustomerService } from '../customer/customer.service';
 import { SupplierService } from '../supplier/supplier.service';
 import { ProductService } from '../product/product.service';
 import { SaleService } from '../sale/sale.service';
+import { PurchaseService } from '../purchase/purchase.service';
 import {
   CreateQuoteDto,
   QuoteQueryDto,
@@ -32,6 +33,7 @@ export class QuoteService {
     private readonly supplierService: SupplierService,
     private readonly productService: ProductService,
     private readonly saleService: SaleService,
+    private readonly purchaseService: PurchaseService,
   ) {}
 
   async create(
@@ -157,6 +159,22 @@ export class QuoteService {
     });
   }
 
+  /**
+   * Convert a quote into its downstream document: a SALE quote becomes a sale,
+   * a PURCHASE quote becomes a purchase order. Dispatches on the quote's type.
+   */
+  async convert(
+    id: string,
+    tenantId: string,
+    branchId: string | null,
+    actorId?: string,
+  ) {
+    const quote = await this.findById(id, tenantId);
+    return quote.type === 'PURCHASE'
+      ? this.convertToPurchase(id, tenantId, branchId, actorId)
+      : this.convertToSale(id, tenantId, branchId, actorId);
+  }
+
   /** Convert a SALE quote into a sale at the given branch (reuses SaleService). */
   async convertToSale(
     id: string,
@@ -199,6 +217,55 @@ export class QuoteService {
       data: { status: 'CONVERTED', convertedToId: sale.id },
     });
     return sale;
+  }
+
+  /**
+   * Convert a PURCHASE quote into a purchase order at the given branch (reuses
+   * PurchaseService). Created as ORDERED so it does not move stock until the
+   * goods are actually received. The quote's unit prices are the line costs.
+   */
+  async convertToPurchase(
+    id: string,
+    tenantId: string,
+    branchId: string | null,
+    actorId?: string,
+  ) {
+    const quote = await this.findById(id, tenantId);
+    if (quote.type !== 'PURCHASE') {
+      throw new QuoteNotConvertibleException(
+        'Only purchase quotes convert to a purchase',
+      );
+    }
+    if (quote.status === 'CONVERTED') {
+      throw new QuoteNotConvertibleException('This quote is already converted');
+    }
+    if (!quote.supplierId) throw new QuotePartyRequiredException('PURCHASE');
+
+    const purchase = await this.purchaseService.create(
+      tenantId,
+      branchId,
+      {
+        supplierId: quote.supplierId,
+        status: 'ORDERED',
+        orderDiscount: quote.orderDiscount.toNumber(),
+        shipping: quote.shipping.toNumber(),
+        note: `From quote ${quote.reference}`,
+        items: quote.items.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity.toNumber(),
+          cost: i.unitPrice.toNumber(),
+          taxRate: i.taxRate.toNumber(),
+          discount: i.discount.toNumber(),
+        })),
+      },
+      actorId,
+    );
+
+    await this.prisma.inventoryQuote.update({
+      where: { id },
+      data: { status: 'CONVERTED', convertedToId: purchase.id },
+    });
+    return purchase;
   }
 
   async remove(id: string, tenantId: string) {

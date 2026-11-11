@@ -14,7 +14,7 @@ import {
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { getApiErrorMessage } from '@/lib/http';
 import {
-  useBloodRequests,
+  useInfiniteBloodRequests,
   useCreateBloodRequest,
   useBloodRequestStatus,
   BLOOD_GROUPS,
@@ -23,15 +23,14 @@ import {
 } from '@/features/bloodbank/api';
 import { CrossMatchDialog } from '@/features/bloodbank/CrossMatchDialog';
 
-const LIMIT = 20;
 const STATUSES = ['PENDING', 'FULFILLED', 'CANCELLED'];
 const selectCls = 'flex h-9 rounded-md border border-input bg-background px-2 text-sm';
 
 /** Blood requests (transfusion orders): list, create, status updates. */
 export function BloodRequestsPage() {
-  const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
-  const { data, isLoading } = useBloodRequests({ page, limit: LIMIT });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteBloodRequests();
   const create = useCreateBloodRequest();
   const status = useBloodRequestStatus();
   const [crossMatch, setCrossMatch] = useState<BloodRequest | null>(null);
@@ -122,14 +121,11 @@ export function BloodRequestsPage() {
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No requests yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>

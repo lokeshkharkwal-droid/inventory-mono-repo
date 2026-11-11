@@ -8,7 +8,7 @@ import { PrintButton } from '@/components/shared/PrintButton';
 import { EmailDocumentButton } from '@/components/shared/EmailDocumentButton';
 import { getApiErrorMessage } from '@/lib/http';
 import {
-  useQuotes,
+  useInfiniteQuotes,
   useConvertQuote,
   useDeleteQuote,
   useQuoteStatus,
@@ -16,14 +16,12 @@ import {
 } from '@/features/quotes/api';
 import { QuoteFormDialog } from '@/features/quotes/QuoteFormDialog';
 
-const LIMIT = 20;
-
 /** Quotes list + create + approve/reject + convert-to-sale. */
 export function QuotesPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
-  const { data, isLoading } = useQuotes({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteQuotes({ search });
   const convert = useConvertQuote();
   const del = useDeleteQuote();
   const status = useQuoteStatus();
@@ -38,10 +36,11 @@ export function QuotesPage() {
   };
 
   const onConvert = async (r: QuoteListRow) => {
-    if (!confirm(`Convert quote ${r.reference} to a sale?`)) return;
+    const target = r.type === 'PURCHASE' ? 'purchase' : 'sale';
+    if (!confirm(`Convert quote ${r.reference} to a ${target}?`)) return;
     try {
       await convert.mutateAsync(r.id);
-      toast.success('Quote converted to sale');
+      toast.success(`Quote converted to ${target}`);
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Could not convert quote'));
     }
@@ -87,9 +86,10 @@ export function QuotesPage() {
               </Button>
             </>
           )}
-          {r.type === 'SALE' && r.status !== 'CONVERTED' && (
+          {r.status !== 'CONVERTED' && (
             <Button variant="ghost" size="sm" onClick={() => onConvert(r)}>
-              <ArrowRightLeft className="h-4 w-4" /> To sale
+              <ArrowRightLeft className="h-4 w-4" />{' '}
+              {r.type === 'PURCHASE' ? 'To purchase' : 'To sale'}
             </Button>
           )}
           <PrintButton path={`/print/quote/${r.id}`} title="Print quote" />
@@ -119,23 +119,17 @@ export function QuotesPage() {
       <Input
         placeholder="Search by reference…"
         value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
+        onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No quotes yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <QuoteFormDialog open={formOpen} onOpenChange={setFormOpen} />

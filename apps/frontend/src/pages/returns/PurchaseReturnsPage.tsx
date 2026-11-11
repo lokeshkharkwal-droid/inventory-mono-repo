@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,18 +12,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { DataTable, type Column } from '@/components/shared/DataTable';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
-import { usePurchases } from '@/features/purchases/api';
-import { useProducts } from '@/features/products/api';
 import {
-  usePurchaseReturns,
+  useInfinitePurchaseReturns,
   useCreatePurchaseReturn,
   type ReturnRow,
 } from '@/features/returns/api';
-
-const LIMIT = 20;
-const selectCls =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm';
 
 interface Line {
   productId: string;
@@ -33,15 +28,10 @@ interface Line {
 
 /** Purchase returns: list + create (reverses inbound stock). */
 export function PurchaseReturnsPage() {
-  const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
-  const { data, isLoading } = usePurchaseReturns({ page, limit: LIMIT });
-  const { data: purchases } = usePurchases({ page: 1, limit: 100 });
-  const { data: products } = useProducts({ page: 1, limit: 200 });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfinitePurchaseReturns();
   const create = useCreatePurchaseReturn();
-
-  const purchaseOptions = useMemo(() => purchases?.data ?? [], [purchases]);
-  const productOptions = useMemo(() => products?.data ?? [], [products]);
 
   const [purchaseId, setPurchaseId] = useState('');
   const [lines, setLines] = useState<Line[]>([{ productId: '', quantity: '1', cost: '0' }]);
@@ -85,14 +75,11 @@ export function PurchaseReturnsPage() {
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No purchase returns yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -103,12 +90,16 @@ export function PurchaseReturnsPage() {
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>Purchase</Label>
-              <select className={selectCls} value={purchaseId} onChange={(e) => setPurchaseId(e.target.value)}>
-                <option value="">—</option>
-                {purchaseOptions.map((p) => (
-                  <option key={p.id} value={p.id}>{p.reference}</option>
-                ))}
-              </select>
+              <InfiniteSelect
+                value={purchaseId}
+                onChange={setPurchaseId}
+                queryKey={['purchases']}
+                path="/purchases"
+                getOptionValue={(p) => p.id}
+                getOptionLabel={(p) => p.reference}
+                placeholder="Select purchase…"
+                clearable
+              />
             </div>
             <div className="flex items-center justify-between">
               <Label>Items</Label>
@@ -118,16 +109,15 @@ export function PurchaseReturnsPage() {
             </div>
             {lines.map((l, i) => (
               <div key={i} className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2">
-                <select
-                  className={selectCls}
+                <InfiniteSelect
                   value={l.productId}
-                  onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, productId: e.target.value } : x)))}
-                >
-                  <option value="">Select product…</option>
-                  {productOptions.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                  onChange={(id) => setLines(lines.map((x, j) => (j === i ? { ...x, productId: id } : x)))}
+                  queryKey={['products']}
+                  path="/products"
+                  getOptionValue={(p) => p.id}
+                  getOptionLabel={(p) => p.name}
+                  placeholder="Select product…"
+                />
                 <Input placeholder="Qty" type="number" step="any" value={l.quantity} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))} />
                 <Input placeholder="Cost" type="number" step="any" value={l.cost} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, cost: e.target.value } : x)))} />
                 <Button type="button" variant="ghost" size="icon" onClick={() => setLines(lines.filter((_, j) => j !== i))}>

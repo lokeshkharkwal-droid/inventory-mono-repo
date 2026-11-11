@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import {
   Dialog,
   DialogContent,
@@ -15,32 +16,27 @@ import {
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { getApiErrorMessage } from '@/lib/http';
 import {
-  useDonations,
+  useInfiniteDonations,
   useCreateDonation,
   useDonationStatus,
   useBloodInventory,
-  donorHooks,
   BLOOD_GROUPS,
   BLOOD_COMPONENTS,
   type BloodDonation,
 } from '@/features/bloodbank/api';
 
-const LIMIT = 20;
 const STATUSES = ['COLLECTED', 'TESTED', 'AVAILABLE', 'ISSUED', 'DISCARDED'];
 const selectCls =
   'flex h-9 rounded-md border border-input bg-background px-2 text-sm';
 
 /** Blood donations (units): inventory summary, list, create, status updates. */
 export function BloodDonationsPage() {
-  const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
-  const { data, isLoading } = useDonations({ page, limit: LIMIT });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfiniteDonations();
   const { data: inventory } = useBloodInventory();
-  const { data: donors } = donorHooks.useList({ page: 1, limit: 200 });
   const create = useCreateDonation();
   const status = useDonationStatus();
-
-  const donorOptions = useMemo(() => donors?.data ?? [], [donors]);
 
   const [form, setForm] = useState({
     donorId: '',
@@ -142,14 +138,11 @@ export function BloodDonationsPage() {
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No donations yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -160,16 +153,16 @@ export function BloodDonationsPage() {
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>Donor</Label>
-              <select
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              <InfiniteSelect
                 value={form.donorId}
-                onChange={(e) => setForm({ ...form, donorId: e.target.value })}
-              >
-                <option value="">—</option>
-                {donorOptions.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name} ({d.bloodGroup})</option>
-                ))}
-              </select>
+                onChange={(id) => setForm({ ...form, donorId: id })}
+                queryKey={['blood-donors']}
+                path="/blood/donors"
+                getOptionValue={(d) => d.id}
+                getOptionLabel={(d) => `${d.name} (${d.bloodGroup})`}
+                placeholder="Select donor…"
+                clearable
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

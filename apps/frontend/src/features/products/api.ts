@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
+import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
 export interface ProductRef {
   id: string;
@@ -88,6 +89,12 @@ export function useProducts(params: ListParams) {
       }),
     placeholderData: (prev) => prev,
   });
+}
+
+export function useInfiniteProducts(
+  params: { search?: string; extra?: Record<string, string | number | boolean | undefined> } = {},
+) {
+  return useInfiniteList<ProductListRow>(['products'], '/products', params);
 }
 
 export function useProduct(id: string | null) {

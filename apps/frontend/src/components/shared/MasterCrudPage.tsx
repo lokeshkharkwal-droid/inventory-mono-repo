@@ -1,10 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Upload, Download } from 'lucide-react';
-import type {
-  UseMutationResult,
-  UseQueryResult,
-} from '@tanstack/react-query';
+import type { UseMutationResult } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DataTable, type Column } from '@/components/shared/DataTable';
@@ -13,9 +10,12 @@ import {
   type FieldConfig,
 } from '@/components/shared/CrudFormDialog';
 import { ImportDialog } from '@/components/shared/ImportDialog';
-import { getApiErrorMessage, type PageMeta } from '@/lib/http';
+import { getApiErrorMessage } from '@/lib/http';
 import { exportCsv } from '@/lib/csv';
-import type { ListParams } from '@/features/_shared/crud';
+import type {
+  InfiniteListParams,
+  InfiniteListResult,
+} from '@/features/_shared/useInfiniteList';
 
 /** Optional CSV import config for a master-data page. */
 export interface ImportConfig {
@@ -33,7 +33,7 @@ interface Row {
 
 /** The subset of makeCrudHooks this page consumes. */
 export interface CrudHooks<T extends Row> {
-  useList: (p: ListParams) => UseQueryResult<{ data: T[]; meta: PageMeta }>;
+  useInfiniteList: (p?: InfiniteListParams) => InfiniteListResult<T>;
   useCreate: () => UseMutationResult<unknown, unknown, Record<string, unknown>>;
   useUpdate: () => UseMutationResult<
     unknown,
@@ -68,10 +68,8 @@ interface Props<T extends Row> {
   exportColumns?: { key: string; header: string }[];
 }
 
-const LIMIT = 20;
-
 /**
- * Generic master-data CRUD screen: search + paginated table + field-driven
+ * Generic master-data CRUD screen: search + infinite-scroll table + field-driven
  * create/edit dialog + delete. Each master-data page is a thin config wrapper.
  */
 export function MasterCrudPage<T extends Row>({
@@ -89,18 +87,13 @@ export function MasterCrudPage<T extends Row>({
   importConfig,
   exportColumns,
 }: Props<T>) {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<T | null>(null);
 
-  const { data, isLoading } = hooks.useList({
-    page,
-    limit: LIMIT,
-    search,
-    extra: listExtra,
-  });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    hooks.useInfiniteList({ search, extra: listExtra });
   const create = hooks.useCreate();
   const update = hooks.useUpdate();
   const remove = hooks.useRemove();
@@ -145,7 +138,7 @@ export function MasterCrudPage<T extends Row>({
   };
 
   const onExport = () => {
-    const current = data?.data ?? [];
+    const current = rows;
     if (current.length === 0) {
       toast.error('Nothing to export.');
       return;
@@ -206,22 +199,16 @@ export function MasterCrudPage<T extends Row>({
       <Input
         placeholder="Search…"
         value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
+        onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
 
       <DataTable
         columns={allColumns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <CrudFormDialog

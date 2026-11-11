@@ -10,11 +10,9 @@ import { ImportDialog } from '@/components/shared/ImportDialog';
 import { exportCsv } from '@/lib/csv';
 import { openPrintDocumentPost } from '@/lib/print';
 import { getApiErrorMessage } from '@/lib/http';
-import { usePurchases, type PurchaseListRow } from '@/features/purchases/api';
+import { useInfinitePurchases, type PurchaseListRow } from '@/features/purchases/api';
 import { PurchaseFormDialog } from '@/features/purchases/PurchaseFormDialog';
 import { PurchaseManageDialog } from '@/features/purchases/PurchaseManageDialog';
-
-const LIMIT = 20;
 
 /** Group flat CSV line rows into purchase documents keyed by reference/supplier. */
 function groupPurchaseRows(records: Record<string, string>[]): unknown[] {
@@ -47,13 +45,13 @@ function groupPurchaseRows(records: Record<string, string>[]): unknown[] {
 
 /** Purchases list + create. */
 export function PurchasesPage() {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [manageRow, setManageRow] = useState<PurchaseListRow | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { data, isLoading } = usePurchases({ page, limit: LIMIT, search });
+  const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
+    useInfinitePurchases({ search });
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -148,7 +146,6 @@ export function PurchasesPage() {
           <Button
             variant="outline"
             onClick={() => {
-              const rows = data?.data ?? [];
               if (rows.length === 0) {
                 toast.error('Nothing to export.');
                 return;
@@ -183,21 +180,17 @@ export function PurchasesPage() {
         value={search}
         onChange={(e) => {
           setSearch(e.target.value);
-          setPage(1);
         }}
         className="max-w-sm"
       />
 
       <DataTable
         columns={columns}
-        rows={data?.data ?? []}
+        rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No purchases yet."
-        page={data?.meta.page ?? page}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total}
-        onPageChange={setPage}
+        infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
       <PurchaseFormDialog open={formOpen} onOpenChange={setFormOpen} />

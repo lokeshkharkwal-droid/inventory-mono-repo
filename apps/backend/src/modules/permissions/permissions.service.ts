@@ -197,7 +197,10 @@ export class PermissionsService {
     if (custom) {
       const updated = await this.prisma.inventoryRole.update({
         where: { tenantId_key: { tenantId, key: roleKey } },
-        data: { permissions: cleaned, ...(label ? { label: label.trim() } : {}) },
+        data: {
+          permissions: cleaned,
+          ...(label ? { label: label.trim() } : {}),
+        },
       });
       return {
         key: updated.key,

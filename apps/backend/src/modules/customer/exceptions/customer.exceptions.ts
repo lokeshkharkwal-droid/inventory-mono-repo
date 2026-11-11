@@ -12,3 +12,15 @@ export class CustomerNotFoundException extends KaltrosException {
     );
   }
 }
+
+/** 400 — a customer cannot be recorded as their own referrer. */
+export class SelfReferralException extends KaltrosException {
+  constructor() {
+    super(
+      'CUSTOMER_SELF_REFERRAL',
+      'A customer cannot refer themselves',
+      {},
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}

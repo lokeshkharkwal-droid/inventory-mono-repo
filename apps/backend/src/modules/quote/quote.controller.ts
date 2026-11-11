@@ -60,12 +60,7 @@ export class QuoteController {
     @CurrentProfile() profile: ActiveProfile,
     @CurrentUser('person_id') personId: string,
   ) {
-    return this.quoteService.convertToSale(
-      id,
-      tenantId,
-      profile.branchId,
-      personId,
-    );
+    return this.quoteService.convert(id, tenantId, profile.branchId, personId);
   }
 
   @Delete(':id')

@@ -33,6 +33,11 @@
     --sidebar-primary: 231 81% 66%; /* #6479EF — active highlight */
     --sidebar-primary-foreground: 0 0% 100%; /* white */
 
+    /* Sidebar gradient — the same blue→purple rail as the kaltros-fe sidebar
+       (`.gradient-primary`). Used by the Inventory sidebar so both apps share one
+       look. */
+    --gradient-primary: linear-gradient(135deg, hsl(221, 83%, 53%), hsl(262, 83%, 58%));
+
     /* iOS-style generous corner radius (12px). */
     --radius: 0.75rem;
   }
@@ -70,5 +75,37 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-muted-foreground/40;
     background-clip: padding-box;
+  }
+}
+
+@layer components {
+  /* Blue→purple sidebar rail, mirrored from kaltros-fe. */
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+}
+
+/* Sidebar profile switcher list (ProfileSwitcher.tsx): a thin, rounded,
+   always-visible light scrollbar — the cue that more profiles are hidden below —
+   that reads clearly on the blue/purple sidebar. Mirrors kaltros-fe. */
+.profile-switcher-scroll {
+  scrollbar-gutter: stable;
+}
+.profile-switcher-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.profile-switcher-scroll::-webkit-scrollbar-track {
+  margin: 4px 0;
+  border-radius: 9999px;
+  background: transparent;
+}
+.profile-switcher-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: rgb(255 255 255 / 0.35);
+}
+@supports not selector(::-webkit-scrollbar) {
+  .profile-switcher-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.35) transparent;
   }
 }

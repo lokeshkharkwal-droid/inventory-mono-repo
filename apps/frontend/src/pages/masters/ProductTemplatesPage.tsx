@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { getApiErrorMessage } from '@/lib/http';
-import { useCategories } from '@/features/categories/api';
+import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import {
   productTemplateHooks,
   useCreateProductFromTemplate,
@@ -42,9 +42,6 @@ const fields: FieldConfig[] = [
   { name: 'isActive', label: 'Active', type: 'bool' },
 ];
 
-const selectCls =
-  'flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-xs';
-
 /** Dialog that instantiates a real product from a template. */
 function CreateProductDialog({
   template,
@@ -54,7 +51,6 @@ function CreateProductDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const open = !!template;
-  const { data: categories } = useCategories({ page: 1, limit: 100 });
   const create = useCreateProductFromTemplate();
   const [categoryId, setCategoryId] = useState('');
   const [code, setCode] = useState('');
@@ -85,18 +81,15 @@ function CreateProductDialog({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Category</Label>
-            <select
-              className={selectCls}
+            <InfiniteSelect
               value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-            >
-              <option value="">Select a category…</option>
-              {categories?.data.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={setCategoryId}
+              queryKey={['categories']}
+              path="/categories"
+              getOptionValue={(c: { id: string }) => c.id}
+              getOptionLabel={(c: { name: string }) => c.name}
+              placeholder="Select a category…"
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Code (optional)</Label>
