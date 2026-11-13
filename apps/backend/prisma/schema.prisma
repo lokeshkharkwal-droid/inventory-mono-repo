@@ -550,6 +550,27 @@ model InventoryPurchase {
   isBloodDonation Boolean @default(false) @map("is_blood_donation")
   donorName       String? @map("donor_name")
 
+  // ── EZHT add-purchase parity ──
+  orderDiscountSpec String?   @map("order_discount_spec")
+  productDiscount   Decimal   @default(0) @map("product_discount") @db.Decimal(18, 4)
+  orderTaxId        String?   @map("order_tax_id")
+  orderTaxSpec      String?   @map("order_tax_spec")
+  totalTax          Decimal   @default(0) @map("total_tax") @db.Decimal(18, 4)
+  roundoff          Decimal   @default(0) @db.Decimal(18, 4)
+  totalItems        Int       @default(0) @map("total_items")
+  paymentTerm       Int?      @map("payment_term")
+  dueDate           DateTime? @map("due_date")
+  gstNumber         String?   @map("gst_number")
+  gstState          String?   @map("gst_state")
+  taxMethod         String?   @map("tax_method")
+  igst              Decimal   @default(0) @db.Decimal(18, 4)
+  cgst              Decimal   @default(0) @db.Decimal(18, 4)
+  sgst              Decimal   @default(0) @db.Decimal(18, 4)
+  attachmentUrl     String?   @map("attachment_url")
+  /// Audit note required when editing a received purchase; `isEdited` flags history.
+  editNote          String?   @map("edit_note")
+  isEdited          Boolean   @default(false) @map("is_edited")
+
   legacyPurchaseId String? @map("legacy_purchase_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
@@ -585,6 +606,25 @@ model InventoryPurchaseItem {
   batchNo     String?   @map("batch_no")
   expiryDate  DateTime? @map("expiry_date")
 
+  // ── EZHT purchase-item parity ──
+  optionId         String?  @map("option_id")
+  netUnitCost      Decimal  @default(0) @map("net_unit_cost") @db.Decimal(18, 4)
+  realUnitCost     Decimal  @default(0) @map("real_unit_cost") @db.Decimal(18, 4)
+  mrp              Decimal? @db.Decimal(18, 4)
+  packSize         Decimal? @map("pack_size") @db.Decimal(18, 4)
+  packQuantity     Decimal? @map("pack_quantity") @db.Decimal(18, 4)
+  freePackQuantity Decimal? @map("free_pack_quantity") @db.Decimal(18, 4)
+  freeQuantity     Decimal? @map("free_quantity") @db.Decimal(18, 4)
+  quantityReceived Decimal? @map("quantity_received") @db.Decimal(18, 4)
+  quantityBalance  Decimal? @map("quantity_balance") @db.Decimal(18, 4)
+  hsnCode          String?  @map("hsn_code")
+  taxMethod        String?  @map("tax_method")
+  discountSpec     String?  @map("discount_spec")
+  partNo           String?  @map("part_no")
+  igst             Decimal  @default(0) @db.Decimal(18, 4)
+  cgst             Decimal  @default(0) @db.Decimal(18, 4)
+  sgst             Decimal  @default(0) @db.Decimal(18, 4)
+
   createdAt DateTime @default(now()) @map("created_at")
 
   purchase InventoryPurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
@@ -601,11 +641,22 @@ model InventoryPurchasePayment {
   tenantId   String  @map("tenant_id")
   purchaseId String  @map("purchase_id")
   amount     Decimal @db.Decimal(18, 4)
+  /// Primary method keyword (CASH | CHEQUE | CARD | BANK_TRANSFER).
   method     String  @default("CASH")
   reference  String?
   date       DateTime
   note       String?
   createdBy  String? @map("created_by")
+
+  // ── EZHT payment-method detail parity ──
+  chequeNo String? @map("cheque_no")
+  ccNo     String? @map("cc_no")
+  ccHolder String? @map("cc_holder")
+  ccType   String? @map("cc_type")
+  ccMonth  String? @map("cc_month")
+  ccYear   String? @map("cc_year")
+  /// Set when this row is one allocation of a bulk supplier payment.
+  supplierPaymentId String? @map("supplier_payment_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
   deletedAt DateTime? @map("deleted_at")
@@ -638,9 +689,33 @@ model InventorySale {
   paid          Decimal  @default(0) @db.Decimal(18, 4)
   paymentStatus String   @default("PENDING") @map("payment_status")
   note          String?
+  staffNote     String?  @map("staff_note")
   createdBy     String?  @map("created_by")
   /// Set when this sale was rung up through a POS register session.
   posSessionId  String?  @map("pos_session_id")
+
+  // ── EZHT add-sale parity ──
+  billerId         String?   @map("biller_id")
+  /// Raw order-discount spec as entered (may hold "10%"); `orderDiscount` is resolved.
+  orderDiscountSpec String?  @map("order_discount_spec")
+  productDiscount  Decimal   @default(0) @map("product_discount") @db.Decimal(18, 4)
+  orderTaxId       String?   @map("order_tax_id")
+  orderTaxSpec     String?   @map("order_tax_spec")
+  totalTax         Decimal   @default(0) @map("total_tax") @db.Decimal(18, 4)
+  roundoff         Decimal   @default(0) @db.Decimal(18, 4)
+  totalItems       Int       @default(0) @map("total_items")
+  paymentTerm      Int?      @map("payment_term")
+  dueDate          DateTime? @map("due_date")
+  /// India GST: igst OR cgst+sgst depending on `taxMethod` (inter/intra-state).
+  gstNumber        String?   @map("gst_number")
+  gstState         String?   @map("gst_state")
+  taxMethod        String?   @map("tax_method")
+  igst             Decimal   @default(0) @db.Decimal(18, 4)
+  cgst             Decimal   @default(0) @db.Decimal(18, 4)
+  sgst             Decimal   @default(0) @db.Decimal(18, 4)
+  attachmentUrl    String?   @map("attachment_url")
+  quoteId          String?   @map("quote_id")
+  doctorName       String?   @map("doctor_name")
 
   legacySaleId String? @map("legacy_sale_id")
 
@@ -677,6 +752,21 @@ model InventorySaleItem {
   discount    Decimal @default(0) @db.Decimal(18, 4)
   subtotal    Decimal @db.Decimal(18, 4)
 
+  // ── EZHT sale-item parity ──
+  optionId     String?   @map("option_id")
+  netUnitPrice Decimal   @default(0) @map("net_unit_price") @db.Decimal(18, 4)
+  realUnitPrice Decimal  @default(0) @map("real_unit_price") @db.Decimal(18, 4)
+  packSize     Decimal?  @map("pack_size") @db.Decimal(18, 4)
+  packQuantity Decimal?  @map("pack_quantity") @db.Decimal(18, 4)
+  serialNo     String?   @map("serial_no")
+  expiryDate   DateTime? @map("expiry_date")
+  hsnCode      String?   @map("hsn_code")
+  taxMethod    String?   @map("tax_method")
+  discountSpec String?   @map("discount_spec")
+  igst         Decimal   @default(0) @db.Decimal(18, 4)
+  cgst         Decimal   @default(0) @db.Decimal(18, 4)
+  sgst         Decimal   @default(0) @db.Decimal(18, 4)
+
   createdAt DateTime @default(now()) @map("created_at")
 
   sale InventorySale @relation(fields: [saleId], references: [id], onDelete: Cascade)
@@ -693,11 +783,21 @@ model InventorySalePayment {
   tenantId  String  @map("tenant_id")
   saleId    String  @map("sale_id")
   amount    Decimal @db.Decimal(18, 4)
+  /// Primary method keyword (CASH | CHEQUE | CARD | GIFT_CARD | DEPOSIT | PG | BANK_TRANSFER).
   method    String  @default("CASH")
   reference String?
   date      DateTime
   note      String?
   createdBy String? @map("created_by")
+
+  // ── EZHT payment-method detail parity ──
+  chequeNo   String? @map("cheque_no")
+  ccNo       String? @map("cc_no")
+  ccHolder   String? @map("cc_holder")
+  ccType     String? @map("cc_type")
+  ccMonth    String? @map("cc_month")
+  ccYear     String? @map("cc_year")
+  giftCardNo String? @map("gift_card_no")
 
   createdAt DateTime  @default(now()) @map("created_at")
   deletedAt DateTime? @map("deleted_at")

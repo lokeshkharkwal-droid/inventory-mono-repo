@@ -18,7 +18,13 @@ import { VariantsPage } from '@/pages/masters/VariantsPage';
 import { SuppliersPage } from '@/pages/parties/SuppliersPage';
 import { CustomersPage } from '@/pages/parties/CustomersPage';
 import { PurchasesPage } from '@/pages/purchases/PurchasesPage';
+import { PurchaseFormPage } from '@/pages/purchases/PurchaseFormPage';
+import { PurchaseImportPage } from '@/pages/purchases/PurchaseImportPage';
+import { SupplierPaymentsPage } from '@/pages/purchases/SupplierPaymentsPage';
 import { SalesPage } from '@/pages/sales/SalesPage';
+import { SaleFormPage } from '@/pages/sales/SaleFormPage';
+import { PosSalesPage } from '@/pages/sales/PosSalesPage';
+import { GenerateOrderByCsvPage } from '@/pages/sales/GenerateOrderByCsvPage';
 import { TransfersPage } from '@/pages/transfers/TransfersPage';
 import { RequisitionsPage } from '@/pages/requisitions/RequisitionsPage';
 import { CurrenciesPage } from '@/pages/settings/CurrenciesPage';
@@ -119,7 +125,21 @@ export function AppRouter() {
             <Route path="customers" element={<CustomersPage />} />
             <Route path="patients" element={<CustomersPage patientsOnly />} />
             <Route path="purchases" element={<PurchasesPage />} />
+            <Route path="purchases/add" element={<PurchaseFormPage />} />
+            <Route path="purchases/edit/:id" element={<PurchaseFormPage />} />
+            <Route path="purchases/import" element={<PurchaseImportPage />} />
+            <Route
+              path="purchases/supplier-payments"
+              element={<SupplierPaymentsPage />}
+            />
             <Route path="sales" element={<SalesPage />} />
+            <Route path="sales/add" element={<SaleFormPage />} />
+            <Route path="sales/edit/:id" element={<SaleFormPage />} />
+            <Route
+              path="sales/generate-order-by-csv"
+              element={<GenerateOrderByCsvPage />}
+            />
+            <Route path="pos/sales" element={<PosSalesPage />} />
             <Route path="transfers" element={<TransfersPage />} />
             <Route path="requisitions" element={<RequisitionsPage />} />
             <Route path="currencies" element={<CurrenciesPage />} />

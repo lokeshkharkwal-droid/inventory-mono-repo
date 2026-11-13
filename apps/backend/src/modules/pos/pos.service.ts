@@ -238,14 +238,15 @@ export class PosService {
       branchId,
       {
         customerId: dto.customerId,
-        orderDiscount: dto.orderDiscount,
+        orderDiscount:
+          dto.orderDiscount == null ? undefined : String(dto.orderDiscount),
         note: dto.note,
         items: dto.items.map((i) => ({
           productId: i.productId,
           quantity: i.quantity,
           price: i.price,
           taxRate: i.taxRate,
-          discount: i.discount,
+          discount: i.discount == null ? undefined : String(i.discount),
         })),
       },
       actorId,

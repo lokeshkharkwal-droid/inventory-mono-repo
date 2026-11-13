@@ -112,9 +112,11 @@ export class ReportsIpdService {
       { amount: Prisma.Decimal; count: number; lastChargeAt: Date | null }
     >();
     for (const c of charges) {
-      const e =
-        byAdmission.get(c.admissionId) ??
-        { amount: D(0), count: 0, lastChargeAt: null as Date | null };
+      const e = byAdmission.get(c.admissionId) ?? {
+        amount: D(0),
+        count: 0,
+        lastChargeAt: null as Date | null,
+      };
       e.amount = e.amount.add(c.amount);
       e.count += 1;
       if (!e.lastChargeAt || c.date > e.lastChargeAt) e.lastChargeAt = c.date;
@@ -254,14 +256,12 @@ export class ReportsIpdService {
     let grandTotal = D(0);
     for (const c of charges) {
       const key = c.category ?? 'Uncategorised';
-      const row =
-        byDept.get(key) ??
-        ({
-          department: key,
-          chargeCount: 0,
-          admissionIds: new Set<string>(),
-          amount: D(0),
-        } as Row);
+      const row = byDept.get(key) ?? {
+        department: key,
+        chargeCount: 0,
+        admissionIds: new Set<string>(),
+        amount: D(0),
+      };
       row.chargeCount += 1;
       row.admissionIds.add(c.admissionId);
       row.amount = row.amount.add(c.amount);

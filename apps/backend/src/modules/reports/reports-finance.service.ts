@@ -142,7 +142,9 @@ export class ReportsFinanceService {
       ...(q.reference
         ? { reference: { contains: q.reference, mode: 'insensitive' } }
         : {}),
-      ...(q.search ? { note: { contains: q.search, mode: 'insensitive' } } : {}),
+      ...(q.search
+        ? { note: { contains: q.search, mode: 'insensitive' } }
+        : {}),
     };
 
     const expenses = await this.prisma.inventoryExpense.findMany({
@@ -216,7 +218,9 @@ export class ReportsFinanceService {
       ...(q.reference
         ? { reference: { contains: q.reference, mode: 'insensitive' } }
         : {}),
-      ...(q.search ? { note: { contains: q.search, mode: 'insensitive' } } : {}),
+      ...(q.search
+        ? { note: { contains: q.search, mode: 'insensitive' } }
+        : {}),
     };
 
     const incomes = await this.prisma.inventoryIncome.findMany({
@@ -360,9 +364,7 @@ export class ReportsFinanceService {
           type: 'Income',
           reference: i.reference,
           categoryId: i.categoryId,
-          category: i.categoryId
-            ? (incomeCats.get(i.categoryId) ?? '—')
-            : '—',
+          category: i.categoryId ? (incomeCats.get(i.categoryId) ?? '—') : '—',
           amount: i.amount,
           note: i.note,
         };
@@ -375,9 +377,7 @@ export class ReportsFinanceService {
           type: 'Expense',
           reference: e.reference,
           categoryId: e.categoryId,
-          category: e.categoryId
-            ? (expenseCats.get(e.categoryId) ?? '—')
-            : '—',
+          category: e.categoryId ? (expenseCats.get(e.categoryId) ?? '—') : '—',
           amount: e.amount.neg(),
           note: e.note,
         };

@@ -157,7 +157,12 @@ export class MasterProductService {
   async duplicate(id: string, createdBy?: string) {
     const source = await this.prisma.inventoryMasterProduct.findFirst({
       where: { id, deletedAt: null },
-      include: { variants: true, suppliers: true, comboItems: true, drugs: true },
+      include: {
+        variants: true,
+        suppliers: true,
+        comboItems: true,
+        drugs: true,
+      },
     });
     if (!source) throw new MasterProductNotFoundException(id);
     return this.prisma.$transaction(async (tx) => {
@@ -461,7 +466,9 @@ export class MasterProductService {
       select: { id: true },
     });
     if (!row) throw new MasterProductNotFoundException(drugId);
-    await this.prisma.inventoryMasterProductDrug.delete({ where: { id: drugId } });
+    await this.prisma.inventoryMasterProductDrug.delete({
+      where: { id: drugId },
+    });
     return { id: drugId };
   }
 

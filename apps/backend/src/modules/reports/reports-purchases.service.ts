@@ -78,21 +78,19 @@ export class ReportsPurchasesService {
       shipping: D(0),
       orderTax: D(0),
       grandTotal: D(0),
-      productTax: null as null,
+      productTax: null,
     };
     for (const p of purchases) {
       const day = p.date.getUTCDate();
-      const bucket =
-        byDay.get(day) ??
-        ({
-          day,
-          date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-          discount: D(0),
-          shipping: D(0),
-          orderTax: D(0),
-          grandTotal: D(0),
-          productTax: null,
-        } as DayBucket);
+      const bucket = byDay.get(day) ?? {
+        day,
+        date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+        discount: D(0),
+        shipping: D(0),
+        orderTax: D(0),
+        grandTotal: D(0),
+        productTax: null,
+      };
       bucket.discount = bucket.discount.add(p.orderDiscount);
       bucket.shipping = bucket.shipping.add(p.shipping);
       bucket.orderTax = bucket.orderTax.add(p.orderTax);
@@ -339,9 +337,7 @@ export class ReportsPurchasesService {
     const now = Date.now();
     const rows = purchases.map((p) => {
       const first = p.items[0];
-      const purchaseAgeDays = Math.floor(
-        (now - p.date.getTime()) / 86_400_000,
-      );
+      const purchaseAgeDays = Math.floor((now - p.date.getTime()) / 86_400_000);
       return {
         id: p.id,
         date: p.date,
@@ -415,7 +411,9 @@ export class ReportsPurchasesService {
         where,
         include: {
           supplier: { select: { name: true } },
-          items: { select: { productName: true, quantity: true, taxAmount: true } },
+          items: {
+            select: { productName: true, quantity: true, taxAmount: true },
+          },
         },
         orderBy: { date: 'desc' },
         skip: (page - 1) * limit,

@@ -2,8 +2,7 @@ import * as React from 'react';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export interface NativeSelectProps
-  extends React.SelectHTMLAttributes<HTMLSelectElement> {}
+export type NativeSelectProps = React.SelectHTMLAttributes<HTMLSelectElement>;
 
 /**
  * A native `<select>` styled to match the `Input` primitive. Used for the

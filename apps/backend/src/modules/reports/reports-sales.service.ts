@@ -95,7 +95,8 @@ export class ReportsSalesService {
       bucket.shipping = bucket.shipping.add(s.shipping);
       bucket.orderTax = bucket.orderTax.add(s.orderTax);
       bucket.total = bucket.total.add(s.grandTotal);
-      for (const it of s.items) bucket.productTax = bucket.productTax.add(it.taxAmount);
+      for (const it of s.items)
+        bucket.productTax = bucket.productTax.add(it.taxAmount);
     }
 
     const totals = days.reduce(
@@ -201,7 +202,8 @@ export class ReportsSalesService {
       bucket.shipping = bucket.shipping.add(s.shipping);
       bucket.orderTax = bucket.orderTax.add(s.orderTax);
       bucket.total = bucket.total.add(s.grandTotal);
-      for (const it of s.items) bucket.productTax = bucket.productTax.add(it.taxAmount);
+      for (const it of s.items)
+        bucket.productTax = bucket.productTax.add(it.taxAmount);
     }
 
     const totals = months.reduce(
@@ -381,9 +383,7 @@ export class ReportsSalesService {
       ...(q.reference
         ? { reference: { contains: q.reference, mode: 'insensitive' } }
         : {}),
-      ...(q.productId
-        ? { items: { some: { productId: q.productId } } }
-        : {}),
+      ...(q.productId ? { items: { some: { productId: q.productId } } } : {}),
     };
 
     const [total, sales] = await Promise.all([
@@ -528,20 +528,20 @@ export class ReportsSalesService {
       const d = it.sale.date;
       const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const key = `${day}|${it.productId}`;
-      const agg =
-        byKey.get(key) ??
-        ({
-          date: day,
-          productId: it.productId,
-          productCode: it.productCode,
-          productName: it.productName,
-          quantity: D(0),
-        } as Agg);
+      const agg = byKey.get(key) ?? {
+        date: day,
+        productId: it.productId,
+        productCode: it.productCode,
+        productName: it.productName,
+        quantity: D(0),
+      };
       agg.quantity = agg.quantity.add(it.quantity);
       byKey.set(key, agg);
     }
 
-    const productIds = [...new Set([...byKey.values()].map((a) => a.productId))];
+    const productIds = [
+      ...new Set([...byKey.values()].map((a) => a.productId)),
+    ];
     const products = productIds.length
       ? await this.prisma.inventoryProduct.findMany({
           where: { tenantId, id: { in: productIds } },
@@ -661,32 +661,28 @@ export class ReportsSalesService {
       type: 'received' | 'sent' | 'returned';
     };
     const all: Row[] = [
-      ...salePayments.map(
-        (p): Row => ({
-          id: p.id,
-          source: 'SALE',
-          date: p.date,
-          paymentRef: p.reference,
-          saleRef: p.sale?.reference ?? null,
-          purchaseRef: null,
-          paidBy: p.method,
-          amount: p.amount,
-          type: 'received',
-        }),
-      ),
-      ...purchasePayments.map(
-        (p): Row => ({
-          id: p.id,
-          source: 'PURCHASE',
-          date: p.date,
-          paymentRef: p.reference,
-          saleRef: null,
-          purchaseRef: p.purchase?.reference ?? null,
-          paidBy: p.method,
-          amount: p.amount,
-          type: 'sent',
-        }),
-      ),
+      ...salePayments.map((p): Row => ({
+        id: p.id,
+        source: 'SALE',
+        date: p.date,
+        paymentRef: p.reference,
+        saleRef: p.sale?.reference ?? null,
+        purchaseRef: null,
+        paidBy: p.method,
+        amount: p.amount,
+        type: 'received',
+      })),
+      ...purchasePayments.map((p): Row => ({
+        id: p.id,
+        source: 'PURCHASE',
+        date: p.date,
+        paymentRef: p.reference,
+        saleRef: null,
+        purchaseRef: p.purchase?.reference ?? null,
+        paidBy: p.method,
+        amount: p.amount,
+        type: 'sent',
+      })),
     ].sort((a, b) => b.date.getTime() - a.date.getTime());
 
     const received = salePayments.reduce((s, p) => s.add(p.amount), D(0));
@@ -809,7 +805,15 @@ export class ReportsSalesService {
     let range = dateFilter(q.from, q.to);
     if (!range) {
       const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      const monthStart = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
       range = { gte: monthStart, lte: now };
     }
     const branchId = q.warehouseId ?? q.branchId;
@@ -917,7 +921,9 @@ export class ReportsSalesService {
 
     const gross = salesGrand.sub(purchaseGrand);
     const lessSalesTax = salesGrand.sub(salesTax).sub(purchaseGrand);
-    const netOfTaxBoth = salesGrand.sub(salesTax).sub(purchaseGrand.sub(purchaseTax));
+    const netOfTaxBoth = salesGrand
+      .sub(salesTax)
+      .sub(purchaseGrand.sub(purchaseTax));
     const netPayments = receivedTotal
       .sub(returnedTotal)
       .sub(sentTotal)
@@ -981,9 +987,7 @@ export class ReportsSalesService {
 
     const where: Prisma.InventorySaleItemWhereInput = {
       tenantId,
-      ...(q.categoryId
-        ? { product: { categoryId: q.categoryId } }
-        : {}),
+      ...(q.categoryId ? { product: { categoryId: q.categoryId } } : {}),
       sale: {
         deletedAt: null,
         ...(date ? { date } : {}),

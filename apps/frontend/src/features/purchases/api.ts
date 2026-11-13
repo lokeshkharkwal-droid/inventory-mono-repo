@@ -19,13 +19,31 @@ export interface PurchaseListRow {
 
 export interface PurchaseItem {
   id: string;
+  productId: string;
   productName: string;
   productCode: string | null;
+  optionId: string | null;
   quantity: number;
   cost: number;
+  netUnitCost: number;
+  realUnitCost: number;
+  mrp: number | null;
+  taxRate: number;
   taxAmount: number;
+  taxMethod: string | null;
   discount: number;
+  discountSpec: string | null;
   subtotal: number;
+  batchNo: string | null;
+  expiryDate: string | null;
+  hsnCode: string | null;
+  partNo: string | null;
+  packSize: number | null;
+  packQuantity: number | null;
+  freePackQuantity: number | null;
+  igst: number;
+  cgst: number;
+  sgst: number;
 }
 
 export interface PurchasePayment {
@@ -34,15 +52,36 @@ export interface PurchasePayment {
   method: string;
   date: string;
   reference: string | null;
+  note: string | null;
+  chequeNo: string | null;
 }
 
 export interface PurchaseDetail extends PurchaseListRow {
   branchId: string;
   subtotal: number;
-  orderTax: number;
+  productDiscount: number;
   orderDiscount: number;
+  orderDiscountSpec: string | null;
+  orderTax: number;
+  orderTaxId: string | null;
+  totalTax: number;
   shipping: number;
+  roundoff: number;
+  totalItems: number;
+  paymentTerm: number | null;
+  dueDate: string | null;
+  gstNumber: string | null;
+  gstState: string | null;
+  taxMethod: string | null;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  attachmentUrl: string | null;
   note: string | null;
+  editNote: string | null;
+  isEdited: boolean;
+  isBloodDonation: boolean;
+  donorName: string | null;
   items: PurchaseItem[];
   payments: PurchasePayment[];
 }
@@ -82,6 +121,57 @@ export function useCreatePurchase() {
   return useMutation({
     mutationFn: (input: Record<string, unknown>) =>
       request<PurchaseDetail>('POST', '/purchases', { body: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useUpdatePurchase() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Record<string, unknown> }) =>
+      request<PurchaseDetail>('PATCH', `/purchases/${id}`, { body: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useDeletePurchase() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => request('DELETE', `/purchases/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export interface SupplierOutstandingRow {
+  id: string;
+  reference: string;
+  date: string;
+  status: string;
+  grandTotal: number;
+  paid: number;
+  paymentStatus: string;
+  balance: number;
+}
+
+/** A supplier's purchases that still carry an outstanding balance. */
+export function useSupplierOutstanding(supplierId: string | null) {
+  return useQuery({
+    queryKey: [...KEY, 'supplier-outstanding', supplierId],
+    queryFn: () =>
+      request<{ purchases: SupplierOutstandingRow[]; totalDue: number }>(
+        'GET',
+        `/purchases/supplier/${supplierId}/outstanding`,
+      ),
+    enabled: !!supplierId,
+  });
+}
+
+/** Record a bulk payment allocated across a supplier's open purchases. */
+export function useAddSupplierPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Record<string, unknown>) =>
+      request('POST', '/purchases/supplier-payments', { body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }

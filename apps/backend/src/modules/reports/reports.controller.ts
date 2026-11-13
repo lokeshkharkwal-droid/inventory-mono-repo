@@ -165,7 +165,10 @@ export class ReportsController {
   // ── Stock / inventory reports (migrated EZHealthTrack) ──────────────────────
 
   @Get('warehouse-stock')
-  warehouseStock(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+  warehouseStock(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
     return this.stock.warehouseStock(tenantId, q.warehouseId);
   }
 
@@ -175,7 +178,10 @@ export class ReportsController {
   }
 
   @Get('tools-and-plants')
-  toolsAndPlants(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+  toolsAndPlants(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
     return this.stock.toolsAndPlants(tenantId, q);
   }
 
@@ -185,7 +191,10 @@ export class ReportsController {
   }
 
   @Get('quantity-alerts')
-  quantityAlerts(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+  quantityAlerts(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
     return this.stock.quantityAlerts(tenantId, q.warehouseId, q.search);
   }
 
@@ -195,12 +204,18 @@ export class ReportsController {
   }
 
   @Get('products')
-  productsReport(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+  productsReport(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
     return this.stock.products(tenantId, q);
   }
 
   @Get('categories')
-  categoriesReport(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+  categoriesReport(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
     return this.stock.categories(tenantId, q);
   }
 

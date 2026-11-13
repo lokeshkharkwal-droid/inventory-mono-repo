@@ -6,13 +6,18 @@ import { SupplierService } from '../supplier/supplier.service';
 import { ProductService } from '../product/product.service';
 import { ProductStockService } from '../product/product-stock.service';
 import { NumberingService } from '../settings/numbering.service';
+import { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
 import { BranchRequiredException } from '../product/exceptions/product.exceptions';
-import { CreatePurchaseDto } from './dto/create-purchase.dto';
+import {
+  CreatePurchaseDto,
+  PurchasePaymentInputDto,
+} from './dto/create-purchase.dto';
 import { PurchaseQueryDto } from './dto/purchase-query.dto';
 import {
   CreatePurchasePaymentDto,
   UpdatePurchasePaymentDto,
   CreatePurchaseExpenseDto,
+  SupplierBulkPaymentDto,
 } from './dto/payment.dto';
 import { ImportPurchasesDto } from './dto/import-purchases.dto';
 import {
@@ -23,13 +28,28 @@ import {
   runBulkImport,
   type ImportSummary,
 } from '../../common/utils/bulk-import.util';
+import {
+  computeOrderTotals,
+  derivePaymentStatus,
+  type ComputedOrder,
+} from '../../common/utils/order-totals.util';
 
 const D = (v: number | string | Prisma.Decimal) => new Prisma.Decimal(v);
 
+type PersistedPurchaseLine =
+  Prisma.InventoryPurchaseItemCreateWithoutPurchaseInput & {
+    productId: string;
+    quantity: Prisma.Decimal;
+    cost: Prisma.Decimal;
+    batchNo?: string | null;
+    expiryDate?: Date | null;
+  };
+
 /**
  * Purchases — goods receipts from suppliers (CLAUDE.md §4.7). Creating a
- * RECEIVED purchase adds stock (inbound, AVCO) at the active branch via
- * ProductStockService. Totals are computed server-side from the line items.
+ * RECEIVED purchase adds stock (inbound, AVCO) at the active branch. Totals are
+ * computed server-side by {@link computeOrderTotals} (discount %/fixed, tax
+ * incl/excl, GST split, order discount/tax/shipping, grand total, paid/status).
  */
 @Injectable()
 export class PurchaseService {
@@ -39,7 +59,123 @@ export class PurchaseService {
     private readonly productService: ProductService,
     private readonly stockService: ProductStockService,
     private readonly numbering: NumberingService,
+    private readonly branchClient: KalnosticsBranchClient,
   ) {}
+
+  /** Validate a client-supplied warehouse against the tenant, else active branch. */
+  private async resolveWarehouse(
+    branchId: string | null,
+    warehouseId?: string,
+  ): Promise<string> {
+    if (warehouseId && warehouseId !== branchId) {
+      await this.branchClient.findById(warehouseId);
+      return warehouseId;
+    }
+    if (!branchId) throw new BranchRequiredException();
+    return branchId;
+  }
+
+  /** Resolve + snapshot products and compute the money breakdown. */
+  private async buildPurchaseLines(
+    tenantId: string,
+    dto: CreatePurchaseDto,
+  ): Promise<{ lines: PersistedPurchaseLine[]; totals: ComputedOrder }> {
+    const resolved = await Promise.all(
+      dto.items.map(async (item) => ({
+        item,
+        product: await this.productService.findById(item.productId, tenantId),
+      })),
+    );
+
+    const totals = computeOrderTotals({
+      lines: resolved.map(({ item }) => ({
+        quantity: item.quantity,
+        unitPrice: item.cost,
+        discount: item.discount,
+        taxRatePercent: item.taxRate ?? 0,
+        taxInclusive: item.taxInclusive ?? false,
+      })),
+      orderDiscount: dto.orderDiscount,
+      orderTaxPercent: dto.orderTax ?? 0,
+      shipping: dto.shipping ?? 0,
+      interState: dto.interState ?? false,
+    });
+
+    const lines: PersistedPurchaseLine[] = resolved.map(
+      ({ item, product }, i) => {
+        const c = totals.lines[i]!;
+        return {
+          tenantId,
+          productId: product.id,
+          productName: product.name,
+          productCode: product.code,
+          optionId: item.optionId,
+          quantity: c.quantity,
+          cost: D(item.cost),
+          realUnitCost: c.realUnitPrice,
+          netUnitCost: c.netUnitPrice,
+          mrp: item.mrp != null ? D(item.mrp) : null,
+          taxRate: D(item.taxRate ?? 0),
+          taxAmount: c.taxAmount,
+          taxMethod: item.taxInclusive ? '1' : '0',
+          discount: c.discount,
+          discountSpec: item.discount,
+          subtotal: c.subtotal,
+          batchNo: item.batchNo,
+          expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+          hsnCode: item.hsnCode,
+          partNo: item.partNo,
+          packSize: item.packSize != null ? D(item.packSize) : null,
+          packQuantity: item.packQuantity != null ? D(item.packQuantity) : null,
+          freePackQuantity:
+            item.freePackQuantity != null ? D(item.freePackQuantity) : null,
+          igst: c.igst,
+          cgst: c.cgst,
+          sgst: c.sgst,
+        };
+      },
+    );
+
+    return { lines, totals };
+  }
+
+  /** Header money/meta columns shared by create + update. */
+  private purchaseHeaderData(
+    dto: CreatePurchaseDto,
+    totals: ComputedOrder,
+    date: Date,
+  ) {
+    const dueDate =
+      dto.paymentTerm != null
+        ? new Date(date.getTime() + dto.paymentTerm * 86_400_000)
+        : null;
+    return {
+      subtotal: totals.subtotal,
+      productDiscount: totals.productDiscount,
+      orderDiscount: totals.orderDiscount,
+      orderDiscountSpec: dto.orderDiscount,
+      orderTax: totals.orderTax,
+      orderTaxId: dto.orderTaxId,
+      orderTaxSpec: dto.orderTax != null ? String(dto.orderTax) : null,
+      totalTax: totals.totalTax,
+      shipping: totals.shipping,
+      roundoff: totals.roundoff,
+      grandTotal: totals.grandTotal,
+      totalItems: Math.round(totals.totalItems.toNumber()),
+      paymentTerm: dto.paymentTerm,
+      dueDate,
+      gstNumber: dto.gstNumber,
+      gstState: dto.gstState,
+      taxMethod: dto.interState ? 'igst' : 'cgst+sgst',
+      igst: totals.igst,
+      cgst: totals.cgst,
+      sgst: totals.sgst,
+      attachmentUrl: dto.attachmentUrl,
+      note: dto.note,
+      isBloodDonation: dto.isBloodDonation ?? false,
+      donorName: dto.donorName,
+    };
+  }
 
   /** Create a purchase and (when RECEIVED) apply inbound stock atomically. */
   async create(
@@ -48,79 +184,55 @@ export class PurchaseService {
     dto: CreatePurchaseDto,
     actorId?: string,
   ) {
-    if (!branchId) throw new BranchRequiredException();
+    const warehouse = await this.resolveWarehouse(branchId, dto.warehouseId);
     await this.supplierService.findById(dto.supplierId, tenantId);
 
-    // Resolve + snapshot each product; compute line money.
-    const lines = await Promise.all(
-      dto.items.map(async (item) => {
-        const product = await this.productService.findById(
-          item.productId,
-          tenantId,
-        );
-        const qty = D(item.quantity);
-        const cost = D(item.cost);
-        const discount = D(item.discount ?? 0);
-        const taxRate = D(item.taxRate ?? 0);
-        const lineSubtotal = qty.mul(cost).sub(discount);
-        const taxAmount = lineSubtotal.mul(taxRate).div(100);
-        return {
-          tenantId,
-          productId: product.id,
-          productName: product.name,
-          productCode: product.code,
-          quantity: qty,
-          cost,
-          taxRate,
-          taxAmount,
-          discount,
-          subtotal: lineSubtotal,
-          batchNo: item.batchNo,
-          expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
-        };
-      }),
-    );
-
-    const subtotal = lines.reduce((s, l) => s.add(l.subtotal), D(0));
-    const orderTax = lines.reduce((s, l) => s.add(l.taxAmount), D(0));
-    const orderDiscount = D(dto.orderDiscount ?? 0);
-    const shipping = D(dto.shipping ?? 0);
-    const grandTotal = subtotal.add(orderTax).add(shipping).sub(orderDiscount);
+    const { lines, totals } = await this.buildPurchaseLines(tenantId, dto);
     const status = dto.status ?? 'RECEIVED';
+    const date = dto.date ? new Date(dto.date) : new Date();
     const reference =
       dto.reference ?? (await this.numbering.next(tenantId, 'purchase'));
+    const { paid, paymentStatus } = this.resolvePaymentPlan(
+      dto.payment,
+      totals.grandTotal,
+    );
 
     return this.prisma.withTenant(tenantId, async (tx) => {
       const purchase = await tx.inventoryPurchase.create({
         data: {
           tenantId,
-          branchId,
+          branchId: warehouse,
           supplierId: dto.supplierId,
           reference,
-          date: dto.date ? new Date(dto.date) : new Date(),
+          date,
           status,
-          subtotal,
-          orderTax,
-          orderDiscount,
-          shipping,
-          grandTotal,
-          paid: D(0),
-          paymentStatus: 'PENDING',
-          note: dto.note,
-          isBloodDonation: dto.isBloodDonation ?? false,
-          donorName: dto.donorName,
+          ...this.purchaseHeaderData(dto, totals, date),
+          paid,
+          paymentStatus,
           createdBy: actorId,
           items: { create: lines },
         },
         include: { items: true },
       });
 
+      if (paid.gt(0)) {
+        await tx.inventoryPurchasePayment.create({
+          data: this.paymentRow(
+            tenantId,
+            purchase.id,
+            paid,
+            dto.payment,
+            actorId,
+          ),
+        });
+      }
+
       // Apply inbound stock only when the goods are received.
       if (status === 'RECEIVED') {
         for (const l of lines) {
           await this.stockService.applyDelta(tx, {
             tenantId,
-            branchId,
+            branchId: warehouse,
             productId: l.productId,
             delta: l.quantity,
             cost: l.cost,
@@ -129,7 +241,7 @@ export class PurchaseService {
             await tx.inventoryProductBatch.create({
               data: {
                 tenantId,
-                branchId,
+                branchId: warehouse,
                 productId: l.productId,
                 batchNo: l.batchNo,
                 expiryDate: l.expiryDate,
@@ -143,6 +255,42 @@ export class PurchaseService {
 
       return purchase;
     });
+  }
+
+  private resolvePaymentPlan(
+    payment: PurchasePaymentInputDto | undefined,
+    grandTotal: Prisma.Decimal,
+  ): { paid: Prisma.Decimal; paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID' } {
+    const ps = payment?.paymentStatus?.toLowerCase();
+    let paid = D(0);
+    if (ps === 'paid') paid = grandTotal;
+    else if (ps === 'partial') paid = D(payment?.amount ?? 0);
+    return { paid, paymentStatus: derivePaymentStatus(paid, grandTotal) };
+  }
+
+  private paymentRow(
+    tenantId: string,
+    purchaseId: string,
+    amount: Prisma.Decimal,
+    payment: PurchasePaymentInputDto | undefined,
+    actorId?: string,
+  ): Prisma.InventoryPurchasePaymentUncheckedCreateInput {
+    return {
+      tenantId,
+      purchaseId,
+      amount,
+      method: (payment?.paidBy ?? 'CASH').toUpperCase(),
+      reference: payment?.reference,
+      date: new Date(),
+      note: payment?.note,
+      chequeNo: payment?.chequeNo,
+      ccNo: payment?.ccNo,
+      ccHolder: payment?.ccHolder,
+      ccType: payment?.ccType,
+      ccMonth: payment?.ccMonth,
+      ccYear: payment?.ccYear,
+      createdBy: actorId,
+    };
   }
 
   /**
@@ -180,8 +328,14 @@ export class PurchaseService {
     if (query.search)
       where.reference = { contains: query.search, mode: 'insensitive' };
     if (query.supplierId) where.supplierId = query.supplierId;
+    if (query.warehouseId) where.branchId = query.warehouseId;
     if (query.status) where.status = query.status;
     if (query.paymentStatus) where.paymentStatus = query.paymentStatus;
+    if (query.startDate || query.endDate) {
+      where.date = {};
+      if (query.startDate) where.date.gte = new Date(query.startDate);
+      if (query.endDate) where.date.lte = new Date(query.endDate);
+    }
 
     const [data, total] = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.inventoryPurchase.findMany({
@@ -211,6 +365,75 @@ export class PurchaseService {
     return purchase;
   }
 
+  /**
+   * Edit a purchase (full line replacement). Re-syncs stock: reverses the old
+   * inbound (if RECEIVED), swaps items, and applies the new inbound. Totals
+   * recomputed; payments preserved, status re-derived. Requires an `editNote`.
+   */
+  async update(
+    id: string,
+    tenantId: string,
+    branchId: string | null,
+    dto: CreatePurchaseDto,
+  ) {
+    const existing = await this.findById(id, tenantId);
+    const warehouse = await this.resolveWarehouse(
+      branchId,
+      dto.warehouseId ?? existing.branchId,
+    );
+    await this.supplierService.findById(dto.supplierId, tenantId);
+
+    const { lines, totals } = await this.buildPurchaseLines(tenantId, dto);
+    const newStatus =
+      dto.status ?? (existing.status as 'RECEIVED' | 'ORDERED' | 'PENDING');
+    const date = dto.date ? new Date(dto.date) : existing.date;
+
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      // 1. Reverse previous inbound if the purchase had added stock.
+      if (existing.status === 'RECEIVED') {
+        for (const l of existing.items) {
+          await this.stockService.applyDelta(tx, {
+            tenantId,
+            branchId: existing.branchId,
+            productId: l.productId,
+            delta: D(l.quantity).negated(),
+          });
+        }
+      }
+      // 2. Replace line items.
+      await tx.inventoryPurchaseItem.deleteMany({ where: { purchaseId: id } });
+      // 3. Apply new inbound if the edited purchase is RECEIVED.
+      if (newStatus === 'RECEIVED') {
+        for (const l of lines) {
+          await this.stockService.applyDelta(tx, {
+            tenantId,
+            branchId: warehouse,
+            productId: l.productId,
+            delta: l.quantity,
+            cost: l.cost,
+          });
+        }
+      }
+      const paid = D(existing.paid);
+      const paymentStatus = derivePaymentStatus(paid, totals.grandTotal);
+      return tx.inventoryPurchase.update({
+        where: { id },
+        data: {
+          supplierId: dto.supplierId,
+          branchId: warehouse,
+          date,
+          status: newStatus,
+          ...this.purchaseHeaderData(dto, totals, date),
+          editNote: dto.editNote,
+          isEdited: true,
+          paymentStatus,
+          items: { create: lines },
+        },
+        include: { items: true, payments: { where: { deletedAt: null } } },
+      });
+    });
+  }
+
   /** Record a payment, update paid + payment status atomically. */
   async addPayment(
     id: string,
@@ -228,11 +451,7 @@ export class PurchaseService {
       );
     }
     const newPaid = D(purchase.paid).add(amount);
-    const paymentStatus = newPaid.gte(purchase.grandTotal)
-      ? 'PAID'
-      : newPaid.gt(0)
-        ? 'PARTIAL'
-        : 'PENDING';
+    const paymentStatus = derivePaymentStatus(newPaid, D(purchase.grandTotal));
 
     return this.prisma.withTenant(tenantId, async (tx) => {
       await tx.inventoryPurchasePayment.create({
@@ -240,10 +459,16 @@ export class PurchaseService {
           tenantId,
           purchaseId: id,
           amount,
-          method: dto.method ?? 'CASH',
+          method: (dto.method ?? 'CASH').toUpperCase(),
           reference: dto.reference,
           date: dto.date ? new Date(dto.date) : new Date(),
           note: dto.note,
+          chequeNo: dto.chequeNo,
+          ccNo: dto.ccNo,
+          ccHolder: dto.ccHolder,
+          ccType: dto.ccType,
+          ccMonth: dto.ccMonth,
+          ccYear: dto.ccYear,
           createdBy: actorId,
         },
       });
@@ -275,10 +500,16 @@ export class PurchaseService {
         where: { id: paymentId },
         data: {
           amount: dto.amount != null ? D(dto.amount) : undefined,
-          method: dto.method,
+          method: dto.method ? dto.method.toUpperCase() : undefined,
           reference: dto.reference,
           date: dto.date ? new Date(dto.date) : undefined,
           note: dto.note,
+          chequeNo: dto.chequeNo,
+          ccNo: dto.ccNo,
+          ccHolder: dto.ccHolder,
+          ccType: dto.ccType,
+          ccMonth: dto.ccMonth,
+          ccYear: dto.ccYear,
         },
       });
       return this.recomputePaid(tx, id);
@@ -313,17 +544,121 @@ export class PurchaseService {
       select: { grandTotal: true },
     });
     const paid = agg._sum.amount ?? D(0);
-    const paymentStatus = paid.gte(purchase.grandTotal)
-      ? 'PAID'
-      : paid.gt(0)
-        ? 'PARTIAL'
-        : 'PENDING';
+    const paymentStatus = derivePaymentStatus(paid, D(purchase.grandTotal));
     return tx.inventoryPurchase.update({
       where: { id },
       data: { paid, paymentStatus },
       include: {
         payments: { where: { deletedAt: null }, orderBy: { date: 'desc' } },
       },
+    });
+  }
+
+  // ── Supplier payments (legacy Purchases::supplier_payments) ───────────────────
+
+  /** List a supplier's purchases that still have an outstanding balance. */
+  async supplierOutstanding(supplierId: string, tenantId: string) {
+    await this.supplierService.findById(supplierId, tenantId);
+    const rows = await this.prisma.inventoryPurchase.findMany({
+      where: {
+        tenantId,
+        supplierId,
+        deletedAt: null,
+        paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+        status: { not: 'RETURNED' },
+      },
+      orderBy: { date: 'asc' },
+      select: {
+        id: true,
+        reference: true,
+        date: true,
+        status: true,
+        grandTotal: true,
+        paid: true,
+        paymentStatus: true,
+      },
+    });
+    const purchases = rows.map((p) => ({
+      ...p,
+      balance: D(p.grandTotal).sub(p.paid),
+    }));
+    const totalDue = purchases.reduce((s, p) => s.add(p.balance), D(0));
+    return { purchases, totalDue };
+  }
+
+  /**
+   * Record one bulk supplier payment and allocate it across the supplier's
+   * outstanding purchases (explicit allocations, or oldest-first otherwise).
+   * Creates an {@link InventorySupplierPayment} header plus a per-purchase
+   * {@link InventoryPurchasePayment} allocation, updating each purchase's
+   * paid + payment status.
+   */
+  async addSupplierPayment(
+    tenantId: string,
+    dto: SupplierBulkPaymentDto,
+    actorId?: string,
+  ) {
+    await this.supplierService.findById(dto.supplierId, tenantId);
+    const { purchases } = await this.supplierOutstanding(
+      dto.supplierId,
+      tenantId,
+    );
+    const byId = new Map(purchases.map((p) => [p.id, p]));
+
+    // Resolve allocations: explicit, or spread the amount oldest-first.
+    const allocations: { purchaseId: string; amount: Prisma.Decimal }[] = [];
+    if (dto.allocations?.length) {
+      for (const a of dto.allocations) {
+        const p = byId.get(a.purchaseId);
+        if (!p) throw new PurchaseNotFoundException(a.purchaseId);
+        const amount = Prisma.Decimal.min(D(a.amount), p.balance);
+        if (amount.gt(0)) allocations.push({ purchaseId: p.id, amount });
+      }
+    } else {
+      let remaining = D(dto.amount);
+      for (const p of purchases) {
+        if (remaining.lte(0)) break;
+        const amount = Prisma.Decimal.min(remaining, p.balance);
+        if (amount.gt(0)) {
+          allocations.push({ purchaseId: p.id, amount });
+          remaining = remaining.sub(amount);
+        }
+      }
+    }
+
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const header = await tx.inventorySupplierPayment.create({
+        data: {
+          tenantId,
+          supplierId: dto.supplierId,
+          amount: D(dto.amount),
+          method: (dto.method ?? 'CASH').toUpperCase(),
+          reference: dto.reference,
+          note: dto.note,
+          date: dto.date ? new Date(dto.date) : new Date(),
+          createdBy: actorId,
+        },
+      });
+
+      for (const a of allocations) {
+        await tx.inventoryPurchasePayment.create({
+          data: {
+            tenantId,
+            purchaseId: a.purchaseId,
+            amount: a.amount,
+            method: (dto.method ?? 'CASH').toUpperCase(),
+            reference: dto.reference,
+            date: header.date,
+            note: dto.note,
+            chequeNo: dto.chequeNo,
+            supplierPaymentId: header.id,
+            createdBy: actorId,
+          },
+        });
+        await this.recomputePaid(tx, a.purchaseId);
+      }
+
+      return { ...header, allocations };
     });
   }
 

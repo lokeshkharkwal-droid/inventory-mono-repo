@@ -17,29 +17,72 @@ export interface SaleListRow {
   customer: { id: string; name: string } | null;
 }
 
+export interface SaleItemDetail {
+  id: string;
+  productId: string;
+  productName: string;
+  productCode: string | null;
+  optionId: string | null;
+  quantity: number;
+  price: number;
+  realUnitPrice: number;
+  netUnitPrice: number;
+  taxRate: number;
+  taxAmount: number;
+  taxMethod: string | null;
+  discount: number;
+  discountSpec: string | null;
+  subtotal: number;
+  hsnCode: string | null;
+  serialNo: string | null;
+  expiryDate: string | null;
+  packSize: number | null;
+  packQuantity: number | null;
+  igst: number;
+  cgst: number;
+  sgst: number;
+}
+
+export interface SalePaymentDetail {
+  id: string;
+  amount: number;
+  method: string;
+  reference: string | null;
+  date: string;
+  note: string | null;
+  chequeNo: string | null;
+  ccNo: string | null;
+  giftCardNo: string | null;
+}
+
 export interface SaleDetail extends SaleListRow {
   branchId: string;
+  billerId: string | null;
+  billerName: string | null;
   subtotal: number;
-  orderTax: number;
+  productDiscount: number;
   orderDiscount: number;
+  orderDiscountSpec: string | null;
+  orderTax: number;
+  orderTaxId: string | null;
+  totalTax: number;
   shipping: number;
+  roundoff: number;
+  totalItems: number;
+  paymentTerm: number | null;
+  dueDate: string | null;
+  gstNumber: string | null;
+  gstState: string | null;
+  taxMethod: string | null;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  attachmentUrl: string | null;
   note: string | null;
-  items: {
-    id: string;
-    productId: string;
-    productName: string;
-    quantity: number;
-    price: number;
-    taxRate: number;
-    discount: number;
-    subtotal: number;
-  }[];
-  payments: {
-    id: string;
-    amount: number;
-    method: string;
-    date: string;
-  }[];
+  staffNote: string | null;
+  doctorName: string | null;
+  items: SaleItemDetail[];
+  payments: SalePaymentDetail[];
 }
 
 const KEY = ['sales'] as const;
@@ -95,6 +138,23 @@ export function useAddSalePayment(saleId: string) {
   return useMutation({
     mutationFn: (input: Record<string, unknown>) =>
       request('POST', `/sales/${saleId}/payments`, { body: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useDeleteSalePayment(saleId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (paymentId: string) =>
+      request('DELETE', `/sales/${saleId}/payments/${paymentId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useDeleteSale() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => request('DELETE', `/sales/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }
