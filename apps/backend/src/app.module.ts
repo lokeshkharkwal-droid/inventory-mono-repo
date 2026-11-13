@@ -48,6 +48,10 @@ import { EmailTemplateModule } from './modules/email-template/email-template.mod
 import { ProductTemplateModule } from './modules/product-template/product-template.module';
 import { MasterProductModule } from './modules/master-product/master-product.module';
 import { MasterReferenceModule } from './modules/master-reference/master-reference.module';
+import { MasterManufacturerModule } from './modules/master-manufacturer/master-manufacturer.module';
+import { MasterSupplierModule } from './modules/master-supplier/master-supplier.module';
+import { MasterProformaModule } from './modules/master-proforma/master-proforma.module';
+import { MasterSettingModule } from './modules/master-setting/master-setting.module';
 import { PromotionModule } from './modules/promotion/promotion.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
@@ -113,6 +117,10 @@ import { AlertsModule } from './modules/alerts/alerts.module';
     ProductTemplateModule,
     MasterProductModule,
     MasterReferenceModule,
+    MasterManufacturerModule,
+    MasterSupplierModule,
+    MasterProformaModule,
+    MasterSettingModule,
     PromotionModule,
   ],
   providers: [

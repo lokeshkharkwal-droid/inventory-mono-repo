@@ -4,6 +4,10 @@ import { AppLayout } from '@/app/layout/AppLayout';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ProductsPage } from '@/pages/products/ProductsPage';
+import { PrintBarcodesPage } from '@/pages/products/PrintBarcodesPage';
+import { ImportProductsPage } from '@/pages/products/ImportProductsPage';
+import { UpdateCsvPage } from '@/pages/products/UpdateCsvPage';
+import { QuantityAdjustmentsPage } from '@/pages/products/QuantityAdjustmentsPage';
 import { CategoriesPage } from '@/pages/categories/CategoriesPage';
 import { SubCategoriesPage } from '@/pages/masters/SubCategoriesPage';
 import { UnitsPage } from '@/pages/masters/UnitsPage';
@@ -64,6 +68,10 @@ export function AppRouter() {
           <Route element={<AppLayout />}>
             <Route index element={<DashboardPage />} />
             <Route path="products" element={<ProductsPage />} />
+            <Route path="products/print-barcodes" element={<PrintBarcodesPage />} />
+            <Route path="products/import" element={<ImportProductsPage />} />
+            <Route path="products/update-csv" element={<UpdateCsvPage />} />
+            <Route path="products/quantity-adjustments" element={<QuantityAdjustmentsPage />} />
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="sub-categories" element={<SubCategoriesPage />} />
             <Route path="units" element={<UnitsPage />} />

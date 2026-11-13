@@ -15,6 +15,7 @@ import {
   UpdateMasterProductDto,
   MasterProductQueryDto,
   ImportMasterProductsDto,
+  MasterProductDrugDto,
 } from './dto/master-product.dto';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -42,6 +43,13 @@ export class MasterProductController {
     return this.service.findAllManage(query);
   }
 
+  @Get('manage/:id')
+  @Public()
+  @UseGuards(SiteAdminGuard)
+  manageDetail(@Param('id') id: string) {
+    return this.service.findOne(id);
+  }
+
   @Post('manage')
   @Public()
   @UseGuards(SiteAdminGuard)
@@ -50,6 +58,16 @@ export class MasterProductController {
     @Body() dto: CreateMasterProductDto,
   ) {
     return this.service.create(dto, siteAdminId);
+  }
+
+  @Post('manage/:id/duplicate')
+  @Public()
+  @UseGuards(SiteAdminGuard)
+  duplicate(
+    @CurrentSiteAdmin('siteadmin_id') siteAdminId: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.duplicate(id, siteAdminId);
   }
 
   @Patch('manage/:id')
@@ -64,6 +82,28 @@ export class MasterProductController {
   @UseGuards(SiteAdminGuard)
   remove(@Param('id') id: string) {
     return this.service.remove(id);
+  }
+
+  // ── Drug composition (EZHT "Drugs" modal) ────────────────────────────────────
+  @Get('manage/:id/drugs')
+  @Public()
+  @UseGuards(SiteAdminGuard)
+  listDrugs(@Param('id') id: string) {
+    return this.service.listDrugs(id);
+  }
+
+  @Post('manage/:id/drugs')
+  @Public()
+  @UseGuards(SiteAdminGuard)
+  addDrug(@Param('id') id: string, @Body() dto: MasterProductDrugDto) {
+    return this.service.addDrug(id, dto);
+  }
+
+  @Delete('manage/:id/drugs/:drugId')
+  @Public()
+  @UseGuards(SiteAdminGuard)
+  removeDrug(@Param('id') id: string, @Param('drugId') drugId: string) {
+    return this.service.removeDrug(id, drugId);
   }
 
   // ── Tenant browse + import (business JWT) ────────────────────────────────────

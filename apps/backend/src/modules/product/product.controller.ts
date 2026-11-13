@@ -16,9 +16,13 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
 import {
   AdjustmentQueryDto,
+  AllAdjustmentsQueryDto,
   RecordAdjustmentDto,
+  UpdateAdjustmentDto,
 } from './dto/stock-adjustment.dto';
 import { ImportProductsDto } from './dto/import-products.dto';
+import { UpdateImportProductsDto } from './dto/update-import.dto';
+import { ProductDrugDto } from './dto/product-drug.dto';
 import {
   BulkPriceUpdateDto,
   SetRackDto,
@@ -59,6 +63,24 @@ export class ProductController {
     return this.productService.bulkUpdatePrice(tenantId, dto);
   }
 
+  /** Update existing products via CSV rows (declared before `:id` routes). */
+  @Post('update-import')
+  updateImport(
+    @CurrentTenant() tenantId: string,
+    @Body() dto: UpdateImportProductsDto,
+  ) {
+    return this.importService.updateImport(tenantId, dto);
+  }
+
+  /** Tenant-wide adjustment history (declared before `:id` routes). */
+  @Get('adjustments')
+  listAllAdjustments(
+    @CurrentTenant() tenantId: string,
+    @Query() query: AllAdjustmentsQueryDto,
+  ) {
+    return this.stockService.listAllAdjustments(tenantId, query);
+  }
+
   @Get()
   findAll(@CurrentTenant() tenantId: string, @Query() query: ProductQueryDto) {
     return this.productService.findAll(tenantId, query);
@@ -82,6 +104,38 @@ export class ProductController {
   @RequirePermission('inventory:products__delete')
   remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.productService.remove(id, tenantId);
+  }
+
+  /** Duplicate a product (scalars + variants + drugs) into a new one. */
+  @Post(':id/duplicate')
+  duplicate(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.productService.duplicate(id, tenantId);
+  }
+
+  /** List a product's drug-composition rows (EZHT "Drugs" modal). */
+  @Get(':id/drugs')
+  listDrugs(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.productService.listDrugs(id, tenantId);
+  }
+
+  /** Add a drug-composition row to a product. */
+  @Post(':id/drugs')
+  addDrug(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: ProductDrugDto,
+  ) {
+    return this.productService.addDrug(id, tenantId, dto);
+  }
+
+  /** Delete a single drug-composition row from a product. */
+  @Delete(':id/drugs/:drugId')
+  removeDrug(
+    @Param('id') id: string,
+    @Param('drugId') drugId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.productService.removeDrug(id, tenantId, drugId);
   }
 
   /** On-hand stock across branches for a product. */
@@ -117,6 +171,28 @@ export class ProductController {
     @Query() query: AdjustmentQueryDto,
   ) {
     return this.stockService.listAdjustments(id, tenantId, query);
+  }
+
+  /** Update an adjustment's descriptive fields. */
+  @Patch(':id/adjustments/:adjId')
+  updateAdjustment(
+    @Param('id') id: string,
+    @Param('adjId') adjId: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: UpdateAdjustmentDto,
+  ) {
+    return this.stockService.updateAdjustment(id, tenantId, adjId, dto);
+  }
+
+  /** Delete an adjustment and reverse its stock effect. */
+  @Delete(':id/adjustments/:adjId')
+  @RequirePermission('inventory:products__adjust_stock')
+  deleteAdjustment(
+    @Param('id') id: string,
+    @Param('adjId') adjId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.stockService.deleteAdjustment(id, tenantId, adjId);
   }
 
   /** Set the product's rack/bin at the active branch. */

@@ -11,6 +11,10 @@ import {
   Tag,
   ListOrdered,
   Eye,
+  Copy,
+  Pill,
+  Image as ImageIcon,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +27,7 @@ import {
   useInfiniteProducts,
   useProduct,
   useDeleteProduct,
+  useDuplicateProduct,
   type ProductListRow,
 } from '@/features/products/api';
 import { ProductFormDialog } from '@/features/products/ProductFormDialog';
@@ -31,6 +36,9 @@ import { ProductStockDialog } from '@/features/products/ProductStockDialog';
 import { PrintBarcodesDialog } from '@/features/products/PrintBarcodesDialog';
 import { BulkPriceDialog } from '@/features/products/BulkPriceDialog';
 import { ProductSerialsDialog } from '@/features/products/ProductSerialsDialog';
+import { ProductDrugsDialog } from '@/features/products/ProductDrugsDialog';
+import { ViewImageDialog } from '@/features/products/ViewImageDialog';
+import { AdjustmentFormDialog } from '@/features/products/AdjustmentFormDialog';
 import { usePermissions, permKey } from '@/features/permissions/api';
 
 /** Products list — search, CRUD, and per-branch stock/adjustments. */
@@ -41,6 +49,9 @@ export function ProductsPage() {
   const [stockRow, setStockRow] = useState<ProductListRow | null>(null);
   const [viewRow, setViewRow] = useState<ProductListRow | null>(null);
   const [serialsRow, setSerialsRow] = useState<ProductListRow | null>(null);
+  const [drugsRow, setDrugsRow] = useState<ProductListRow | null>(null);
+  const [imageRow, setImageRow] = useState<ProductListRow | null>(null);
+  const [adjustRow, setAdjustRow] = useState<ProductListRow | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [barcodesOpen, setBarcodesOpen] = useState(false);
   const [bulkPriceOpen, setBulkPriceOpen] = useState(false);
@@ -48,7 +59,9 @@ export function ProductsPage() {
   const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
     useInfiniteProducts({ search });
   const { data: editing } = useProduct(editingId);
+  const { data: imageDetail } = useProduct(imageRow?.id ?? null);
   const del = useDeleteProduct();
+  const duplicate = useDuplicateProduct();
   const { can } = usePermissions();
   const canCreate = can(permKey('products', 'create'));
   const canDelete = can(permKey('products', 'delete'));
@@ -73,6 +86,18 @@ export function ProductsPage() {
     }
   };
 
+  const onDuplicate = async (row: ProductListRow) => {
+    try {
+      const copy = await duplicate.mutateAsync(row.id);
+      toast.success('Product duplicated');
+      // Open the new copy for editing so the user can tweak it.
+      setEditingId(copy.id);
+      setFormOpen(true);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Could not duplicate product'));
+    }
+  };
+
   const columns: Column<ProductListRow>[] = [
     { key: 'code', header: 'Code' },
     { key: 'name', header: 'Name' },
@@ -90,15 +115,36 @@ export function ProductsPage() {
       header: '',
       className: 'text-right',
       render: (r) => (
-        <div className="flex justify-end gap-1">
+        <div className="flex flex-wrap justify-end gap-1">
+          {/* EZHT product row actions: Details, Drugs, Duplicate, Edit, View
+              Image, Print Barcode, Print Label, Adjust Quantity, Delete (+ the
+              existing Stock and Serials views). */}
+          <Button variant="ghost" size="icon" title="Product details" onClick={() => setViewRow(r)}>
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" title="Drugs" onClick={() => setDrugsRow(r)}>
+            <Pill className="h-4 w-4" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
-            title="View details"
-            onClick={() => setViewRow(r)}
+            title={canCreate ? 'Duplicate product' : 'No create permission'}
+            disabled={!canCreate || duplicate.isPending}
+            onClick={() => onDuplicate(r)}
           >
-            <Eye className="h-4 w-4" />
+            <Copy className="h-4 w-4" />
           </Button>
+          <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(r)}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" title="View image" onClick={() => setImageRow(r)}>
+            <ImageIcon className="h-4 w-4" />
+          </Button>
+          <PrintButton
+            path={`/print/product/${r.id}/barcode`}
+            title="Print barcode"
+            size="icon"
+          />
           <PrintButton
             path={`/print/product/${r.id}/label`}
             title="Print label"
@@ -107,7 +153,16 @@ export function ProductsPage() {
           <Button
             variant="ghost"
             size="icon"
-            title={canAdjust ? 'Stock' : 'No stock-adjust permission'}
+            title={canAdjust ? 'Adjust quantity' : 'No stock-adjust permission'}
+            disabled={!canAdjust}
+            onClick={() => setAdjustRow(r)}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            title={canAdjust ? 'Stock / rack' : 'No stock-adjust permission'}
             disabled={!canAdjust}
             onClick={() => setStockRow(r)}
           >
@@ -120,9 +175,6 @@ export function ProductsPage() {
             onClick={() => setSerialsRow(r)}
           >
             <ListOrdered className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(r)}>
-            <Pencil className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"
@@ -236,6 +288,28 @@ export function ProductsPage() {
         onOpenChange={(o) => !o && setStockRow(null)}
         product={stockRow}
       />
+      {drugsRow && (
+        <ProductDrugsDialog
+          productId={drugsRow.id}
+          productName={drugsRow.name}
+          open={!!drugsRow}
+          onClose={() => setDrugsRow(null)}
+        />
+      )}
+      <ViewImageDialog
+        product={imageRow ? imageDetail ?? null : null}
+        open={!!imageRow}
+        onClose={() => setImageRow(null)}
+      />
+      {adjustRow && (
+        <AdjustmentFormDialog
+          productId={adjustRow.id}
+          productName={adjustRow.name}
+          open={!!adjustRow}
+          onClose={() => setAdjustRow(null)}
+          onSaved={() => setAdjustRow(null)}
+        />
+      )}
       <PrintBarcodesDialog open={barcodesOpen} onOpenChange={setBarcodesOpen} />
       <BulkPriceDialog open={bulkPriceOpen} onOpenChange={setBulkPriceOpen} />
       <ImportDialog

@@ -249,6 +249,25 @@ export async function login(identifier: string, password: string): Promise<void>
   if (data.refreshToken) setRefreshToken(data.refreshToken);
 }
 
+// ─── File upload (to kalnostics-new business attachments → S3) ────────────────
+/**
+ * Upload a single file (image or document) to kalnostics-new's business
+ * attachment endpoint and return its public URL. Used for product image + gallery
+ * uploads; the inventory backend stores only the returned URL.
+ */
+export async function uploadAttachment(file: File): Promise<string> {
+  const token = getAuthToken();
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await axios.post(`${KALNOSTICS_BASE}/uploads/attachment`, fd, {
+    headers: { Authorization: `Bearer ${token ?? ''}` },
+    timeout: REQUEST_TIMEOUT_MS,
+  });
+  const data = unwrap<{ url: string }>(res.data);
+  if (!data?.url) throw new ApiError(0, 'Upload failed', 'POST', '/uploads/attachment');
+  return data.url;
+}
+
 // ─── JWT payload + profile switching ──────────────────────────────────────────
 /** One of the user's assignable profiles, embedded in the access token. */
 export interface JwtProfile {
