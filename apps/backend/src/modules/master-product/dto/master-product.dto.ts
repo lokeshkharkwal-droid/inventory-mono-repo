@@ -258,3 +258,10 @@ export class ImportMasterProductsDto {
   @IsString({ each: true })
   ids: string[];
 }
+
+// Names from the master-catalog work, kept as aliases so both resolve.
+export const PRODUCT_TYPES: string[] = [...MASTER_PRODUCT_TYPES];
+export const BARCODE_SYMBOLOGIES = ['code25', 'code39', 'code128', 'ean8', 'ean13', 'upca', 'upce'];
+export { MasterComboItemDto as MasterProductComboItemDto };
+export { MasterProductDrugDto as CreateMasterProductDrugDto };
+export { UpdateMasterProductDto as MasterProductBaseDto };

@@ -20,14 +20,14 @@ export class CreateMasterCategoryDto {
   @IsString() @MaxLength(255) name: string;
   @IsOptional() @IsString() @MaxLength(50) code?: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
-  @IsOptional() @IsString() @MaxLength(1000) imageUrl?: string;
+  @IsOptional() @IsString() @MaxLength(2048) imageUrl?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 export class UpdateMasterCategoryDto {
   @IsOptional() @IsString() @MaxLength(255) name?: string;
   @IsOptional() @IsString() @MaxLength(50) code?: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
-  @IsOptional() @IsString() @MaxLength(1000) imageUrl?: string;
+  @IsOptional() @IsString() @MaxLength(2048) imageUrl?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
