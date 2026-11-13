@@ -48,6 +48,11 @@ export class PrintController {
     return this.printService.productLabel(id, tenantId);
   }
 
+  @Get('product/:id/barcode')
+  productBarcode(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.printService.productBarcode(id, tenantId);
+  }
+
   @Post('barcodes')
   barcodeSheet(
     @CurrentTenant() tenantId: string,

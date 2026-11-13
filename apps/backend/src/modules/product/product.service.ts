@@ -35,7 +35,49 @@ const PRODUCT_INCLUDE = {
       priceAdjustment: true,
     },
   },
+  drugs: {
+    select: { id: true, name: true, unitValue: true, unit: true },
+  },
 } satisfies Prisma.InventoryProductInclude;
+
+/**
+ * Map the EZHT add-product parity scalar fields (shared by create/update) to a
+ * Prisma data object. `code`/`name`/references/defaults and variants are handled
+ * by the callers; this covers the plain pass-through columns.
+ */
+function ezhtScalarData(dto: CreateProductDto | UpdateProductDto) {
+  return {
+    packSize: dto.packSize,
+    salesMethod: dto.salesMethod,
+    packCost: dto.packCost,
+    packMrp: dto.packMrp,
+    taxMethod: dto.taxMethod,
+    taxMethodPurchase: dto.taxMethodPurchase,
+    galleryImageUrls: dto.galleryImageUrls,
+    composition: dto.composition,
+    unitType: dto.unitType,
+    formulation: dto.formulation,
+    route: dto.route,
+    frequency: dto.frequency,
+    numberOfDays: dto.numberOfDays,
+    prescriptionQuantity: dto.prescriptionQuantity,
+    refills: dto.refills,
+    refillTimes: dto.refillTimes,
+    prescriptionNotes: dto.prescriptionNotes,
+    cf1: dto.cf1,
+    cf2: dto.cf2,
+    cf3: dto.cf3,
+    cf4: dto.cf4,
+    cf5: dto.cf5,
+    cf6: dto.cf6,
+    cf7: dto.cf7,
+    cf8: dto.cf8,
+    cf9: dto.cf9,
+    cf10: dto.cf10,
+    cf11: dto.cf11,
+    invoiceDetails: dto.invoiceDetails,
+  };
+}
 
 /**
  * Products — tenant-level catalogue (CLAUDE.md §4.7). References (category/
@@ -63,6 +105,7 @@ export class ProductService {
     return this.prisma.withTenant(tenantId, async (tx) => {
       const product = await tx.inventoryProduct.create({
         data: {
+          ...ezhtScalarData(dto),
           tenantId,
           code: dto.code,
           name: dto.name,
@@ -71,7 +114,7 @@ export class ProductService {
           unitId: dto.unitId,
           brandId: dto.brandId,
           taxRateId: dto.taxRateId,
-          type: dto.type ?? 'STANDARD',
+          type: dto.type ?? 'standard',
           cost: dto.cost ?? 0,
           price: dto.price ?? 0,
           alertQuantity: dto.alertQuantity ?? 0,
@@ -176,6 +219,16 @@ export class ProductService {
     return product;
   }
 
+  /** Fetch a product by its tenant-unique code (throws 404 if absent). */
+  async findByCode(tenantId: string, code: string) {
+    const product = await this.prisma.inventoryProduct.findFirst({
+      where: { tenantId, code, deletedAt: null },
+      select: { id: true, code: true },
+    });
+    if (!product) throw new ProductNotFoundException(code);
+    return product;
+  }
+
   /** Update a product; when `variants` is given it replaces the variant set. */
   async update(id: string, tenantId: string, dto: UpdateProductDto) {
     await this.findById(id, tenantId);
@@ -191,6 +244,7 @@ export class ProductService {
       return tx.inventoryProduct.update({
         where: { id },
         data: {
+          ...ezhtScalarData(dto),
           code: dto.code,
           name: dto.name,
           categoryId: dto.categoryId,
@@ -318,6 +372,158 @@ export class ProductService {
       },
       select: { id: true, branchId: true, rack: true },
     });
+  }
+
+  /**
+   * Deep-copy a product (scalars + variants + drugs) into a new one. The copy's
+   * name gets a " (copy)" suffix and its code is suffixed to stay unique; stock,
+   * serials and adjustments are NOT copied.
+   */
+  async duplicate(id: string, tenantId: string) {
+    const source = await this.prisma.inventoryProduct.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      include: {
+        variants: { where: { deletedAt: null } },
+        drugs: true,
+      },
+    });
+    if (!source) throw new ProductNotFoundException(id);
+
+    // Derive a free code: "<code>-copy", then "-copy2", … until unique.
+    let code = `${source.code}-copy`;
+    for (let n = 2; await this.codeTaken(tenantId, code); n++) {
+      code = `${source.code}-copy${n}`;
+    }
+
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      return tx.inventoryProduct.create({
+        data: {
+          tenantId,
+          code,
+          name: `${source.name} (copy)`,
+          categoryId: source.categoryId,
+          subCategoryId: source.subCategoryId,
+          unitId: source.unitId,
+          brandId: source.brandId,
+          taxRateId: source.taxRateId,
+          type: source.type,
+          cost: source.cost,
+          price: source.price,
+          alertQuantity: source.alertQuantity,
+          isStockTracked: source.isStockTracked,
+          isTaxIncluded: source.isTaxIncluded,
+          isActive: source.isActive,
+          barcodeSymbology: source.barcodeSymbology,
+          imageUrl: source.imageUrl,
+          galleryImageUrls: source.galleryImageUrls,
+          description: source.description,
+          genericName: source.genericName,
+          strength: source.strength,
+          potency: source.potency,
+          hsnCode: source.hsnCode,
+          isSerialized: source.isSerialized,
+          packSize: source.packSize,
+          salesMethod: source.salesMethod,
+          packCost: source.packCost,
+          packMrp: source.packMrp,
+          taxMethod: source.taxMethod,
+          taxMethodPurchase: source.taxMethodPurchase,
+          composition: source.composition,
+          unitType: source.unitType,
+          formulation: source.formulation,
+          route: source.route,
+          frequency: source.frequency,
+          numberOfDays: source.numberOfDays,
+          prescriptionQuantity: source.prescriptionQuantity,
+          refills: source.refills,
+          refillTimes: source.refillTimes,
+          prescriptionNotes: source.prescriptionNotes,
+          cf1: source.cf1,
+          cf2: source.cf2,
+          cf3: source.cf3,
+          cf4: source.cf4,
+          cf5: source.cf5,
+          cf6: source.cf6,
+          cf7: source.cf7,
+          cf8: source.cf8,
+          cf9: source.cf9,
+          cf10: source.cf10,
+          cf11: source.cf11,
+          invoiceDetails: source.invoiceDetails,
+          variants: source.variants.length
+            ? {
+                create: source.variants.map((v) => ({
+                  tenantId,
+                  name: v.name,
+                  sku: v.sku,
+                  costAdjustment: v.costAdjustment,
+                  priceAdjustment: v.priceAdjustment,
+                })),
+              }
+            : undefined,
+          drugs: source.drugs.length
+            ? {
+                create: source.drugs.map((d) => ({
+                  tenantId,
+                  name: d.name,
+                  unitValue: d.unitValue,
+                  unit: d.unit,
+                })),
+              }
+            : undefined,
+        },
+        include: PRODUCT_INCLUDE,
+      });
+    });
+  }
+
+  /** Whether a product code is already used by the tenant (active rows). */
+  private async codeTaken(tenantId: string, code: string): Promise<boolean> {
+    const row = await this.prisma.inventoryProduct.findFirst({
+      where: { tenantId, code, deletedAt: null },
+      select: { id: true },
+    });
+    return !!row;
+  }
+
+  // ── Drug composition (EZHT "Drugs" modal) ───────────────────────────────────
+  /** List a product's drug-composition rows. */
+  async listDrugs(id: string, tenantId: string) {
+    await this.findById(id, tenantId);
+    return this.prisma.inventoryProductDrug.findMany({
+      where: { productId: id, tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Add a drug-composition row to a product. */
+  async addDrug(
+    id: string,
+    tenantId: string,
+    data: { name: string; unitValue?: string; unit?: string },
+  ) {
+    await this.findById(id, tenantId);
+    return this.prisma.inventoryProductDrug.create({
+      data: {
+        tenantId,
+        productId: id,
+        name: data.name,
+        unitValue: data.unitValue,
+        unit: data.unit,
+      },
+    });
+  }
+
+  /** Delete a single drug-composition row from a product. */
+  async removeDrug(id: string, tenantId: string, drugId: string) {
+    await this.findById(id, tenantId);
+    const row = await this.prisma.inventoryProductDrug.findFirst({
+      where: { id: drugId, productId: id, tenantId },
+      select: { id: true },
+    });
+    if (!row) throw new ProductNotFoundException(drugId);
+    await this.prisma.inventoryProductDrug.delete({ where: { id: drugId } });
+    return { id: drugId };
   }
 
   /** Validate every supplied reference belongs to the tenant (throws if not). */

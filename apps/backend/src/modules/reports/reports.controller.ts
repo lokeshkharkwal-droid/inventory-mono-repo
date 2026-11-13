@@ -1,8 +1,15 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ReportsService } from './reports.service';
+import { ReportsStockService } from './reports-stock.service';
+import { ReportsSalesService } from './reports-sales.service';
+import { ReportsIpdService } from './reports-ipd.service';
+import { ReportsPurchasesService } from './reports-purchases.service';
+import { ReportsFinanceService } from './reports-finance.service';
+import { ReportsPartiesService } from './reports-parties.service';
 import {
   ExpiryQueryDto,
   PartyLedgerQueryDto,
+  ReportQueryDto,
   ReportRangeDto,
 } from './dto/reports-query.dto';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
@@ -10,7 +17,197 @@ import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 /** Read-only reporting endpoints (tenant-scoped via the JWT). */
 @Controller('reports')
 export class ReportsController {
-  constructor(private readonly reportsService: ReportsService) {}
+  constructor(
+    private readonly reportsService: ReportsService,
+    private readonly stock: ReportsStockService,
+    private readonly sales: ReportsSalesService,
+    private readonly ipd: ReportsIpdService,
+    private readonly purchases: ReportsPurchasesService,
+    private readonly finance: ReportsFinanceService,
+    private readonly parties: ReportsPartiesService,
+  ) {}
+
+  // ── Sales reports ───────────────────────────────────────────────────────────
+
+  @Get('daily-sales')
+  dailySales(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.sales.dailySales(t, q);
+  }
+
+  @Get('monthly-sales')
+  monthlySales(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.sales.monthlySales(t, q);
+  }
+
+  @Get('sales')
+  salesReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.sales.sales(t, q);
+  }
+
+  @Get('sales-tax')
+  salesTaxReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.sales.salesTax(t, q);
+  }
+
+  @Get('sales-quantity')
+  salesQuantity(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.sales.salesQuantity(t, q);
+  }
+
+  @Get('payments-ledger')
+  paymentsLedger(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.sales.payments(t, q);
+  }
+
+  @Get('gst-invoices')
+  gstInvoices(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.sales.gst(t, q);
+  }
+
+  @Get('profit-loss-report')
+  profitLossReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.sales.profitLoss(t, q);
+  }
+
+  @Get('profit-loss-sales')
+  profitLossSales(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.sales.profitLossSales(t, q);
+  }
+
+  // ── IPD reports ───────────────────────────────────────────────────────────
+
+  @Get('ipd-sales')
+  ipdSales(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.ipd.ipdSales(t, q);
+  }
+
+  @Get('ipd-department-sales')
+  ipdDepartmentSales(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.ipd.ipdDepartmentSales(t, q);
+  }
+
+  // ── Purchase reports ────────────────────────────────────────────────────────
+
+  @Get('daily-purchases')
+  dailyPurchases(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.purchases.dailyPurchases(t, q);
+  }
+
+  @Get('monthly-purchases')
+  monthlyPurchases(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.purchases.monthlyPurchases(t, q);
+  }
+
+  @Get('purchases')
+  purchasesReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.purchases.purchases(t, q);
+  }
+
+  @Get('purchase-age')
+  purchaseAge(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.purchases.purchaseAge(t, q);
+  }
+
+  @Get('purchases-tax')
+  purchasesTax(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.purchases.purchasesTax(t, q);
+  }
+
+  // ── Financial reports ───────────────────────────────────────────────────────
+
+  @Get('transfers')
+  transfersReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.finance.transfers(t, q);
+  }
+
+  @Get('expenses')
+  expensesReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.finance.expenses(t, q);
+  }
+
+  @Get('incomes')
+  incomesReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.finance.incomes(t, q);
+  }
+
+  @Get('income-expense')
+  incomeExpense(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.finance.incomeExpense(t, q);
+  }
+
+  // ── Party reports ───────────────────────────────────────────────────────────
+
+  @Get('customers')
+  customersReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.parties.customers(t, q);
+  }
+
+  @Get('patients')
+  patientsReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.parties.patients(t, q);
+  }
+
+  @Get('suppliers')
+  suppliersReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.parties.suppliers(t, q);
+  }
+
+  @Get('supplier-credit')
+  supplierCredit(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.parties.supplierCredit(t, q);
+  }
+
+  @Get('staff')
+  staffReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
+    return this.parties.users(t, q);
+  }
+
+  // ── Stock / inventory reports (migrated EZHealthTrack) ──────────────────────
+
+  @Get('warehouse-stock')
+  warehouseStock(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+    return this.stock.warehouseStock(tenantId, q.warehouseId);
+  }
+
+  @Get('materials')
+  materials(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+    return this.stock.materials(tenantId, q);
+  }
+
+  @Get('tools-and-plants')
+  toolsAndPlants(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+    return this.stock.toolsAndPlants(tenantId, q);
+  }
+
+  @Get('register')
+  register(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+    return this.stock.register(tenantId, q);
+  }
+
+  @Get('quantity-alerts')
+  quantityAlerts(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+    return this.stock.quantityAlerts(tenantId, q.warehouseId, q.search);
+  }
+
+  @Get('expiry-alerts')
+  expiryAlerts(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+    return this.stock.expiryAlerts(tenantId, q);
+  }
+
+  @Get('products')
+  productsReport(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+    return this.stock.products(tenantId, q);
+  }
+
+  @Get('categories')
+  categoriesReport(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+    return this.stock.categories(tenantId, q);
+  }
+
+  @Get('exposures')
+  exposures(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
+    return this.stock.exposures(tenantId, q);
+  }
 
   @Get('dashboard')
   dashboard(@CurrentTenant() tenantId: string) {

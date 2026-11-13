@@ -346,6 +346,23 @@ export class PrintService {
   }
 
   /**
+   * A single product barcode strip (legacy Products::single_barcode) — just the
+   * barcode + code + price, without the full label chrome.
+   */
+  async productBarcode(id: string, tenantId: string): Promise<string> {
+    const p = await this.productService.findById(id, tenantId);
+    const svg = this.barcode.code39Svg(p.code, 44);
+    const body = `
+      <div style="display:inline-block;border:1px solid #e5e5e5;border-radius:4px;padding:10px 14px;text-align:center">
+        <div style="font-size:11px;font-weight:600">${esc(p.name)}</div>
+        <div style="margin:4px 0">${svg}</div>
+        <div style="font-size:10px;letter-spacing:1px">${esc(p.code)}</div>
+        <div style="font-size:12px;font-weight:700">${money(p.price)}</div>
+      </div>`;
+    return docShell(`Barcode ${p.code}`, body);
+  }
+
+  /**
    * A printable sheet of many barcode labels (legacy Products::print_barcodes).
    * Each selected product is repeated `quantity` times; `style` sets the label
    * size; toggles control whether the business name / product name / price show.

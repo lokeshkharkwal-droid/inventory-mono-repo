@@ -5,11 +5,14 @@ import { PaginatedResult } from '../../common/dto/response.dto';
 import { ProductService } from './product.service';
 import {
   AdjustmentQueryDto,
+  AllAdjustmentsQueryDto,
   RecordAdjustmentDto,
+  UpdateAdjustmentDto,
 } from './dto/stock-adjustment.dto';
 import {
   BranchRequiredException,
   InsufficientStockException,
+  ProductNotFoundException,
 } from './exceptions/product.exceptions';
 
 /**
@@ -142,10 +145,135 @@ export class ProductStockService {
           reason: dto.reason,
           note: dto.note,
           createdBy: actorId,
+          adjustedAt: dto.adjustedAt ? new Date(dto.adjustedAt) : new Date(),
+          variantId: dto.variantId,
+          packSize: dto.packSize,
+          packQuantity:
+            dto.packQuantity != null
+              ? new Prisma.Decimal(dto.packQuantity)
+              : undefined,
+          batchNo: dto.batchNo,
+          expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+          packMrp:
+            dto.packMrp != null ? new Prisma.Decimal(dto.packMrp) : undefined,
+          unitMrp:
+            dto.unitMrp != null ? new Prisma.Decimal(dto.unitMrp) : undefined,
         },
       });
 
+      // On an addition carrying a batch/expiry, also record a batch row so
+      // batch/expiry tracking stays consistent with the on-hand quantity.
+      if (isAddition && (dto.batchNo || dto.expiryDate)) {
+        await tx.inventoryProductBatch.create({
+          data: {
+            tenantId,
+            branchId,
+            productId,
+            batchNo: dto.batchNo,
+            expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+            quantity: delta,
+            cost: dto.cost != null ? new Prisma.Decimal(dto.cost) : undefined,
+          },
+        });
+      }
+
       return { adjustment, quantity: newQty };
+    });
+  }
+
+  /**
+   * Tenant-wide adjustment history (the standalone Quantity Adjustments page),
+   * joined with product code/name for display. Optionally filtered by branch /
+   * product / free-text product search.
+   */
+  async listAllAdjustments(
+    tenantId: string,
+    query: AllAdjustmentsQueryDto,
+  ): Promise<PaginatedResult<unknown>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const where: Prisma.InventoryStockAdjustmentWhereInput = {
+      tenantId,
+      deletedAt: null,
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...(query.productId ? { productId: query.productId } : {}),
+      ...(query.search
+        ? {
+            product: {
+              OR: [
+                { name: { contains: query.search, mode: 'insensitive' } },
+                { code: { contains: query.search, mode: 'insensitive' } },
+              ],
+            },
+          }
+        : {}),
+    };
+
+    const [data, total] = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.inventoryStockAdjustment.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          product: { select: { id: true, code: true, name: true } },
+        },
+      });
+      const count = await tx.inventoryStockAdjustment.count({ where });
+      return [rows, count] as const;
+    });
+    return { data, total, page, limit };
+  }
+
+  /** Update an adjustment's descriptive fields (does NOT re-apply quantity). */
+  async updateAdjustment(
+    productId: string,
+    tenantId: string,
+    adjId: string,
+    dto: UpdateAdjustmentDto,
+  ) {
+    await this.productService.findById(productId, tenantId);
+    const existing = await this.prisma.inventoryStockAdjustment.findFirst({
+      where: { id: adjId, productId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) throw new ProductNotFoundException(adjId);
+    return this.prisma.inventoryStockAdjustment.update({
+      where: { id: adjId },
+      data: {
+        reason: dto.reason,
+        note: dto.note,
+        adjustedAt: dto.adjustedAt ? new Date(dto.adjustedAt) : undefined,
+        batchNo: dto.batchNo,
+        expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+      },
+    });
+  }
+
+  /**
+   * Delete an adjustment and reverse its stock effect (apply the opposite delta),
+   * keeping on-hand quantity consistent.
+   */
+  async deleteAdjustment(productId: string, tenantId: string, adjId: string) {
+    await this.productService.findById(productId, tenantId);
+    const adj = await this.prisma.inventoryStockAdjustment.findFirst({
+      where: { id: adjId, productId, tenantId, deletedAt: null },
+    });
+    if (!adj) throw new ProductNotFoundException(adjId);
+
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      // Reverse the original delta so stock stays correct.
+      await this.applyDelta(tx, {
+        tenantId,
+        branchId: adj.branchId,
+        productId,
+        delta: adj.quantity.negated(),
+      });
+      await tx.inventoryStockAdjustment.update({
+        where: { id: adjId },
+        data: { deletedAt: new Date() },
+      });
+      return { id: adjId };
     });
   }
 

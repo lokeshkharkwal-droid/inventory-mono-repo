@@ -4,6 +4,10 @@ import { AppLayout } from '@/app/layout/AppLayout';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ProductsPage } from '@/pages/products/ProductsPage';
+import { PrintBarcodesPage } from '@/pages/products/PrintBarcodesPage';
+import { ImportProductsPage } from '@/pages/products/ImportProductsPage';
+import { UpdateCsvPage } from '@/pages/products/UpdateCsvPage';
+import { QuantityAdjustmentsPage } from '@/pages/products/QuantityAdjustmentsPage';
 import { CategoriesPage } from '@/pages/categories/CategoriesPage';
 import { SubCategoriesPage } from '@/pages/masters/SubCategoriesPage';
 import { UnitsPage } from '@/pages/masters/UnitsPage';
@@ -35,6 +39,40 @@ import { ProformasPage } from '@/pages/proformas/ProformasPage';
 import { MaterialsPage } from '@/pages/materials/MaterialsPage';
 import { PosPage } from '@/pages/pos/PosPage';
 import { ReportsPage } from '@/pages/reports/ReportsPage';
+import { WarehouseStockPage } from '@/pages/reports/WarehouseStockPage';
+import { MaterialsPage as MaterialsReportPage } from '@/pages/reports/MaterialsPage';
+import { ToolsAndPlantsPage } from '@/pages/reports/ToolsAndPlantsPage';
+import { RegisterReportPage } from '@/pages/reports/RegisterReportPage';
+import { QuantityAlertsPage } from '@/pages/reports/QuantityAlertsPage';
+import { ExpiryAlertsPage } from '@/pages/reports/ExpiryAlertsPage';
+import { ProductsReportPage } from '@/pages/reports/ProductsReportPage';
+import { CategoriesReportPage } from '@/pages/reports/CategoriesReportPage';
+import { ExposuresPage } from '@/pages/reports/ExposuresPage';
+import { DailySalesPage } from '@/pages/reports/DailySalesPage';
+import { MonthlySalesPage } from '@/pages/reports/MonthlySalesPage';
+import { SalesReportPage } from '@/pages/reports/SalesReportPage';
+import { IpdSalesPage } from '@/pages/reports/IpdSalesPage';
+import { IpdDepartmentSalesPage } from '@/pages/reports/IpdDepartmentSalesPage';
+import { SalesTaxPage } from '@/pages/reports/SalesTaxPage';
+import { GstReportPage } from '@/pages/reports/GstReportPage';
+import { SalesQuantityPage } from '@/pages/reports/SalesQuantityPage';
+import { PaymentsReportPage } from '@/pages/reports/PaymentsReportPage';
+import { ProfitLossPage } from '@/pages/reports/ProfitLossPage';
+import { ProfitLossSalesPage } from '@/pages/reports/ProfitLossSalesPage';
+import { DailyPurchasesPage } from '@/pages/reports/DailyPurchasesPage';
+import { MonthlyPurchasesPage } from '@/pages/reports/MonthlyPurchasesPage';
+import { PurchasesReportPage } from '@/pages/reports/PurchasesReportPage';
+import { PurchaseAgePage } from '@/pages/reports/PurchaseAgePage';
+import { PurchasesTaxPage } from '@/pages/reports/PurchasesTaxPage';
+import { TransfersReportPage } from '@/pages/reports/TransfersReportPage';
+import { ExpensesReportPage } from '@/pages/reports/ExpensesReportPage';
+import { IncomesReportPage } from '@/pages/reports/IncomesReportPage';
+import { IncomeExpensePage } from '@/pages/reports/IncomeExpensePage';
+import { CustomersReportPage } from '@/pages/reports/CustomersReportPage';
+import { PatientsReportPage } from '@/pages/reports/PatientsReportPage';
+import { SuppliersReportPage } from '@/pages/reports/SuppliersReportPage';
+import { SupplierCreditPage } from '@/pages/reports/SupplierCreditPage';
+import { StaffReportPage } from '@/pages/reports/StaffReportPage';
 import { BloodDonorsPage } from '@/pages/bloodbank/BloodDonorsPage';
 import { BloodDonationsPage } from '@/pages/bloodbank/BloodDonationsPage';
 import { BloodRequestsPage } from '@/pages/bloodbank/BloodRequestsPage';
@@ -64,6 +102,10 @@ export function AppRouter() {
           <Route element={<AppLayout />}>
             <Route index element={<DashboardPage />} />
             <Route path="products" element={<ProductsPage />} />
+            <Route path="products/print-barcodes" element={<PrintBarcodesPage />} />
+            <Route path="products/import" element={<ImportProductsPage />} />
+            <Route path="products/update-csv" element={<UpdateCsvPage />} />
+            <Route path="products/quantity-adjustments" element={<QuantityAdjustmentsPage />} />
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="sub-categories" element={<SubCategoriesPage />} />
             <Route path="units" element={<UnitsPage />} />
@@ -90,6 +132,40 @@ export function AppRouter() {
             <Route path="materials" element={<MaterialsPage />} />
             <Route path="pos" element={<PosPage />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route path="reports/warehouse-stock" element={<WarehouseStockPage />} />
+            <Route path="reports/materials" element={<MaterialsReportPage />} />
+            <Route path="reports/tools-and-plants" element={<ToolsAndPlantsPage />} />
+            <Route path="reports/register" element={<RegisterReportPage />} />
+            <Route path="reports/quantity-alerts" element={<QuantityAlertsPage />} />
+            <Route path="reports/expiry-alerts" element={<ExpiryAlertsPage />} />
+            <Route path="reports/products" element={<ProductsReportPage />} />
+            <Route path="reports/categories" element={<CategoriesReportPage />} />
+            <Route path="reports/exposures" element={<ExposuresPage />} />
+            <Route path="reports/daily-sales" element={<DailySalesPage />} />
+            <Route path="reports/monthly-sales" element={<MonthlySalesPage />} />
+            <Route path="reports/sales" element={<SalesReportPage />} />
+            <Route path="reports/ipd-sales" element={<IpdSalesPage />} />
+            <Route path="reports/ipd-department-sales" element={<IpdDepartmentSalesPage />} />
+            <Route path="reports/sales-tax" element={<SalesTaxPage />} />
+            <Route path="reports/gst" element={<GstReportPage />} />
+            <Route path="reports/sales-quantity" element={<SalesQuantityPage />} />
+            <Route path="reports/payments" element={<PaymentsReportPage />} />
+            <Route path="reports/profit-loss" element={<ProfitLossPage />} />
+            <Route path="reports/profit-loss-sales" element={<ProfitLossSalesPage />} />
+            <Route path="reports/daily-purchases" element={<DailyPurchasesPage />} />
+            <Route path="reports/monthly-purchases" element={<MonthlyPurchasesPage />} />
+            <Route path="reports/purchases" element={<PurchasesReportPage />} />
+            <Route path="reports/purchase-age" element={<PurchaseAgePage />} />
+            <Route path="reports/purchases-tax" element={<PurchasesTaxPage />} />
+            <Route path="reports/transfers" element={<TransfersReportPage />} />
+            <Route path="reports/expenses" element={<ExpensesReportPage />} />
+            <Route path="reports/incomes" element={<IncomesReportPage />} />
+            <Route path="reports/income-expense" element={<IncomeExpensePage />} />
+            <Route path="reports/customers" element={<CustomersReportPage />} />
+            <Route path="reports/patients" element={<PatientsReportPage />} />
+            <Route path="reports/suppliers" element={<SuppliersReportPage />} />
+            <Route path="reports/supplier-credit" element={<SupplierCreditPage />} />
+            <Route path="reports/users" element={<StaffReportPage />} />
             <Route path="blood-donors" element={<BloodDonorsPage />} />
             <Route path="blood-donations" element={<BloodDonationsPage />} />
             <Route path="blood-requests" element={<BloodRequestsPage />} />

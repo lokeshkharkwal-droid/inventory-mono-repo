@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import logoUrl from '@/assets/logo.png';
 import {
   LayoutDashboard,
   Tags,
@@ -17,6 +18,8 @@ import {
   ClipboardList,
   FileSignature,
   FileSpreadsheet,
+  Barcode,
+  Upload,
   Wrench,
   Monitor,
   BarChart3,
@@ -48,6 +51,7 @@ import { useI18n } from '@/app/providers/I18nProvider';
 import { Button } from '@/components/ui/button';
 import { NotificationBell } from '@/components/shared/NotificationBell';
 import { ProfileSwitcher } from '@/components/shared/ProfileSwitcher';
+import { OVERVIEW_REPORT, REPORTS } from '@/features/reports/registry';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -74,7 +78,6 @@ const GROUPS: NavGroup[] = [
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
       { to: '/pos', label: 'POS', icon: Monitor },
-      { to: '/reports', label: 'Reports', icon: BarChart3 },
       { to: '/calendar', label: 'Calendar', icon: CalendarDays },
       { to: '/notifications', label: 'Notifications', icon: Bell },
     ],
@@ -84,6 +87,10 @@ const GROUPS: NavGroup[] = [
     icon: Boxes,
     items: [
       { to: '/products', label: 'Products', icon: Boxes },
+      { to: '/products/quantity-adjustments', label: 'Quantity Adjustments', icon: ClipboardList },
+      { to: '/products/print-barcodes', label: 'Print Barcodes', icon: Barcode },
+      { to: '/products/import', label: 'Import Products', icon: Upload },
+      { to: '/products/update-csv', label: 'Update via CSV', icon: FileSpreadsheet },
       { to: '/categories', label: 'Categories', icon: Tags },
       { to: '/sub-categories', label: 'Sub-categories', icon: FolderTree },
       { to: '/units', label: 'Units', icon: Ruler },
@@ -151,6 +158,19 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
+    title: 'Reports',
+    icon: BarChart3,
+    items: [
+      {
+        to: OVERVIEW_REPORT.path,
+        label: OVERVIEW_REPORT.label,
+        icon: OVERVIEW_REPORT.icon,
+        end: true,
+      },
+      ...REPORTS.map((r) => ({ to: r.path, label: r.label, icon: r.icon })),
+    ],
+  },
+  {
     title: 'System',
     icon: Settings,
     items: [
@@ -168,7 +188,7 @@ const GROUPS: NavGroup[] = [
 const STORAGE_KEY = 'inv_sidebar_open_groups';
 
 function isItemActive(item: NavItem, pathname: string): boolean {
-  if (item.end) return pathname === '/';
+  if (item.end) return pathname === item.to;
   return pathname === item.to || pathname.startsWith(`${item.to}/`);
 }
 
@@ -246,13 +266,24 @@ export function AppLayout() {
           mobileOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full',
         )}
       >
-        {/* Branch/role switcher — mirrors the kaltros-fe sidebar head. */}
+        {/* Company logo + branch/role switcher — mirrors the kaltros-fe sidebar head. */}
         <div className="flex flex-col gap-2 border-b border-white/15 px-3 py-3">
-          <div className="flex items-center justify-end lg:hidden">
+          <div className="flex items-center justify-between gap-2">
+            {/* Transparent white-wordmark logo sits directly on the gradient;
+                object-contain keeps its aspect ratio. Imported as a bundled
+                asset so Vite fingerprints the URL (base-path correct + no stale
+                browser cache when the image changes). */}
+            <div className="flex h-[60px] flex-1 items-center overflow-hidden">
+              <img
+                src={logoUrl}
+                alt="Kalnostic"
+                className="h-full w-auto max-w-full object-contain"
+              />
+            </div>
             <Button
               variant="ghost"
               size="icon"
-              className="text-white hover:bg-white/10 hover:text-white"
+              className="shrink-0 text-white hover:bg-white/10 hover:text-white lg:hidden"
               onClick={() => setMobileOpen(false)}
             >
               <X className="h-5 w-5" />

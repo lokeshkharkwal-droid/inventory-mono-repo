@@ -20,6 +20,8 @@ import {
   UpdateMasterNamedDto,
   CreateMasterTaxRateDto,
   UpdateMasterTaxRateDto,
+  CreateMasterFinanceCategoryDto,
+  UpdateMasterFinanceCategoryDto,
 } from './dto/master-reference.dto';
 import { Public } from '../auth/decorators/public.decorator';
 import { SiteAdminGuard } from '../auth/guards/siteadmin.guard';
@@ -146,5 +148,74 @@ export class MasterReferenceController {
   @Delete('tax-rates/:id')
   removeTaxRate(@Param('id') id: string) {
     return this.service.removeTaxRate(id);
+  }
+
+  // ── Variants ──────────────────────────────────────────────────────────────────
+  @Get('variants')
+  listVariants(@Query() q: MasterReferenceQueryDto) {
+    return this.service.listVariants(q);
+  }
+  @Post('variants')
+  createVariant(
+    @CurrentSiteAdmin('siteadmin_id') by: string,
+    @Body() dto: CreateMasterNamedDto,
+  ) {
+    return this.service.createVariant(dto, by);
+  }
+  @Patch('variants/:id')
+  updateVariant(@Param('id') id: string, @Body() dto: UpdateMasterNamedDto) {
+    return this.service.updateVariant(id, dto);
+  }
+  @Delete('variants/:id')
+  removeVariant(@Param('id') id: string) {
+    return this.service.removeVariant(id);
+  }
+
+  // ── Expense categories ────────────────────────────────────────────────────────
+  @Get('expense-categories')
+  listExpenseCategories(@Query() q: MasterReferenceQueryDto) {
+    return this.service.listExpenseCategories(q);
+  }
+  @Post('expense-categories')
+  createExpenseCategory(
+    @CurrentSiteAdmin('siteadmin_id') by: string,
+    @Body() dto: CreateMasterFinanceCategoryDto,
+  ) {
+    return this.service.createExpenseCategory(dto, by);
+  }
+  @Patch('expense-categories/:id')
+  updateExpenseCategory(
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterFinanceCategoryDto,
+  ) {
+    return this.service.updateExpenseCategory(id, dto);
+  }
+  @Delete('expense-categories/:id')
+  removeExpenseCategory(@Param('id') id: string) {
+    return this.service.removeExpenseCategory(id);
+  }
+
+  // ── Income categories ─────────────────────────────────────────────────────────
+  @Get('income-categories')
+  listIncomeCategories(@Query() q: MasterReferenceQueryDto) {
+    return this.service.listIncomeCategories(q);
+  }
+  @Post('income-categories')
+  createIncomeCategory(
+    @CurrentSiteAdmin('siteadmin_id') by: string,
+    @Body() dto: CreateMasterFinanceCategoryDto,
+  ) {
+    return this.service.createIncomeCategory(dto, by);
+  }
+  @Patch('income-categories/:id')
+  updateIncomeCategory(
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterFinanceCategoryDto,
+  ) {
+    return this.service.updateIncomeCategory(id, dto);
+  }
+  @Delete('income-categories/:id')
+  removeIncomeCategory(@Param('id') id: string) {
+    return this.service.removeIncomeCategory(id);
   }
 }

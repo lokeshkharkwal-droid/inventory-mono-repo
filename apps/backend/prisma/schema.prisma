@@ -240,6 +240,8 @@ model InventoryProduct {
   isActive      Boolean @default(true) @map("is_active")
   barcodeSymbology String? @map("barcode_symbology")
   imageUrl      String? @map("image_url")
+  /// Additional gallery image URLs (EZHT parity).
+  galleryImageUrls String[] @map("gallery_image_urls")
   description   String?
   /// Pharmaceutical metadata (optional).
   genericName   String? @map("generic_name")
@@ -249,6 +251,41 @@ model InventoryProduct {
   hsnCode       String? @map("hsn_code")
   /// Track individual serial numbers for this product.
   isSerialized  Boolean @default(false) @map("is_serialized")
+
+  // ── EZHT business add-product parity (migration 0025) ──
+  packSize          String? @map("pack_size")
+  /// INDIVIDUAL | PACK.
+  salesMethod       String? @map("sales_method")
+  packCost          Decimal? @map("pack_cost") @db.Decimal(18, 4)
+  packMrp           Decimal? @map("pack_mrp") @db.Decimal(18, 4)
+  /// INCLUSIVE | EXCLUSIVE.
+  taxMethod         String? @map("tax_method")
+  taxMethodPurchase String? @map("tax_method_purchase")
+  // Prescription fields (strength + genericName already above).
+  composition          String?
+  unitType             String? @map("unit_type")
+  formulation          String?
+  route                String?
+  frequency            String?
+  numberOfDays         String? @map("number_of_days")
+  prescriptionQuantity String? @map("prescription_quantity")
+  refills              String?
+  refillTimes          String? @map("refill_times")
+  prescriptionNotes    String? @map("prescription_notes")
+  // Custom fields cf1..cf11 (EZHT labels) + invoice details.
+  cf1 String?
+  cf2 String?
+  cf3 String?
+  cf4 String?
+  cf5 String?
+  cf6 String?
+  cf7 String?
+  cf8 String?
+  cf9 String?
+  cf10 String?
+  cf11 String?
+  /// Product details for invoice (EZHT `details`; `description` = product details).
+  invoiceDetails String? @map("invoice_details")
 
   legacyProductId String? @map("legacy_product_id")
   /// When imported from the global master catalogue, the source master id.
@@ -269,6 +306,7 @@ model InventoryProduct {
   adjustments    InventoryStockAdjustment[]
   batches        InventoryProductBatch[]
   serials        InventoryProductSerial[]
+  drugs          InventoryProductDrug[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -343,6 +381,18 @@ model InventoryStockAdjustment {
   note      String?
   createdBy String? @map("created_by")
 
+  // ── EZHT full-adjustment parity (migration 0025) ──
+  /// Effective adjustment date (defaults to createdAt when omitted).
+  adjustedAt   DateTime? @map("adjusted_at")
+  /// Optional product variant this adjustment applies to.
+  variantId    String?   @map("variant_id")
+  packSize     String?   @map("pack_size")
+  packQuantity Decimal?  @map("pack_quantity") @db.Decimal(18, 4)
+  batchNo      String?   @map("batch_no")
+  expiryDate   DateTime? @map("expiry_date")
+  packMrp      Decimal?  @map("pack_mrp") @db.Decimal(18, 4)
+  unitMrp      Decimal?  @map("unit_mrp") @db.Decimal(18, 4)
+
   legacyAdjustmentId String? @map("legacy_adjustment_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
@@ -356,6 +406,23 @@ model InventoryStockAdjustment {
   @@index([productId])
   @@index([deletedAt])
   @@map("inventory_stock_adjustments")
+}
+
+/// A drug-composition row of a product (EZHT "Drugs" modal: drug name + unit
+/// value + unit). Tenant-scoped.
+model InventoryProductDrug {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  productId String  @map("product_id")
+  name      String
+  unitValue String? @map("unit_value")
+  unit      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  product   InventoryProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([tenantId])
+  @@index([productId])
+  @@map("inventory_product_drugs")
 }
 
 /// Product batch / serial with expiry, per branch (legacy `ez_product_serials`).
@@ -1798,6 +1865,7 @@ model InventoryMasterCategory {
   name        String
   code        String?
   description String?
+  imageUrl    String? @map("image_url")
   isActive    Boolean @default(true) @map("is_active")
   createdBy   String? @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -1859,12 +1927,19 @@ model InventoryMasterBrand {
   @@map("inventory_master_brands")
 }
 
-/// Platform-level canonical TAX RATE (name + percentage; SiteAdmin-managed).
+/// Platform-level canonical TAX RATE (SiteAdmin-managed). Full EZHT parity:
+/// name/code/rate/type + HSN + CGST/SGST/IGST breakdown.
 model InventoryMasterTaxRate {
   id        String   @id @default(uuid())
   name      String
   rate      Decimal  @default(0) @db.Decimal(9, 4)
   code      String?
+  /// Tax type — EZHT only exposes "percentage".
+  type      String   @default("percentage")
+  hsnCode   String?  @map("hsn_code")
+  cgst      Decimal? @db.Decimal(9, 4)
+  sgst      Decimal? @db.Decimal(9, 4)
+  igst      Decimal? @db.Decimal(9, 4)
   isActive  Boolean  @default(true) @map("is_active")
   createdBy String?  @map("created_by")
   createdAt DateTime  @default(now()) @map("created_at")
@@ -1873,6 +1948,55 @@ model InventoryMasterTaxRate {
 
   @@index([deletedAt])
   @@map("inventory_master_tax_rates")
+}
+
+/// Platform-level canonical VARIANT option (SiteAdmin-managed).
+model InventoryMasterVariant {
+  id        String   @id @default(uuid())
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([deletedAt])
+  @@map("inventory_master_variants")
+}
+
+/// Platform-level canonical EXPENSE CATEGORY (SiteAdmin-managed).
+model InventoryMasterExpenseCategory {
+  id         String   @id @default(uuid())
+  code       String?
+  name       String
+  taxRateId  String?  @map("tax_rate_id")
+  /// INCLUSIVE | EXCLUSIVE.
+  taxMethod  String?  @map("tax_method")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  @@index([deletedAt])
+  @@map("inventory_master_expense_categories")
+}
+
+/// Platform-level canonical INCOME CATEGORY (SiteAdmin-managed).
+model InventoryMasterIncomeCategory {
+  id         String   @id @default(uuid())
+  code       String?
+  name       String
+  taxRateId  String?  @map("tax_rate_id")
+  taxMethod  String?  @map("tax_method")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  @@index([deletedAt])
+  @@map("inventory_master_income_categories")
 }
 
 /// Platform-level master product catalogue (legacy `tenant_id=0` master_products),
@@ -1904,12 +2028,227 @@ model InventoryMasterProduct {
   /// SiteAdmin id (from the SiteAdmin JWT) that created the master.
   createdBy   String? @map("created_by")
 
+  // ── EZHT add-product parity (added migration 0023) ──
+  /// branded|generic|standard|combo|digital|service.
+  type        String  @default("standard")
+  barcodeSymbology String? @default("code128") @map("barcode_symbology")
+  /// Optional FK links to the SiteAdmin reference masters (coexist with the
+  /// legacy string columns above, which the tenant-import path still uses).
+  categoryId     String? @map("category_id")
+  subCategoryId  String? @map("sub_category_id")
+  unitId         String? @map("unit_id")
+  brandId        String? @map("brand_id")
+  taxRateId      String? @map("tax_rate_id")
+  manufacturerId String? @map("manufacturer_id")
+  packSize       String? @map("pack_size")
+  /// INDIVIDUAL|PACK (legacy sales_method 0/1).
+  salesMethod    String? @map("sales_method")
+  packCost       Decimal? @map("pack_cost") @db.Decimal(18, 4)
+  packMrp        Decimal? @map("pack_mrp") @db.Decimal(18, 4)
+  /// INCLUSIVE|EXCLUSIVE.
+  taxMethod         String? @map("tax_method")
+  taxMethodPurchase String? @map("tax_method_purchase")
+  alertQuantity  Decimal? @map("alert_quantity") @db.Decimal(18, 4)
+  isTrackQuantity Boolean @default(true) @map("is_track_quantity")
+  imageUrl       String? @map("image_url")
+  galleryImageUrls String[] @map("gallery_image_urls")
+  // Prescription fields (strength + genericName already above).
+  composition   String?
+  unitType      String? @map("unit_type")
+  formulation   String?
+  route         String?
+  frequency     String?
+  numberOfDays  String? @map("number_of_days")
+  prescriptionQuantity String? @map("prescription_quantity")
+  refills       String?
+  refillTimes   String? @map("refill_times")
+  prescriptionNotes String? @map("prescription_notes")
+  // Custom fields cf1..cf11.
+  cf1 String?
+  cf2 String?
+  cf3 String?
+  cf4 String?
+  cf5 String?
+  cf6 String?
+  cf7 String?
+  cf8 String?
+  cf9 String?
+  cf10 String?
+  cf11 String?
+  /// Product details for invoice (legacy `details`; `description` = product details).
+  invoiceDetails String? @map("invoice_details")
+  hasVariants Boolean @default(false) @map("has_variants")
+  /// Uploaded file URL for a digital product (legacy `digital_file`, type=digital).
+  digitalFileUrl String? @map("digital_file_url")
+
+  variants    InventoryMasterProductVariant[]
+  suppliers   InventoryMasterProductSupplier[]
+  comboItems  InventoryMasterComboItem[]
+  drugs       InventoryMasterProductDrug[]
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
   @@index([deletedAt])
+  @@index([categoryId])
+  @@index([manufacturerId])
   @@map("inventory_master_products")
+}
+
+/// A variant/option row of a master product.
+model InventoryMasterProductVariant {
+  id        String  @id @default(uuid())
+  productId String  @map("product_id")
+  name      String
+  cost      Decimal @default(0) @db.Decimal(18, 4)
+  price     Decimal @default(0) @db.Decimal(18, 4)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  product   InventoryMasterProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([productId])
+  @@map("inventory_master_product_variants")
+}
+
+/// A supplier configuration row of a master product (EZHT caps at 5).
+model InventoryMasterProductSupplier {
+  id         String  @id @default(uuid())
+  productId  String  @map("product_id")
+  supplierId String  @map("supplier_id")
+  partNumber String? @map("part_number")
+  price      Decimal? @db.Decimal(18, 4)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  product    InventoryMasterProduct  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier   InventoryMasterSupplier @relation(fields: [supplierId], references: [id])
+  @@index([productId])
+  @@index([supplierId])
+  @@map("inventory_master_product_suppliers")
+}
+
+/// A drug-composition row of a master product (EZHT "Drugs" modal: a product's
+/// constituent drugs — drug name + unit value + unit).
+model InventoryMasterProductDrug {
+  id        String  @id @default(uuid())
+  productId String  @map("product_id")
+  name      String
+  unitValue String? @map("unit_value")
+  unit      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  product   InventoryMasterProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([productId])
+  @@map("inventory_master_product_drugs")
+}
+
+/// A combo-item row (when master product type = combo).
+model InventoryMasterComboItem {
+  id            String  @id @default(uuid())
+  productId     String  @map("product_id")
+  itemProductId String  @map("item_product_id")
+  quantity      Decimal @default(1) @db.Decimal(18, 4)
+  price         Decimal @default(0) @db.Decimal(18, 4)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  product       InventoryMasterProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([productId])
+  @@map("inventory_master_combo_items")
+}
+
+/// Platform-level MANUFACTURER master (SiteAdmin-managed; EZHT parity).
+model InventoryMasterManufacturer {
+  id            String  @id @default(uuid())
+  logoUrl       String? @map("logo_url")
+  company       String
+  name          String
+  vatNo         String? @map("vat_no")
+  email         String?
+  phone         String?
+  address       String?
+  city          String?
+  state         String?
+  postalCode    String? @map("postal_code")
+  country       String?
+  isActive      Boolean @default(true) @map("is_active")
+  invoiceFooter String? @map("invoice_footer")
+  cf1 String?
+  cf2 String?
+  cf3 String?
+  cf4 String?
+  cf5 String?
+  cf6 String?
+  createdBy String? @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  @@index([deletedAt])
+  @@map("inventory_master_manufacturers")
+}
+
+/// Platform-level SUPPLIER master (SiteAdmin-managed; backs product supplier config).
+model InventoryMasterSupplier {
+  id          String  @id @default(uuid())
+  company     String?
+  name        String
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  postalCode  String? @map("postal_code")
+  country     String?
+  vatNo       String? @map("vat_no")
+  isActive    Boolean @default(true) @map("is_active")
+  createdBy   String? @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  productLinks InventoryMasterProductSupplier[]
+  @@index([deletedAt])
+  @@map("inventory_master_suppliers")
+}
+
+/// Platform-level PROFORMA (SiteAdmin-managed; product + lab-test line items).
+model InventoryMasterProforma {
+  id        String   @id @default(uuid())
+  name      String
+  date      DateTime @default(now())
+  /// ACTIVE|INACTIVE.
+  status    String   @default("ACTIVE")
+  notes     String?
+  createdBy String?  @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  items     InventoryMasterProformaItem[]
+  @@index([deletedAt])
+  @@map("inventory_master_proformas")
+}
+
+/// A proforma line: a master product (optional) + optional lab-test id, qty.
+model InventoryMasterProformaItem {
+  id              String  @id @default(uuid())
+  proformaId      String  @map("proforma_id")
+  masterProductId String? @map("master_product_id")
+  /// kalnostics-new LabTest id (lab-test line item).
+  labTestId       String? @map("lab_test_id")
+  quantity        Decimal @default(1) @db.Decimal(18, 4)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  proforma        InventoryMasterProforma @relation(fields: [proformaId], references: [id], onDelete: Cascade)
+  @@index([proformaId])
+  @@map("inventory_master_proforma_items")
+}
+
+/// Platform-level singleton inventory SYSTEM SETTINGS (SiteAdmin-managed). The
+/// many EZHT settings groups are stored as a JSON blob keyed by setting name.
+model InventoryMasterSetting {
+  id        String   @id @default(uuid())
+  data      Json     @default("{}")
+  updatedBy String?  @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("inventory_master_settings")
 }
 
 /// A reusable product template (legacy SITE-level master_products). Copied into
