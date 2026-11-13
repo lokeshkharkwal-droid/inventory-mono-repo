@@ -52,6 +52,7 @@ import { MasterManufacturerModule } from './modules/master-manufacturer/master-m
 import { MasterSupplierModule } from './modules/master-supplier/master-supplier.module';
 import { MasterProformaModule } from './modules/master-proforma/master-proforma.module';
 import { MasterSettingModule } from './modules/master-setting/master-setting.module';
+import { MasterCatalogModule } from './modules/master-catalog/master-catalog.module';
 import { PromotionModule } from './modules/promotion/promotion.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
@@ -121,6 +122,7 @@ import { AlertsModule } from './modules/alerts/alerts.module';
     MasterSupplierModule,
     MasterProformaModule,
     MasterSettingModule,
+    MasterCatalogModule,
     PromotionModule,
   ],
   providers: [

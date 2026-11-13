@@ -2046,6 +2046,9 @@ model InventoryMasterTaxRate {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
+  expenseCategories InventoryMasterExpenseCategory[] @relation("MasterExpenseCategoryTax")
+  incomeCategories  InventoryMasterIncomeCategory[]  @relation("MasterIncomeCategoryTax")
+
   @@index([deletedAt])
   @@map("inventory_master_tax_rates")
 }
@@ -2078,6 +2081,8 @@ model InventoryMasterExpenseCategory {
   updatedAt  DateTime  @updatedAt @map("updated_at")
   deletedAt  DateTime? @map("deleted_at")
 
+  taxRate InventoryMasterTaxRate? @relation("MasterExpenseCategoryTax", fields: [taxRateId], references: [id], onDelete: SetNull)
+
   @@index([deletedAt])
   @@map("inventory_master_expense_categories")
 }
@@ -2094,6 +2099,8 @@ model InventoryMasterIncomeCategory {
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
   deletedAt  DateTime? @map("deleted_at")
+
+  taxRate InventoryMasterTaxRate? @relation("MasterIncomeCategoryTax", fields: [taxRateId], references: [id], onDelete: SetNull)
 
   @@index([deletedAt])
   @@map("inventory_master_income_categories")

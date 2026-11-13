@@ -142,6 +142,11 @@ export class MasterProductService {
    * @returns the master product with its sub-entities.
    * @throws MasterProductNotFoundException when absent or soft-deleted.
    */
+  /** Detail view (alias of {@link findOne}, kept from the master-catalog work). */
+  async detail(id: string) {
+    return this.findOne(id);
+  }
+
   async findOne(id: string) {
     await this.findById(id);
     return this.findWithRelations(this.prisma, id);

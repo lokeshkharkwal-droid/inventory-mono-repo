@@ -25,6 +25,7 @@
     "preview:inventory": "ts-node --transpile-only -r tsconfig-paths/register scripts/preview-inventory-migration.ts",
     "migrate:inventory": "ts-node --transpile-only -r tsconfig-paths/register scripts/migrate-inventory.ts",
     "reconcile:inventory": "ts-node --transpile-only -r tsconfig-paths/register scripts/reconcile-inventory.ts",
+    "migrate:schema": "ts-node --transpile-only scripts/apply-inventory-migrations.ts",
     "seed:demo": "ts-node --transpile-only scripts/seed-inventory-demo.ts",
     "check:migration-ownership": "ts-node --transpile-only scripts/check-migration-ownership.ts"
   },
