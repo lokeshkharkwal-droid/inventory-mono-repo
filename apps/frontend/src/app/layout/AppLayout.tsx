@@ -51,6 +51,7 @@ import { useI18n } from '@/app/providers/I18nProvider';
 import { Button } from '@/components/ui/button';
 import { NotificationBell } from '@/components/shared/NotificationBell';
 import { ProfileSwitcher } from '@/components/shared/ProfileSwitcher';
+import { OVERVIEW_REPORT, REPORTS } from '@/features/reports/registry';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -77,7 +78,6 @@ const GROUPS: NavGroup[] = [
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
       { to: '/pos', label: 'POS', icon: Monitor },
-      { to: '/reports', label: 'Reports', icon: BarChart3 },
       { to: '/calendar', label: 'Calendar', icon: CalendarDays },
       { to: '/notifications', label: 'Notifications', icon: Bell },
     ],
@@ -158,6 +158,19 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
+    title: 'Reports',
+    icon: BarChart3,
+    items: [
+      {
+        to: OVERVIEW_REPORT.path,
+        label: OVERVIEW_REPORT.label,
+        icon: OVERVIEW_REPORT.icon,
+        end: true,
+      },
+      ...REPORTS.map((r) => ({ to: r.path, label: r.label, icon: r.icon })),
+    ],
+  },
+  {
     title: 'System',
     icon: Settings,
     items: [
@@ -175,7 +188,7 @@ const GROUPS: NavGroup[] = [
 const STORAGE_KEY = 'inv_sidebar_open_groups';
 
 function isItemActive(item: NavItem, pathname: string): boolean {
-  if (item.end) return pathname === '/';
+  if (item.end) return pathname === item.to;
   return pathname === item.to || pathname.startsWith(`${item.to}/`);
 }
 

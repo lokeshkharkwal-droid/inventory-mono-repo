@@ -39,6 +39,7 @@ const DICT: Record<string, Partial<Record<LocaleCode, string>>> = {
   'nav.Operations': { en: 'Operations', es: 'Operaciones', fr: 'Opérations', de: 'Betrieb', pt: 'Operações', hi: 'संचालन', ar: 'العمليات' },
   'nav.Clinical': { en: 'Clinical', es: 'Clínico', fr: 'Clinique', de: 'Klinik', pt: 'Clínico', hi: 'क्लिनिकल', ar: 'سريري' },
   'nav.Finance': { en: 'Finance', es: 'Finanzas', fr: 'Finances', de: 'Finanzen', pt: 'Finanças', hi: 'वित्त', ar: 'المالية' },
+  'nav.Reports': { en: 'Reports', es: 'Informes', fr: 'Rapports', de: 'Berichte', pt: 'Relatórios', hi: 'रिपोर्ट', ar: 'التقارير' },
   'nav.System': { en: 'System', es: 'Sistema', fr: 'Système', de: 'System', pt: 'Sistema', hi: 'सिस्टम', ar: 'النظام' },
   // Common actions
   'common.save': { en: 'Save', es: 'Guardar', fr: 'Enregistrer', de: 'Speichern', pt: 'Salvar', hi: 'सहेजें', ar: 'حفظ' },

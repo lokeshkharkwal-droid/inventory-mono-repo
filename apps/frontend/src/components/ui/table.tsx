@@ -77,4 +77,27 @@ const TableCell = React.forwardRef<
 ));
 TableCell.displayName = 'TableCell';
 
-export { Table, TableHeader, TableBody, TableRow, TableHead, TableCell };
+const TableFooter = React.forwardRef<
+  HTMLTableSectionElement,
+  React.HTMLAttributes<HTMLTableSectionElement>
+>(({ className, ...props }, ref) => (
+  <tfoot
+    ref={ref}
+    className={cn(
+      'border-t border-border/60 bg-muted/40 [&>tr]:border-0 [&_td]:py-3',
+      className,
+    )}
+    {...props}
+  />
+));
+TableFooter.displayName = 'TableFooter';
+
+export {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  TableFooter,
+};
