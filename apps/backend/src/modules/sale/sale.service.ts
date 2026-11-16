@@ -6,8 +6,9 @@ import { CustomerService } from '../customer/customer.service';
 import { ProductService } from '../product/product.service';
 import { ProductStockService } from '../product/product-stock.service';
 import { NumberingService } from '../settings/numbering.service';
+import { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
 import { BranchRequiredException } from '../product/exceptions/product.exceptions';
-import { CreateSaleDto } from './dto/create-sale.dto';
+import { CreateSaleDto, SalePaymentInputDto } from './dto/create-sale.dto';
 import { SaleQueryDto } from './dto/sale-query.dto';
 import { CreateSalePaymentDto, UpdateSalePaymentDto } from './dto/payment.dto';
 import { ImportSalesDto } from './dto/import-sales.dto';
@@ -19,13 +20,26 @@ import {
   runBulkImport,
   type ImportSummary,
 } from '../../common/utils/bulk-import.util';
+import {
+  computeOrderTotals,
+  derivePaymentStatus,
+  type ComputedOrder,
+} from '../../common/utils/order-totals.util';
 
 const D = (v: number | string | Prisma.Decimal) => new Prisma.Decimal(v);
+
+/** A line ready to persist, zipped from the DTO + computed money. */
+type PersistedSaleLine = Prisma.InventorySaleItemCreateWithoutSaleInput & {
+  productId: string;
+  quantity: Prisma.Decimal;
+};
 
 /**
  * Sales — invoices to customers (CLAUDE.md §4.7). A COMPLETED sale removes stock
  * (outbound) at the active branch and snapshots the branch average cost as COGS.
- * Insufficient stock is rejected by ProductStockService.applyDelta.
+ * Totals (per-line + order: discount %/fixed, tax incl/excl, GST split, order
+ * discount/tax/shipping, grand total, paid/status) are computed server-side by
+ * {@link computeOrderTotals}. Insufficient stock is rejected by ProductStockService.
  */
 @Injectable()
 export class SaleService {
@@ -35,19 +49,36 @@ export class SaleService {
     private readonly productService: ProductService,
     private readonly stockService: ProductStockService,
     private readonly numbering: NumberingService,
+    private readonly branchClient: KalnosticsBranchClient,
   ) {}
 
-  /** Create a sale and (when COMPLETED) apply outbound stock atomically. */
-  async create(
-    tenantId: string,
+  /**
+   * Resolve the warehouse for a sale: a client-supplied `warehouseId` must
+   * belong to the caller's tenant (validated via kalnostics), otherwise the
+   * active branch is used (CLAUDE.md §4.5 — never trust a raw client branchId).
+   */
+  private async resolveWarehouse(
     branchId: string | null,
-    dto: CreateSaleDto,
-    actorId?: string,
-  ) {
+    warehouseId?: string,
+  ): Promise<string> {
+    if (warehouseId && warehouseId !== branchId) {
+      await this.branchClient.findById(warehouseId);
+      return warehouseId;
+    }
     if (!branchId) throw new BranchRequiredException();
-    await this.customerService.findById(dto.customerId, tenantId);
+    return branchId;
+  }
 
-    const lines = await Promise.all(
+  /**
+   * Resolve + snapshot each product and compute the full money breakdown.
+   * Returns persist-ready line rows plus the order totals.
+   */
+  private async buildSaleLines(
+    tenantId: string,
+    branchId: string,
+    dto: CreateSaleDto,
+  ): Promise<{ lines: PersistedSaleLine[]; totals: ComputedOrder }> {
+    const resolved = await Promise.all(
       dto.items.map(async (item) => {
         const product = await this.productService.findById(
           item.productId,
@@ -57,73 +88,163 @@ export class SaleService {
           where: { productId_branchId: { productId: product.id, branchId } },
           select: { avgCost: true },
         });
-        const cost = stock?.avgCost ?? D(product.cost);
-        const qty = D(item.quantity);
-        const price = D(item.price);
-        const discount = D(item.discount ?? 0);
-        const taxRate = D(item.taxRate ?? 0);
-        const lineSubtotal = qty.mul(price).sub(discount);
-        const taxAmount = lineSubtotal.mul(taxRate).div(100);
+        return {
+          item,
+          product,
+          cost: stock?.avgCost ?? D(product.cost),
+        };
+      }),
+    );
+
+    const totals = computeOrderTotals({
+      lines: resolved.map(({ item }) => ({
+        quantity: item.quantity,
+        unitPrice: item.price,
+        discount: item.discount,
+        taxRatePercent: item.taxRate ?? 0,
+        taxInclusive: item.taxInclusive ?? false,
+      })),
+      orderDiscount: dto.orderDiscount,
+      orderTaxPercent: dto.orderTax ?? 0,
+      shipping: dto.shipping ?? 0,
+      interState: dto.interState ?? false,
+    });
+
+    const lines: PersistedSaleLine[] = resolved.map(
+      ({ item, product, cost }, i) => {
+        const c = totals.lines[i]!;
         return {
           tenantId,
           productId: product.id,
           productName: product.name,
           productCode: product.code,
-          quantity: qty,
-          price,
+          optionId: item.optionId,
+          quantity: c.quantity,
+          price: D(item.price),
+          realUnitPrice: c.realUnitPrice,
+          netUnitPrice: c.netUnitPrice,
           cost,
-          taxRate,
-          taxAmount,
-          discount,
-          subtotal: lineSubtotal,
+          taxRate: D(item.taxRate ?? 0),
+          taxAmount: c.taxAmount,
+          taxMethod: item.taxInclusive ? '1' : '0',
+          discount: c.discount,
+          discountSpec: item.discount,
+          subtotal: c.subtotal,
+          hsnCode: item.hsnCode,
+          serialNo: item.serialNo,
+          expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+          packSize: item.packSize != null ? D(item.packSize) : null,
+          packQuantity: item.packQuantity != null ? D(item.packQuantity) : null,
+          igst: c.igst,
+          cgst: c.cgst,
+          sgst: c.sgst,
         };
-      }),
+      },
     );
 
-    const subtotal = lines.reduce((s, l) => s.add(l.subtotal), D(0));
-    const orderTax = lines.reduce((s, l) => s.add(l.taxAmount), D(0));
-    const orderDiscount = D(dto.orderDiscount ?? 0);
-    const shipping = D(dto.shipping ?? 0);
-    const grandTotal = subtotal.add(orderTax).add(shipping).sub(orderDiscount);
+    return { lines, totals };
+  }
+
+  /** Header money/meta columns shared by create + update. */
+  private saleHeaderData(
+    dto: CreateSaleDto,
+    totals: ComputedOrder,
+    date: Date,
+  ) {
+    const dueDate =
+      dto.paymentTerm != null
+        ? new Date(date.getTime() + dto.paymentTerm * 86_400_000)
+        : null;
+    return {
+      billerId: dto.billerId,
+      billerName: dto.billerName,
+      subtotal: totals.subtotal,
+      productDiscount: totals.productDiscount,
+      orderDiscount: totals.orderDiscount,
+      orderDiscountSpec: dto.orderDiscount,
+      orderTax: totals.orderTax,
+      orderTaxId: dto.orderTaxId,
+      orderTaxSpec: dto.orderTax != null ? String(dto.orderTax) : null,
+      totalTax: totals.totalTax,
+      shipping: totals.shipping,
+      roundoff: totals.roundoff,
+      grandTotal: totals.grandTotal,
+      totalItems: Math.round(totals.totalItems.toNumber()),
+      paymentTerm: dto.paymentTerm,
+      dueDate,
+      gstNumber: dto.gstNumber,
+      gstState: dto.gstState,
+      taxMethod: dto.interState ? 'igst' : 'cgst+sgst',
+      igst: totals.igst,
+      cgst: totals.cgst,
+      sgst: totals.sgst,
+      attachmentUrl: dto.attachmentUrl,
+      quoteId: dto.quoteId,
+      doctorName: dto.doctorName,
+      note: dto.note,
+      staffNote: dto.staffNote,
+    };
+  }
+
+  /** Create a sale and (when COMPLETED) apply outbound stock atomically. */
+  async create(
+    tenantId: string,
+    branchId: string | null,
+    dto: CreateSaleDto,
+    actorId?: string,
+  ) {
+    const warehouse = await this.resolveWarehouse(branchId, dto.warehouseId);
+    await this.customerService.findById(dto.customerId, tenantId);
+
+    const { lines, totals } = await this.buildSaleLines(
+      tenantId,
+      warehouse,
+      dto,
+    );
     const status = dto.status ?? 'COMPLETED';
+    const date = dto.date ? new Date(dto.date) : new Date();
     const reference =
       dto.reference ?? (await this.numbering.next(tenantId, 'sale'));
+
+    const { paid, paymentStatus } = this.resolvePaymentPlan(
+      dto.payment,
+      totals.grandTotal,
+    );
 
     return this.prisma.withTenant(tenantId, async (tx) => {
       const sale = await tx.inventorySale.create({
         data: {
           tenantId,
-          branchId,
+          branchId: warehouse,
           customerId: dto.customerId,
-          billerName: dto.billerName,
           reference,
-          date: dto.date ? new Date(dto.date) : new Date(),
+          date,
           status,
-          subtotal,
-          orderTax,
-          orderDiscount,
-          shipping,
-          grandTotal,
-          paid: D(0),
-          paymentStatus: 'PENDING',
-          note: dto.note,
+          ...this.saleHeaderData(dto, totals, date),
+          paid,
+          paymentStatus,
           createdBy: actorId,
           items: { create: lines },
         },
         include: { items: true },
       });
 
+      if (paid.gt(0)) {
+        await tx.inventorySalePayment.create({
+          data: this.paymentRow(tenantId, sale.id, paid, dto.payment, actorId),
+        });
+      }
+
       if (status === 'COMPLETED') {
         for (const l of lines) {
           await this.stockService.applyDelta(tx, {
             tenantId,
-            branchId,
+            branchId: warehouse,
             productId: l.productId,
             delta: l.quantity.negated(),
           });
         }
-        // Award loyalty points (1 point per 100 of grand total) — legacy award_points.
-        const points = Math.floor(grandTotal.toNumber() / 100);
+        const points = Math.floor(totals.grandTotal.toNumber() / 100);
         if (points > 0) {
           await tx.inventoryCustomer.updateMany({
             where: { id: dto.customerId, tenantId },
@@ -134,6 +255,45 @@ export class SaleService {
 
       return sale;
     });
+  }
+
+  /** Resolve the paid amount + status from the embedded payment block. */
+  private resolvePaymentPlan(
+    payment: SalePaymentInputDto | undefined,
+    grandTotal: Prisma.Decimal,
+  ): { paid: Prisma.Decimal; paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID' } {
+    const ps = payment?.paymentStatus?.toLowerCase();
+    let paid = D(0);
+    if (ps === 'paid') paid = grandTotal;
+    else if (ps === 'partial') paid = D(payment?.amount ?? 0);
+    return { paid, paymentStatus: derivePaymentStatus(paid, grandTotal) };
+  }
+
+  /** Build a sale-payment create row from an embedded payment block. */
+  private paymentRow(
+    tenantId: string,
+    saleId: string,
+    amount: Prisma.Decimal,
+    payment: SalePaymentInputDto | undefined,
+    actorId?: string,
+  ): Prisma.InventorySalePaymentUncheckedCreateInput {
+    return {
+      tenantId,
+      saleId,
+      amount,
+      method: (payment?.paidBy ?? 'CASH').toUpperCase(),
+      reference: payment?.reference,
+      date: new Date(),
+      note: payment?.note,
+      chequeNo: payment?.chequeNo,
+      ccNo: payment?.ccNo,
+      ccHolder: payment?.ccHolder,
+      ccType: payment?.ccType,
+      ccMonth: payment?.ccMonth,
+      ccYear: payment?.ccYear,
+      giftCardNo: payment?.giftCardNo,
+      createdBy: actorId,
+    };
   }
 
   /**
@@ -168,8 +328,16 @@ export class SaleService {
     if (query.search)
       where.reference = { contains: query.search, mode: 'insensitive' };
     if (query.customerId) where.customerId = query.customerId;
+    if (query.warehouseId) where.branchId = query.warehouseId;
     if (query.status) where.status = query.status;
     if (query.paymentStatus) where.paymentStatus = query.paymentStatus;
+    if (query.pos === 'true') where.posSessionId = { not: null };
+    else if (query.pos === 'false') where.posSessionId = null;
+    if (query.startDate || query.endDate) {
+      where.date = {};
+      if (query.startDate) where.date.gte = new Date(query.startDate);
+      if (query.endDate) where.date.lte = new Date(query.endDate);
+    }
 
     const [data, total] = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.inventorySale.findMany({
@@ -216,11 +384,7 @@ export class SaleService {
       );
     }
     const newPaid = D(sale.paid).add(amount);
-    const paymentStatus = newPaid.gte(sale.grandTotal)
-      ? 'PAID'
-      : newPaid.gt(0)
-        ? 'PARTIAL'
-        : 'PENDING';
+    const paymentStatus = derivePaymentStatus(newPaid, D(sale.grandTotal));
 
     return this.prisma.withTenant(tenantId, async (tx) => {
       await tx.inventorySalePayment.create({
@@ -228,10 +392,17 @@ export class SaleService {
           tenantId,
           saleId: id,
           amount,
-          method: dto.method ?? 'CASH',
+          method: (dto.method ?? 'CASH').toUpperCase(),
           reference: dto.reference,
           date: dto.date ? new Date(dto.date) : new Date(),
           note: dto.note,
+          chequeNo: dto.chequeNo,
+          ccNo: dto.ccNo,
+          ccHolder: dto.ccHolder,
+          ccType: dto.ccType,
+          ccMonth: dto.ccMonth,
+          ccYear: dto.ccYear,
+          giftCardNo: dto.giftCardNo,
           createdBy: actorId,
         },
       });
@@ -248,7 +419,8 @@ export class SaleService {
   /**
    * Edit a sale (full line replacement). Re-syncs stock: reverses the old
    * outbound (if the sale was COMPLETED), swaps the items, and applies the new
-   * outbound. Totals + payment status are recomputed; payments are preserved.
+   * outbound. Totals are recomputed; payments are preserved and payment status
+   * is re-derived against the new grand total.
    */
   async update(
     id: string,
@@ -256,49 +428,21 @@ export class SaleService {
     branchId: string | null,
     dto: CreateSaleDto,
   ) {
-    if (!branchId) throw new BranchRequiredException();
     const existing = await this.findById(id, tenantId);
+    const warehouse = await this.resolveWarehouse(
+      branchId,
+      dto.warehouseId ?? existing.branchId,
+    );
     await this.customerService.findById(dto.customerId, tenantId);
 
-    const lines = await Promise.all(
-      dto.items.map(async (item) => {
-        const product = await this.productService.findById(
-          item.productId,
-          tenantId,
-        );
-        const stock = await this.prisma.inventoryWarehouseProduct.findUnique({
-          where: { productId_branchId: { productId: product.id, branchId } },
-          select: { avgCost: true },
-        });
-        const cost = stock?.avgCost ?? D(product.cost);
-        const qty = D(item.quantity);
-        const price = D(item.price);
-        const discount = D(item.discount ?? 0);
-        const taxRate = D(item.taxRate ?? 0);
-        const lineSubtotal = qty.mul(price).sub(discount);
-        const taxAmount = lineSubtotal.mul(taxRate).div(100);
-        return {
-          tenantId,
-          productId: product.id,
-          productName: product.name,
-          productCode: product.code,
-          quantity: qty,
-          price,
-          cost,
-          taxRate,
-          taxAmount,
-          discount,
-          subtotal: lineSubtotal,
-        };
-      }),
+    const { lines, totals } = await this.buildSaleLines(
+      tenantId,
+      warehouse,
+      dto,
     );
-
-    const subtotal = lines.reduce((s, l) => s.add(l.subtotal), D(0));
-    const orderTax = lines.reduce((s, l) => s.add(l.taxAmount), D(0));
-    const orderDiscount = D(dto.orderDiscount ?? 0);
-    const shipping = D(dto.shipping ?? 0);
-    const grandTotal = subtotal.add(orderTax).add(shipping).sub(orderDiscount);
-    const newStatus = dto.status ?? existing.status;
+    const newStatus =
+      dto.status ?? (existing.status as 'COMPLETED' | 'PENDING');
+    const date = dto.date ? new Date(dto.date) : existing.date;
 
     return this.prisma.withTenant(tenantId, async (tx) => {
       // 1. Reverse the previous outbound movement if the sale had removed stock.
@@ -306,7 +450,7 @@ export class SaleService {
         for (const l of existing.items) {
           await this.stockService.applyDelta(tx, {
             tenantId,
-            branchId,
+            branchId: existing.branchId,
             productId: l.productId,
             delta: D(l.quantity),
           });
@@ -319,32 +463,23 @@ export class SaleService {
         for (const l of lines) {
           await this.stockService.applyDelta(tx, {
             tenantId,
-            branchId,
+            branchId: warehouse,
             productId: l.productId,
             delta: l.quantity.negated(),
           });
         }
       }
       const paid = D(existing.paid);
-      const paymentStatus = paid.gte(grandTotal)
-        ? 'PAID'
-        : paid.gt(0)
-          ? 'PARTIAL'
-          : 'PENDING';
+      const paymentStatus = derivePaymentStatus(paid, totals.grandTotal);
       return tx.inventorySale.update({
         where: { id },
         data: {
           customerId: dto.customerId,
-          billerName: dto.billerName,
-          date: dto.date ? new Date(dto.date) : existing.date,
+          branchId: warehouse,
+          date,
           status: newStatus,
-          subtotal,
-          orderTax,
-          orderDiscount,
-          shipping,
-          grandTotal,
+          ...this.saleHeaderData(dto, totals, date),
           paymentStatus,
-          note: dto.note,
           items: { create: lines },
         },
         include: { items: true, payments: { where: { deletedAt: null } } },
@@ -370,10 +505,17 @@ export class SaleService {
         where: { id: paymentId },
         data: {
           amount: dto.amount != null ? D(dto.amount) : undefined,
-          method: dto.method,
+          method: dto.method ? dto.method.toUpperCase() : undefined,
           reference: dto.reference,
           date: dto.date ? new Date(dto.date) : undefined,
           note: dto.note,
+          chequeNo: dto.chequeNo,
+          ccNo: dto.ccNo,
+          ccHolder: dto.ccHolder,
+          ccType: dto.ccType,
+          ccMonth: dto.ccMonth,
+          ccYear: dto.ccYear,
+          giftCardNo: dto.giftCardNo,
         },
       });
       return this.recomputePaid(tx, id);
@@ -407,11 +549,7 @@ export class SaleService {
       select: { grandTotal: true },
     });
     const paid = agg._sum.amount ?? D(0);
-    const paymentStatus = paid.gte(sale.grandTotal)
-      ? 'PAID'
-      : paid.gt(0)
-        ? 'PARTIAL'
-        : 'PENDING';
+    const paymentStatus = derivePaymentStatus(paid, D(sale.grandTotal));
     return tx.inventorySale.update({
       where: { id },
       data: { paid, paymentStatus },

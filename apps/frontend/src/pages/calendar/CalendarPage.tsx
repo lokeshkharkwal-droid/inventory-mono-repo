@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { getApiErrorMessage } from '@/lib/http';
+import { LottieLoader } from '@/components/LottieLoader';
 import {
   useCalendarEvents,
   useCreateEvent,
@@ -107,7 +108,7 @@ export function CalendarPage() {
 
       <div className="rounded-lg border">
         {isLoading ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+          <LottieLoader size={72} className="py-10" />
         ) : events.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
             No events this month.

@@ -198,7 +198,7 @@ export class QuoteService {
       branchId,
       {
         customerId: quote.customerId,
-        orderDiscount: quote.orderDiscount.toNumber(),
+        orderDiscount: String(quote.orderDiscount.toNumber()),
         shipping: quote.shipping.toNumber(),
         note: `From quote ${quote.reference}`,
         items: quote.items.map((i) => ({
@@ -206,7 +206,7 @@ export class QuoteService {
           quantity: i.quantity.toNumber(),
           price: i.unitPrice.toNumber(),
           taxRate: i.taxRate.toNumber(),
-          discount: i.discount.toNumber(),
+          discount: String(i.discount.toNumber()),
         })),
       },
       actorId,
@@ -247,7 +247,7 @@ export class QuoteService {
       {
         supplierId: quote.supplierId,
         status: 'ORDERED',
-        orderDiscount: quote.orderDiscount.toNumber(),
+        orderDiscount: String(quote.orderDiscount.toNumber()),
         shipping: quote.shipping.toNumber(),
         note: `From quote ${quote.reference}`,
         items: quote.items.map((i) => ({
@@ -255,7 +255,7 @@ export class QuoteService {
           quantity: i.quantity.toNumber(),
           cost: i.unitPrice.toNumber(),
           taxRate: i.taxRate.toNumber(),
-          discount: i.discount.toNumber(),
+          discount: String(i.discount.toNumber()),
         })),
       },
       actorId,

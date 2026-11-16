@@ -468,10 +468,7 @@ export class MasterReferenceService {
     });
   }
 
-  async updateExpenseCategory(
-    id: string,
-    dto: UpdateMasterFinanceCategoryDto,
-  ) {
+  async updateExpenseCategory(id: string, dto: UpdateMasterFinanceCategoryDto) {
     await this.ensureExpenseCategory(id);
     return this.prisma.inventoryMasterExpenseCategory.update({
       where: { id },
@@ -543,10 +540,7 @@ export class MasterReferenceService {
     });
   }
 
-  async updateIncomeCategory(
-    id: string,
-    dto: UpdateMasterFinanceCategoryDto,
-  ) {
+  async updateIncomeCategory(id: string, dto: UpdateMasterFinanceCategoryDto) {
     await this.ensureIncomeCategory(id);
     return this.prisma.inventoryMasterIncomeCategory.update({
       where: { id },

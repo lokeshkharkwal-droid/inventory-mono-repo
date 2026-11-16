@@ -58,6 +58,7 @@ BEGIN
     'inventory_transfer_items',
     'inventory_requisitions',
     'inventory_requisition_items',
+    'inventory_requisition_status_history',
     'inventory_currencies',
     'inventory_customer_groups',
     'inventory_expense_categories',

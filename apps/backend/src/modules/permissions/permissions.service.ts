@@ -255,14 +255,14 @@ export class PermissionsService {
       where: { tenantId_key: { tenantId, key: roleKey } },
     });
     if (custom) {
-      await this.prisma.$transaction([
-        this.prisma.inventoryUserRole.deleteMany({
+      await this.prisma.withTenant(tenantId, async (tx) => {
+        await tx.inventoryUserRole.deleteMany({
           where: { tenantId, roleKey },
-        }),
-        this.prisma.inventoryRole.delete({
+        });
+        await tx.inventoryRole.delete({
           where: { tenantId_key: { tenantId, key: roleKey } },
-        }),
-      ]);
+        });
+      });
       return { deleted: true };
     }
     await this.prisma.inventoryRolePermission.deleteMany({

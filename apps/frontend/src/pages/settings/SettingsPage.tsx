@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getApiErrorMessage } from '@/lib/http';
+import { LottieLoader } from '@/components/LottieLoader';
 import { useSettings, useUpdateSettings } from '@/features/settings/api';
 
 interface FormValues {
@@ -76,7 +77,7 @@ export function SettingsPage() {
   });
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
+    return <LottieLoader label="Loading settings…" />;
   }
 
   return (

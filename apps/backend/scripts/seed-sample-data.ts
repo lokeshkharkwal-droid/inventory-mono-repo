@@ -526,7 +526,7 @@ async function main() {
         const rq = await step('requisition', 'RQ2 rejected', () =>
           g(RequisitionService).create(T, BR, { fromBranchId: OTHER_BR, reference: 'SAMPLE-RQ-0002', date: daysAgo(6), note: NOTE,
             items: [{ productId: P('P-GLOVE').id, quantity: 5 }] }, ACTOR));
-        if (rq) await step('', 'reject RQ2', () => g(RequisitionService).reject(idOf(rq), T, ACTOR));
+        if (rq) await step('', 'reject RQ2', () => g(RequisitionService).reject(idOf(rq), T, { comment: 'Out of stock at source' }, ACTOR));
       }
 
       // ── Expenses & incomes ──

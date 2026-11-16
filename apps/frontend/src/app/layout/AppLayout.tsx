@@ -41,6 +41,7 @@ import {
   Settings,
   LogOut,
   Package,
+  Plus,
   ChevronDown,
   Menu,
   X,
@@ -103,23 +104,50 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: 'Purchasing',
+    title: 'Sales',
+    icon: Receipt,
+    items: [
+      { to: '/sales', label: 'Sales', icon: Receipt, end: true },
+      { to: '/pos/sales', label: 'POS Sales', icon: Monitor },
+      { to: '/sales/add', label: 'Add Sales', icon: Plus },
+      {
+        to: '/sales/generate-order-by-csv',
+        label: 'Generate Order by CSV',
+        icon: FileSpreadsheet,
+      },
+      { to: '/deliveries', label: 'Deliveries', icon: PackageCheck },
+      { to: '/gift-cards', label: 'Gift Cards', icon: CreditCard },
+      { to: '/sale-returns', label: 'Return Sales', icon: RotateCcw },
+    ],
+  },
+  {
+    title: 'Purchases',
     icon: ShoppingCart,
     items: [
-      { to: '/purchases', label: 'Purchases', icon: ShoppingCart },
-      { to: '/purchase-returns', label: 'Purchase returns', icon: Undo2 },
+      { to: '/purchases', label: 'Purchases', icon: ShoppingCart, end: true },
+      { to: '/purchases/add', label: 'Add Purchase', icon: Plus },
+      { to: '/purchases/import', label: 'Purchase Import', icon: Upload },
+      { to: '/purchase-returns', label: 'Return Purchases', icon: Undo2 },
+      {
+        to: '/purchases/supplier-payments',
+        label: 'Supplier Payments',
+        icon: Coins,
+      },
+    ],
+  },
+  {
+    title: 'Parties',
+    icon: Users,
+    items: [
+      { to: '/customers', label: 'Customers', icon: Users },
+      { to: '/patients', label: 'Patients', icon: HeartPulse },
       { to: '/suppliers', label: 'Suppliers', icon: Truck },
     ],
   },
   {
-    title: 'Sales',
-    icon: Receipt,
+    title: 'Quotations',
+    icon: FileSignature,
     items: [
-      { to: '/sales', label: 'Sales', icon: Receipt },
-      { to: '/sale-returns', label: 'Sale returns', icon: RotateCcw },
-      { to: '/deliveries', label: 'Deliveries', icon: PackageCheck },
-      { to: '/customers', label: 'Customers', icon: Users },
-      { to: '/patients', label: 'Patients', icon: HeartPulse },
       { to: '/quotes', label: 'Quotes', icon: FileSignature },
       { to: '/proformas', label: 'Proformas', icon: FileSpreadsheet },
     ],
@@ -129,8 +157,20 @@ const GROUPS: NavGroup[] = [
     icon: ArrowLeftRight,
     items: [
       { to: '/transfers', label: 'Transfers', icon: ArrowLeftRight },
-      { to: '/requisitions', label: 'Requisitions', icon: ClipboardList },
       { to: '/materials', label: 'Materials', icon: Wrench },
+    ],
+  },
+  {
+    title: 'Requisition',
+    icon: ClipboardList,
+    items: [
+      { to: '/requisitions', label: 'Requisition List', icon: ClipboardList, end: true },
+      {
+        to: '/requisitions/received',
+        label: 'Received Requisitions',
+        icon: PackageCheck,
+      },
+      { to: '/requisitions/add', label: 'Add Requisition', icon: Plus },
     ],
   },
   {
@@ -149,7 +189,6 @@ const GROUPS: NavGroup[] = [
     items: [
       { to: '/expenses', label: 'Expenses', icon: TrendingDown },
       { to: '/incomes', label: 'Incomes', icon: TrendingUp },
-      { to: '/gift-cards', label: 'Gift cards', icon: CreditCard },
       { to: '/expense-categories', label: 'Expense categories', icon: TrendingDown },
       { to: '/income-categories', label: 'Income categories', icon: TrendingUp },
       { to: '/billers', label: 'Billers', icon: FileText },
@@ -277,7 +316,7 @@ export function AppLayout() {
               <img
                 src={logoUrl}
                 alt="Kalnostic"
-                className="h-full w-auto max-w-full object-contain"
+                className="h-[35px] w-auto max-w-full object-contain"
               />
             </div>
             <Button

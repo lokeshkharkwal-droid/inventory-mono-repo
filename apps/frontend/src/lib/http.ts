@@ -16,6 +16,7 @@ import axios, {
   type AxiosResponse,
   type InternalAxiosRequestConfig,
 } from 'axios';
+import { beginRequest, endRequest } from '@/lib/request-activity';
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE || '';
 const KALNOSTICS_BASE: string = import.meta.env.VITE_KALNOSTICS_API_BASE || '';
@@ -154,6 +155,41 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+/**
+ * Global loading signal: bump the in-flight counter on every outgoing request
+ * and release it when the request settles (success or error). Registered on
+ * BOTH the `api` instance and the bare `axios` default (the latter covers the
+ * auth/login/refresh/upload calls below, which hit kalnostics-new directly and
+ * don't go through `api`). A single `GlobalLoadingOverlay` renders the branded
+ * loader whenever the counter is non-zero, so any API call shows the loader.
+ */
+function attachLoadingSignal(instance: AxiosInstance): void {
+  instance.interceptors.request.use(
+    (config) => {
+      beginRequest();
+      return config;
+    },
+    (error) => {
+      // Request never left (config/interceptor error) — release immediately.
+      endRequest();
+      return Promise.reject(error);
+    },
+  );
+  instance.interceptors.response.use(
+    (response) => {
+      endRequest();
+      return response;
+    },
+    (error) => {
+      endRequest();
+      return Promise.reject(error);
+    },
+  );
+}
+
+attachLoadingSignal(api);
+attachLoadingSignal(axios);
 
 type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 

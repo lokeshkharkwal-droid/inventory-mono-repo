@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
@@ -34,17 +35,41 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /**
+   * In-progress state. Renders a leading spinner, force-disables the button (so
+   * it can't be clicked again — this is how we prevent duplicate submits), and
+   * sets `aria-busy`. Wire it to a mutation's `isPending` / a request flag.
+   * Ignored when `asChild` is set, since a Slot renders a single owned child.
+   */
+  loading?: boolean;
 }
 
+/**
+ * Shared button. Pass `loading` to show a consistent spinner + auto-disable
+ * during any async action (submit, save, delete, export…). This is the
+ * app-wide standard for button-level loading and duplicate-click prevention —
+ * prefer it over hand-rolling `<Loader2 className="animate-spin" />` + `disabled`.
+ */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, loading = false, disabled, children, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
+        disabled={disabled || loading}
+        aria-busy={loading || undefined}
         {...props}
-      />
+      >
+        {asChild ? (
+          children
+        ) : (
+          <>
+            {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+            {children}
+          </>
+        )}
+      </Comp>
     );
   },
 );

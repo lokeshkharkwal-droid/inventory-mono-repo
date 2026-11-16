@@ -8,6 +8,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { BusyOverlay } from '@/components/BusyOverlay';
+import { LottieLoader } from '@/components/LottieLoader';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 
 /** A single column definition for the generic DataTable. */
@@ -32,7 +34,21 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T) => string;
+  /** Initial load (no rows on screen yet). Shows the branded loader by default. */
   isLoading?: boolean;
+  /**
+   * Loading-state style for the INITIAL load. "lottie" (default) centers the
+   * shared branded loader in the table body; "text" keeps the plain "Loading…"
+   * row for callers that prefer it.
+   */
+  loadingVariant?: 'lottie' | 'text';
+  /**
+   * Re-querying over rows already on screen (a TanStack Query `isFetching`
+   * during search / filter / pagination). Shows a subtle "updating" overlay on
+   * top of the current rows instead of blanking them. Pass `isFetching` here
+   * and `isLoading` to `isLoading`.
+   */
+  busy?: boolean;
   emptyMessage?: string;
   /**
    * Infinite scrolling (preferred). When set, the table auto-loads the next
@@ -107,6 +123,8 @@ export function DataTable<T>({
   rows,
   rowKey,
   isLoading,
+  loadingVariant = 'lottie',
+  busy = false,
   emptyMessage = 'No records found.',
   infinite,
   page,
@@ -121,7 +139,7 @@ export function DataTable<T>({
     onPageChange != null;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
+    <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
       <Table>
         <TableHeader>
           <TableRow>
@@ -137,9 +155,15 @@ export function DataTable<T>({
             <TableRow>
               <TableCell
                 colSpan={columns.length}
-                className="py-8 text-center text-muted-foreground"
+                className="text-center text-muted-foreground"
               >
-                Loading…
+                {loadingVariant === 'lottie' ? (
+                  <div className="py-6">
+                    <LottieLoader size={64} className="py-0" />
+                  </div>
+                ) : (
+                  <span className="block py-8">Loading…</span>
+                )}
               </TableCell>
             </TableRow>
           ) : rows.length === 0 ? (
@@ -198,6 +222,9 @@ export function DataTable<T>({
           </div>
         </div>
       )}
+
+      {/* "Updating…" overlay while re-querying over already-displayed rows. */}
+      <BusyOverlay show={busy && !isLoading} />
     </div>
   );
 }

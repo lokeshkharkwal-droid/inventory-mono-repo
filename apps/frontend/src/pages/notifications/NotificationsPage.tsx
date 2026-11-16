@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Check, CheckCheck, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { LottieLoader } from '@/components/LottieLoader';
 import { getApiErrorMessage } from '@/lib/http';
 import {
   useInfiniteNotifications,
@@ -66,7 +67,7 @@ export function NotificationsPage() {
 
       <div className="rounded-lg border">
         {isLoading ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+          <LottieLoader size={72} className="py-10" />
         ) : rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
             No notifications.

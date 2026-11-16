@@ -53,7 +53,10 @@ export class ProductImportService {
         if (!row.code) throw new Error('Missing required field (code)');
       },
       create: async (row) => {
-        const product = await this.productService.findByCode(tenantId, row.code);
+        const product = await this.productService.findByCode(
+          tenantId,
+          row.code,
+        );
         return this.productService.update(product.id, tenantId, {
           name: row.name,
           packSize: row.packSize,

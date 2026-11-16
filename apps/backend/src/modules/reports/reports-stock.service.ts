@@ -34,7 +34,10 @@ export class ReportsStockService {
     };
     const rows = await this.prisma.inventoryWarehouseProduct.findMany({
       where,
-      select: { quantity: true, product: { select: { price: true, cost: true } } },
+      select: {
+        quantity: true,
+        product: { select: { price: true, cost: true } },
+      },
     });
     let stockByPrice = D(0);
     let stockByCost = D(0);
@@ -112,7 +115,10 @@ export class ReportsStockService {
     let grandTotalSum = D(0);
     const rows = materials
       .map((m) => {
-        const damageQuantity = m.damages.reduce((s, d) => s.add(d.quantity), D(0));
+        const damageQuantity = m.damages.reduce(
+          (s, d) => s.add(d.quantity),
+          D(0),
+        );
         const repairQuantity = m.repairs.filter(
           (r) => r.status === 'PENDING' || r.status === 'DUE',
         ).length;
@@ -187,7 +193,11 @@ export class ReportsStockService {
   }
 
   /** Product Quantity Alerts — products at/below reorder level for a warehouse. */
-  async quantityAlerts(tenantId: string, warehouseId?: string, search?: string) {
+  async quantityAlerts(
+    tenantId: string,
+    warehouseId?: string,
+    search?: string,
+  ) {
     const products = await this.prisma.inventoryProduct.findMany({
       where: {
         tenantId,
@@ -283,7 +293,9 @@ export class ReportsStockService {
     });
     const data = batches.map((b) => {
       const exp = b.expiryDate as Date;
-      const expiringDays = Math.floor((exp.getTime() - today.getTime()) / 86_400_000);
+      const expiringDays = Math.floor(
+        (exp.getTime() - today.getTime()) / 86_400_000,
+      );
       return {
         id: b.id,
         productId: b.productId,
@@ -359,7 +371,11 @@ export class ReportsStockService {
           balanceValue,
         };
       });
-    return { rows: items, totals, range: { from: q.from ?? null, to: q.to ?? null } };
+    return {
+      rows: items,
+      totals,
+      range: { from: q.from ?? null, to: q.to ?? null },
+    };
   }
 
   /** Categories Report — purchased/sold/profit rolled up per product category. */
@@ -378,18 +394,16 @@ export class ReportsStockService {
     const byCat = new Map<string, Row>();
     for (const p of mv.products) {
       if (q.categoryId && p.categoryId !== q.categoryId) continue;
-      const row =
-        byCat.get(p.categoryId) ??
-        ({
-          categoryId: p.categoryId,
-          code: p.categoryCode,
-          name: p.categoryName ?? '—',
-          purchasedQty: D(0),
-          soldQty: D(0),
-          purchasedAmount: D(0),
-          soldAmount: D(0),
-          profit: D(0),
-        } as Row);
+      const row = byCat.get(p.categoryId) ?? {
+        categoryId: p.categoryId,
+        code: p.categoryCode,
+        name: p.categoryName ?? '—',
+        purchasedQty: D(0),
+        soldQty: D(0),
+        purchasedAmount: D(0),
+        soldAmount: D(0),
+        profit: D(0),
+      };
       const pur = mv.purchase.get(p.id);
       const sal = mv.sale.get(p.id);
       row.purchasedQty = row.purchasedQty.add(pur?.qty ?? D(0));
@@ -557,7 +571,10 @@ export class ReportsStockService {
         { qty: r._sum.quantity ?? D(0), value: r._sum.subtotal ?? D(0) },
       ]),
     );
-    const stock = new Map<string, { qty: Prisma.Decimal; value: Prisma.Decimal }>();
+    const stock = new Map<
+      string,
+      { qty: Prisma.Decimal; value: Prisma.Decimal }
+    >();
     for (const s of stockRows) {
       const e = stock.get(s.productId) ?? { qty: D(0), value: D(0) };
       e.qty = e.qty.add(s.quantity);
