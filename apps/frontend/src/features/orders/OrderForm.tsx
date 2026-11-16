@@ -171,7 +171,10 @@ export function OrderForm({ mode, editId }: Props) {
   // Hydrate when editing.
   useEffect(() => {
     if (!editId || !editing) return;
-    const d = editing as Record<string, unknown>;
+    // SaleDetail/PurchaseDetail diverge, so read the shared/union fields through
+    // a loose record (via `unknown`, since neither type has a string index
+    // signature); each access below is individually narrowed.
+    const d = editing as unknown as Record<string, unknown>;
     const party = isSale
       ? (d.customer as { id: string } | null)?.id
       : (d.supplier as { id: string } | null)?.id;

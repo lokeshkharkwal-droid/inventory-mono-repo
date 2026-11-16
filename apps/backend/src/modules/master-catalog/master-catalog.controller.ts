@@ -32,11 +32,27 @@ import {
 @UseGuards(SiteAdminGuard)
 export class MasterSuppliersController {
   constructor(private readonly s: MasterCatalogService) {}
-  @Get() list(@Query() q: CatalogQueryDto) { return this.s.listSuppliers(q); }
-  @Get('options') options(@Query() q: CatalogQueryDto) { return this.s.supplierOptions(q); }
-  @Post() create(@CurrentSiteAdmin('siteadmin_id') by: string, @Body() dto: CreateMasterSupplierDto) { return this.s.createSupplier(dto, by); }
-  @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateMasterSupplierDto) { return this.s.updateSupplier(id, dto); }
-  @Delete(':id') remove(@Param('id') id: string) { return this.s.removeSupplier(id); }
+  @Get() list(@Query() q: CatalogQueryDto) {
+    return this.s.listSuppliers(q);
+  }
+  @Get('options') options(@Query() q: CatalogQueryDto) {
+    return this.s.supplierOptions(q);
+  }
+  @Post() create(
+    @CurrentSiteAdmin('siteadmin_id') by: string,
+    @Body() dto: CreateMasterSupplierDto,
+  ) {
+    return this.s.createSupplier(dto, by);
+  }
+  @Patch(':id') update(
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterSupplierDto,
+  ) {
+    return this.s.updateSupplier(id, dto);
+  }
+  @Delete(':id') remove(@Param('id') id: string) {
+    return this.s.removeSupplier(id);
+  }
 }
 
 @Controller('master-manufacturers')
@@ -44,10 +60,24 @@ export class MasterSuppliersController {
 @UseGuards(SiteAdminGuard)
 export class MasterManufacturersController {
   constructor(private readonly s: MasterCatalogService) {}
-  @Get() list(@Query() q: CatalogQueryDto) { return this.s.listManufacturers(q); }
-  @Post() create(@CurrentSiteAdmin('siteadmin_id') by: string, @Body() dto: CreateMasterManufacturerDto) { return this.s.createManufacturer(dto, by); }
-  @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateMasterManufacturerDto) { return this.s.updateManufacturer(id, dto); }
-  @Delete(':id') remove(@Param('id') id: string) { return this.s.removeManufacturer(id); }
+  @Get() list(@Query() q: CatalogQueryDto) {
+    return this.s.listManufacturers(q);
+  }
+  @Post() create(
+    @CurrentSiteAdmin('siteadmin_id') by: string,
+    @Body() dto: CreateMasterManufacturerDto,
+  ) {
+    return this.s.createManufacturer(dto, by);
+  }
+  @Patch(':id') update(
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterManufacturerDto,
+  ) {
+    return this.s.updateManufacturer(id, dto);
+  }
+  @Delete(':id') remove(@Param('id') id: string) {
+    return this.s.removeManufacturer(id);
+  }
 }
 
 @Controller('master-proformas')
@@ -55,11 +85,27 @@ export class MasterManufacturersController {
 @UseGuards(SiteAdminGuard)
 export class MasterProformasController {
   constructor(private readonly s: MasterCatalogService) {}
-  @Get() list(@Query() q: CatalogQueryDto) { return this.s.listProformas(q); }
-  @Get(':id') get(@Param('id') id: string) { return this.s.getProforma(id); }
-  @Post() create(@CurrentSiteAdmin('siteadmin_id') by: string, @Body() dto: CreateMasterProformaDto) { return this.s.createProforma(dto, by); }
-  @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateMasterProformaDto) { return this.s.updateProforma(id, dto); }
-  @Delete(':id') remove(@Param('id') id: string) { return this.s.removeProforma(id); }
+  @Get() list(@Query() q: CatalogQueryDto) {
+    return this.s.listProformas(q);
+  }
+  @Get(':id') get(@Param('id') id: string) {
+    return this.s.getProforma(id);
+  }
+  @Post() create(
+    @CurrentSiteAdmin('siteadmin_id') by: string,
+    @Body() dto: CreateMasterProformaDto,
+  ) {
+    return this.s.createProforma(dto, by);
+  }
+  @Patch(':id') update(
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterProformaDto,
+  ) {
+    return this.s.updateProforma(id, dto);
+  }
+  @Delete(':id') remove(@Param('id') id: string) {
+    return this.s.removeProforma(id);
+  }
 }
 
 @Controller('master-settings')
@@ -67,8 +113,15 @@ export class MasterProformasController {
 @UseGuards(SiteAdminGuard)
 export class MasterSettingsController {
   constructor(private readonly s: MasterCatalogService) {}
-  @Get() get() { return this.s.getSettings(); }
-  @Put() save(@CurrentSiteAdmin('siteadmin_id') by: string, @Body() dto: SaveMasterSettingsDto) { return this.s.saveSettings(dto.data, by); }
+  @Get() get() {
+    return this.s.getSettings();
+  }
+  @Put() save(
+    @CurrentSiteAdmin('siteadmin_id') by: string,
+    @Body() dto: SaveMasterSettingsDto,
+  ) {
+    return this.s.saveSettings(dto.data, by);
+  }
 }
 
 /** Expense + income categories live under `master-reference/` (same as the other reference lists). */
@@ -78,13 +131,41 @@ export class MasterSettingsController {
 export class MasterFinanceCategoriesController {
   constructor(private readonly s: MasterCatalogService) {}
 
-  @Get('expense-categories') listE(@Query() q: CatalogQueryDto) { return this.s.listFinance('expense', q); }
-  @Post('expense-categories') createE(@CurrentSiteAdmin('siteadmin_id') by: string, @Body() dto: CreateMasterFinanceCategoryDto) { return this.s.createFinance('expense', dto, by); }
-  @Patch('expense-categories/:id') updateE(@Param('id') id: string, @Body() dto: UpdateMasterFinanceCategoryDto) { return this.s.updateFinance('expense', id, dto); }
-  @Delete('expense-categories/:id') removeE(@Param('id') id: string) { return this.s.removeFinance('expense', id); }
+  @Get('expense-categories') listE(@Query() q: CatalogQueryDto) {
+    return this.s.listFinance('expense', q);
+  }
+  @Post('expense-categories') createE(
+    @CurrentSiteAdmin('siteadmin_id') by: string,
+    @Body() dto: CreateMasterFinanceCategoryDto,
+  ) {
+    return this.s.createFinance('expense', dto, by);
+  }
+  @Patch('expense-categories/:id') updateE(
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterFinanceCategoryDto,
+  ) {
+    return this.s.updateFinance('expense', id, dto);
+  }
+  @Delete('expense-categories/:id') removeE(@Param('id') id: string) {
+    return this.s.removeFinance('expense', id);
+  }
 
-  @Get('income-categories') listI(@Query() q: CatalogQueryDto) { return this.s.listFinance('income', q); }
-  @Post('income-categories') createI(@CurrentSiteAdmin('siteadmin_id') by: string, @Body() dto: CreateMasterFinanceCategoryDto) { return this.s.createFinance('income', dto, by); }
-  @Patch('income-categories/:id') updateI(@Param('id') id: string, @Body() dto: UpdateMasterFinanceCategoryDto) { return this.s.updateFinance('income', id, dto); }
-  @Delete('income-categories/:id') removeI(@Param('id') id: string) { return this.s.removeFinance('income', id); }
+  @Get('income-categories') listI(@Query() q: CatalogQueryDto) {
+    return this.s.listFinance('income', q);
+  }
+  @Post('income-categories') createI(
+    @CurrentSiteAdmin('siteadmin_id') by: string,
+    @Body() dto: CreateMasterFinanceCategoryDto,
+  ) {
+    return this.s.createFinance('income', dto, by);
+  }
+  @Patch('income-categories/:id') updateI(
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterFinanceCategoryDto,
+  ) {
+    return this.s.updateFinance('income', id, dto);
+  }
+  @Delete('income-categories/:id') removeI(@Param('id') id: string) {
+    return this.s.removeFinance('income', id);
+  }
 }

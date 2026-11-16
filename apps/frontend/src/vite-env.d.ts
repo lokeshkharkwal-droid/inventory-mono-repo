@@ -8,3 +8,12 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/**
+ * dotLottie animation files, imported as bundled asset URLs (enabled via
+ * `assetsInclude` in vite.config.ts). Consumed by the shared <LottieLoader>.
+ */
+declare module '*.lottie' {
+  const src: string;
+  export default src;
+}

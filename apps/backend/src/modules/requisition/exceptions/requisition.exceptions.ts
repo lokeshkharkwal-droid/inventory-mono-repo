@@ -36,3 +36,27 @@ export class RequisitionBranchRequiredException extends KaltrosException {
     );
   }
 }
+
+/** 400 — a source branch is required to convert a requisition into a transfer. */
+export class RequisitionSourceBranchRequiredException extends KaltrosException {
+  constructor() {
+    super(
+      'REQUISITION_SOURCE_BRANCH_REQUIRED',
+      'A source branch is required to convert a requisition into a transfer',
+      {},
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}
+
+/** 409 — the requisition has already been converted into a transfer. */
+export class RequisitionAlreadyConvertedException extends KaltrosException {
+  constructor(id: string, transferId: string) {
+    super(
+      'REQUISITION_ALREADY_CONVERTED',
+      'This requisition has already been converted into a transfer',
+      { id, transferId },
+      HttpStatus.CONFLICT,
+    );
+  }
+}

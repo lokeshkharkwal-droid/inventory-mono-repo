@@ -157,8 +157,20 @@ const GROUPS: NavGroup[] = [
     icon: ArrowLeftRight,
     items: [
       { to: '/transfers', label: 'Transfers', icon: ArrowLeftRight },
-      { to: '/requisitions', label: 'Requisitions', icon: ClipboardList },
       { to: '/materials', label: 'Materials', icon: Wrench },
+    ],
+  },
+  {
+    title: 'Requisition',
+    icon: ClipboardList,
+    items: [
+      { to: '/requisitions', label: 'Requisition List', icon: ClipboardList, end: true },
+      {
+        to: '/requisitions/received',
+        label: 'Received Requisitions',
+        icon: PackageCheck,
+      },
+      { to: '/requisitions/add', label: 'Add Requisition', icon: Plus },
     ],
   },
   {
@@ -304,7 +316,7 @@ export function AppLayout() {
               <img
                 src={logoUrl}
                 alt="Kalnostic"
-                className="h-full w-auto max-w-full object-contain"
+                className="h-[35px] w-auto max-w-full object-contain"
               />
             </div>
             <Button

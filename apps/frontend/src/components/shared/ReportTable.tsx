@@ -11,6 +11,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { ReportColumn } from '@/features/reports/types';
+import { LottieLoader } from '@/components/LottieLoader';
 import { cn } from '@/lib/utils';
 
 /** Parse a cell value as a number (handles "1,550.00", "36.10%", "-12"); null if not numeric. */
@@ -151,8 +152,10 @@ export function ReportTable<T>({
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="py-8 text-center text-muted-foreground">
-                  Loading…
+                <TableCell colSpan={columns.length} className="text-center text-muted-foreground">
+                  <div className="py-6">
+                    <LottieLoader size={64} className="py-0" />
+                  </div>
                 </TableCell>
               </TableRow>
             ) : view.length === 0 ? (

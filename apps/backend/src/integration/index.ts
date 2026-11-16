@@ -5,6 +5,8 @@ export type {
   BranchOption,
   BranchDetail,
 } from './clients/kalnostics-branch.client';
+export { KalnosticsDepartmentClient } from './clients/kalnostics-department.client';
+export type { DepartmentOption } from './clients/kalnostics-department.client';
 export { RequestTokenInterceptor } from './interceptors/request-token.interceptor';
 export {
   requestTokenContext,

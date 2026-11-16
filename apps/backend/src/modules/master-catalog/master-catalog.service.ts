@@ -39,7 +39,9 @@ export class MasterCatalogService {
   }
 
   // ── Suppliers ───────────────────────────────────────────────────────────────
-  private supplierWhere(q: CatalogQueryDto): Prisma.InventoryMasterSupplierWhereInput {
+  private supplierWhere(
+    q: CatalogQueryDto,
+  ): Prisma.InventoryMasterSupplierWhereInput {
     const where: Prisma.InventoryMasterSupplierWhereInput = { deletedAt: null };
     if (q.search)
       where.OR = [
@@ -91,14 +93,23 @@ export class MasterCatalogService {
 
   async updateSupplier(id: string, dto: UpdateMasterSupplierDto) {
     await this.ensure('Supplier', id, () =>
-      this.prisma.inventoryMasterSupplier.findFirst({ where: { id, deletedAt: null }, select: { id: true } }),
+      this.prisma.inventoryMasterSupplier.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true },
+      }),
     );
-    return this.prisma.inventoryMasterSupplier.update({ where: { id }, data: dto });
+    return this.prisma.inventoryMasterSupplier.update({
+      where: { id },
+      data: dto,
+    });
   }
 
   async removeSupplier(id: string) {
     await this.ensure('Supplier', id, () =>
-      this.prisma.inventoryMasterSupplier.findFirst({ where: { id, deletedAt: null }, select: { id: true } }),
+      this.prisma.inventoryMasterSupplier.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true },
+      }),
     );
     return this.prisma.inventoryMasterSupplier.update({
       where: { id },
@@ -108,9 +119,13 @@ export class MasterCatalogService {
   }
 
   // ── Manufacturers ───────────────────────────────────────────────────────────
-  async listManufacturers(q: CatalogQueryDto): Promise<PaginatedResult<unknown>> {
+  async listManufacturers(
+    q: CatalogQueryDto,
+  ): Promise<PaginatedResult<unknown>> {
     const { page, limit } = this.page(q);
-    const where: Prisma.InventoryMasterManufacturerWhereInput = { deletedAt: null };
+    const where: Prisma.InventoryMasterManufacturerWhereInput = {
+      deletedAt: null,
+    };
     if (q.search)
       where.OR = [
         { name: { contains: q.search, mode: 'insensitive' } },
@@ -138,14 +153,23 @@ export class MasterCatalogService {
 
   async updateManufacturer(id: string, dto: UpdateMasterManufacturerDto) {
     await this.ensure('Manufacturer', id, () =>
-      this.prisma.inventoryMasterManufacturer.findFirst({ where: { id, deletedAt: null }, select: { id: true } }),
+      this.prisma.inventoryMasterManufacturer.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true },
+      }),
     );
-    return this.prisma.inventoryMasterManufacturer.update({ where: { id }, data: dto });
+    return this.prisma.inventoryMasterManufacturer.update({
+      where: { id },
+      data: dto,
+    });
   }
 
   async removeManufacturer(id: string) {
     await this.ensure('Manufacturer', id, () =>
-      this.prisma.inventoryMasterManufacturer.findFirst({ where: { id, deletedAt: null }, select: { id: true } }),
+      this.prisma.inventoryMasterManufacturer.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true },
+      }),
     );
     return this.prisma.inventoryMasterManufacturer.update({
       where: { id },
@@ -164,15 +188,26 @@ export class MasterCatalogService {
   private async ensureTaxRate(id?: string) {
     if (!id) return;
     await this.ensure('Tax rate', id, () =>
-      this.prisma.inventoryMasterTaxRate.findFirst({ where: { id, deletedAt: null }, select: { id: true } }),
+      this.prisma.inventoryMasterTaxRate.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true },
+      }),
     );
   }
 
-  async listFinance(kind: 'expense' | 'income', q: CatalogQueryDto): Promise<PaginatedResult<unknown>> {
+  async listFinance(
+    kind: 'expense' | 'income',
+    q: CatalogQueryDto,
+  ): Promise<PaginatedResult<unknown>> {
     const { page, limit } = this.page({ ...q, limit: q.limit ?? 50 });
-    const where: { deletedAt: null; name?: { contains: string; mode: 'insensitive' } } = { deletedAt: null };
+    const where: {
+      deletedAt: null;
+      name?: { contains: string; mode: 'insensitive' };
+    } = { deletedAt: null };
     if (q.search) where.name = { contains: q.search, mode: 'insensitive' };
-    const d = this.fin(kind) as typeof this.prisma.inventoryMasterExpenseCategory;
+    const d = this.fin(
+      kind,
+    ) as typeof this.prisma.inventoryMasterExpenseCategory;
     const [data, total] = await this.prisma.$transaction([
       d.findMany({
         where,
@@ -186,9 +221,15 @@ export class MasterCatalogService {
     return { data, total, page, limit };
   }
 
-  async createFinance(kind: 'expense' | 'income', dto: CreateMasterFinanceCategoryDto, by?: string) {
+  async createFinance(
+    kind: 'expense' | 'income',
+    dto: CreateMasterFinanceCategoryDto,
+    by?: string,
+  ) {
     await this.ensureTaxRate(dto.taxRateId);
-    const d = this.fin(kind) as typeof this.prisma.inventoryMasterExpenseCategory;
+    const d = this.fin(
+      kind,
+    ) as typeof this.prisma.inventoryMasterExpenseCategory;
     return d.create({
       data: {
         code: dto.code,
@@ -202,9 +243,17 @@ export class MasterCatalogService {
     });
   }
 
-  async updateFinance(kind: 'expense' | 'income', id: string, dto: UpdateMasterFinanceCategoryDto) {
-    const d = this.fin(kind) as typeof this.prisma.inventoryMasterExpenseCategory;
-    await this.ensure(`${kind} category`, id, () => d.findFirst({ where: { id, deletedAt: null }, select: { id: true } }));
+  async updateFinance(
+    kind: 'expense' | 'income',
+    id: string,
+    dto: UpdateMasterFinanceCategoryDto,
+  ) {
+    const d = this.fin(
+      kind,
+    ) as typeof this.prisma.inventoryMasterExpenseCategory;
+    await this.ensure(`${kind} category`, id, () =>
+      d.findFirst({ where: { id, deletedAt: null }, select: { id: true } }),
+    );
     await this.ensureTaxRate(dto.taxRateId);
     return d.update({
       where: { id },
@@ -214,15 +263,28 @@ export class MasterCatalogService {
   }
 
   async removeFinance(kind: 'expense' | 'income', id: string) {
-    const d = this.fin(kind) as typeof this.prisma.inventoryMasterExpenseCategory;
-    await this.ensure(`${kind} category`, id, () => d.findFirst({ where: { id, deletedAt: null }, select: { id: true } }));
-    return d.update({ where: { id }, data: { deletedAt: new Date() }, select: { id: true, deletedAt: true } });
+    const d = this.fin(
+      kind,
+    ) as typeof this.prisma.inventoryMasterExpenseCategory;
+    await this.ensure(`${kind} category`, id, () =>
+      d.findFirst({ where: { id, deletedAt: null }, select: { id: true } }),
+    );
+    return d.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+      select: { id: true, deletedAt: true },
+    });
   }
 
   // ── Proformas ───────────────────────────────────────────────────────────────
-  private shapeProforma<T extends { items?: { quantity: Prisma.Decimal }[] }>(p: T) {
+  private shapeProforma<T extends { items?: { quantity: Prisma.Decimal }[] }>(
+    p: T,
+  ) {
     if (!p.items) return p;
-    return { ...p, items: p.items.map((i) => ({ ...i, quantity: Number(i.quantity) })) };
+    return {
+      ...p,
+      items: p.items.map((i) => ({ ...i, quantity: Number(i.quantity) })),
+    };
   }
 
   private async itemRows(items?: MasterProformaItemDto[]) {
@@ -240,7 +302,9 @@ export class MasterCatalogService {
           HttpStatus.BAD_REQUEST,
         );
     }
-    const ids = [...new Set(rows.map((r) => r.masterProductId).filter(Boolean))] as string[];
+    const ids = [
+      ...new Set(rows.map((r) => r.masterProductId).filter(Boolean)),
+    ] as string[];
     if (ids.length) {
       const found = await this.prisma.inventoryMasterProduct.count({
         where: { id: { in: ids }, deletedAt: null },
@@ -300,11 +364,17 @@ export class MasterCatalogService {
 
   async updateProforma(id: string, dto: UpdateMasterProformaDto) {
     await this.ensure('Proforma', id, () =>
-      this.prisma.inventoryMasterProforma.findFirst({ where: { id, deletedAt: null }, select: { id: true } }),
+      this.prisma.inventoryMasterProforma.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true },
+      }),
     );
     const items = dto.items ? await this.itemRows(dto.items) : undefined;
     const row = await this.prisma.$transaction(async (tx) => {
-      if (items) await tx.inventoryMasterProformaItem.deleteMany({ where: { proformaId: id } });
+      if (items)
+        await tx.inventoryMasterProformaItem.deleteMany({
+          where: { proformaId: id },
+        });
       return tx.inventoryMasterProforma.update({
         where: { id },
         data: {
@@ -322,7 +392,10 @@ export class MasterCatalogService {
 
   async removeProforma(id: string) {
     await this.ensure('Proforma', id, () =>
-      this.prisma.inventoryMasterProforma.findFirst({ where: { id, deletedAt: null }, select: { id: true } }),
+      this.prisma.inventoryMasterProforma.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true },
+      }),
     );
     return this.prisma.inventoryMasterProforma.update({
       where: { id },
@@ -333,12 +406,16 @@ export class MasterCatalogService {
 
   // ── Settings (singleton, shallow-merge) ─────────────────────────────────────
   async getSettings() {
-    const row = await this.prisma.inventoryMasterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const row = await this.prisma.inventoryMasterSetting.findUnique({
+      where: { id: SETTINGS_ID },
+    });
     return row ?? { id: SETTINGS_ID, data: {}, updatedAt: null };
   }
 
   async saveSettings(data: Record<string, unknown>, by?: string) {
-    const existing = await this.prisma.inventoryMasterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const existing = await this.prisma.inventoryMasterSetting.findUnique({
+      where: { id: SETTINGS_ID },
+    });
     const merged = {
       ...((existing?.data as Record<string, unknown> | null) ?? {}),
       ...data,

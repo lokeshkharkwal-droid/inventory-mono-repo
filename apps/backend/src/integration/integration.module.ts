@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { KalnosticsHttpService } from './kalnostics-http.service';
 import { KalnosticsBranchClient } from './clients/kalnostics-branch.client';
+import { KalnosticsDepartmentClient } from './clients/kalnostics-department.client';
 import { IntegrationController } from './integration.controller';
 
 /**
@@ -16,7 +17,15 @@ import { IntegrationController } from './integration.controller';
 @Module({
   imports: [ConfigModule],
   controllers: [IntegrationController],
-  providers: [KalnosticsHttpService, KalnosticsBranchClient],
-  exports: [KalnosticsHttpService, KalnosticsBranchClient],
+  providers: [
+    KalnosticsHttpService,
+    KalnosticsBranchClient,
+    KalnosticsDepartmentClient,
+  ],
+  exports: [
+    KalnosticsHttpService,
+    KalnosticsBranchClient,
+    KalnosticsDepartmentClient,
+  ],
 })
 export class IntegrationModule {}
