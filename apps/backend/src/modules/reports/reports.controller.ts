@@ -185,6 +185,46 @@ export class ReportsController {
     return this.stock.toolsAndPlants(tenantId, q);
   }
 
+  @Get('material-and-plants')
+  materialAndPlants(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
+    return this.stock.materialAndPlants(tenantId, q);
+  }
+
+  @Get('product-quantity')
+  productQuantity(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
+    return this.stock.productQuantity(tenantId, q);
+  }
+
+  @Get('product-quantity-batch')
+  productQuantityBatch(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
+    return this.stock.productQuantityBatch(tenantId, q);
+  }
+
+  @Get('local-purchases')
+  localPurchases(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
+    return this.purchases.localPurchases(tenantId, q);
+  }
+
+  @Get('total-local-purchases')
+  totalLocalPurchases(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ReportQueryDto,
+  ) {
+    return this.purchases.totalLocalPurchases(tenantId, q);
+  }
+
   @Get('register')
   register(@CurrentTenant() tenantId: string, @Query() q: ReportQueryDto) {
     return this.stock.register(tenantId, q);

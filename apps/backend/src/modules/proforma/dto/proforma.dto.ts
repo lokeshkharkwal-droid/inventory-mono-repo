@@ -4,6 +4,8 @@ import {
   IsArray,
   IsDateString,
   IsIn,
+  IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -39,6 +41,13 @@ export class ProformaItemDto {
   @IsNumber()
   @Min(0)
   discount?: number;
+
+  /** 1 = Single (keep separate line); 2 = Combined (merge qty on re-add). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsIn([1, 2])
+  quantityMethod?: number;
 }
 
 /** An optional lab/radiology line (name + price) on a proforma. */
@@ -60,9 +69,20 @@ export class ProformaLabTestDto {
 
 /** Create a proforma invoice. */
 export class CreateProformaDto {
+  /** Legacy EZHT proforma title/name — required. */
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name: string;
+
   @IsOptional()
   @IsString()
   customerId?: string;
+
+  /** ACTIVE | INACTIVE (EZHT); legacy DRAFT | SENT | INVOICED still accepted. */
+  @IsOptional()
+  @IsIn(['ACTIVE', 'INACTIVE', 'DRAFT', 'SENT', 'INVOICED'])
+  status?: string;
 
   @IsOptional()
   @IsString()

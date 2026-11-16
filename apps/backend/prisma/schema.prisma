@@ -153,11 +153,31 @@ model InventoryManufacturer {
   note        String?
   isActive    Boolean @default(true) @map("is_active")
 
+  // EZ Health Track "Add Manufacturer" parity fields.
+  contactPerson String? @map("contact_person")
+  vatNo         String? @map("vat_no")
+  countryId     String? @map("country_id")
+  stateId       String? @map("state_id")
+  cityId        String? @map("city_id")
+  city          String?
+  state         String?
+  postalCode    String? @map("postal_code")
+  country       String?
+  invoiceFooter String? @map("invoice_footer")
+  cf1           String?
+  cf2           String?
+  cf3           String?
+  cf4           String?
+  cf5           String?
+  cf6           String?
+
   legacyManufacturerId String? @map("legacy_manufacturer_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
+
+  products InventoryProduct[]
 
   @@index([tenantId])
   @@index([deletedAt])
@@ -226,6 +246,8 @@ model InventoryProduct {
   subCategoryId String? @map("sub_category_id")
   unitId        String? @map("unit_id")
   brandId       String? @map("brand_id")
+  /// Manufacturer link (EZHT add-product `manufacturer1`).
+  manufacturerId String? @map("manufacturer_id")
   taxRateId     String? @map("tax_rate_id")
   /// STANDARD | COMBO | SERVICE.
   type          String  @default("STANDARD")
@@ -299,10 +321,12 @@ model InventoryProduct {
   subCategory InventorySubCategory? @relation(fields: [subCategoryId], references: [id])
   unit        InventoryUnit?        @relation(fields: [unitId], references: [id])
   brand       InventoryBrand?       @relation(fields: [brandId], references: [id])
+  manufacturer InventoryManufacturer? @relation(fields: [manufacturerId], references: [id])
   taxRate     InventoryTaxRate?     @relation(fields: [taxRateId], references: [id])
 
   variants       InventoryProductVariant[]
   warehouseStocks InventoryWarehouseProduct[]
+  suppliers      InventoryProductSupplier[]
   adjustments    InventoryStockAdjustment[]
   batches        InventoryProductBatch[]
   serials        InventoryProductSerial[]
@@ -312,6 +336,7 @@ model InventoryProduct {
   @@index([tenantId])
   @@index([categoryId])
   @@index([brandId])
+  @@index([manufacturerId])
   @@index([deletedAt])
   @@index([legacyProductId])
   @@index([sourceMasterProductId])
@@ -335,11 +360,60 @@ model InventoryProductVariant {
   deletedAt DateTime? @map("deleted_at")
 
   product InventoryProduct @relation(fields: [productId], references: [id])
+  warehouseStocks InventoryVariantWarehouseProduct[]
 
   @@index([tenantId])
   @@index([productId])
   @@index([deletedAt])
   @@map("inventory_product_variants")
+}
+
+/// Per-variant per-branch stock (legacy "attributes"/product_options: a variant
+/// row carries a warehouse + quantity + cost). Tenant-scoped.
+model InventoryVariantWarehouseProduct {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  variantId String   @map("variant_id")
+  branchId  String   @map("branch_id")
+  quantity  Decimal  @default(0) @db.Decimal(18, 4)
+  cost      Decimal? @db.Decimal(18, 4)
+  rack      String?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  variant InventoryProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([variantId, branchId])
+  @@index([tenantId])
+  @@index([variantId])
+  @@index([branchId])
+  @@map("inventory_variant_warehouse_products")
+}
+
+/// A product↔supplier link with part number + price (legacy supplier1..5). Capped
+/// at 5 per product by the service. Tenant-scoped.
+model InventoryProductSupplier {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  productId  String   @map("product_id")
+  supplierId String   @map("supplier_id")
+  partNumber String?  @map("part_number")
+  price      Decimal? @db.Decimal(18, 4)
+  sortOrder  Int      @default(0) @map("sort_order")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  product  InventoryProduct  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier InventorySupplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([supplierId])
+  @@map("inventory_product_suppliers")
 }
 
 /// Per-branch (warehouse) stock for a product: on-hand quantity + average cost +
@@ -469,13 +543,37 @@ model InventorySupplier {
   openingBalance Decimal @default(0) @map("opening_balance") @db.Decimal(18, 4)
   isActive       Boolean @default(true) @map("is_active")
 
+  // EZ Health Track "Add Supplier" parity fields.
+  type          String? // company | person
+  contactPerson String? @map("contact_person")
+  // Location: canonical SiteAdmin ids (for dependent dropdowns) + display names.
+  countryId     String? @map("country_id")
+  stateId       String? @map("state_id")
+  cityId        String? @map("city_id")
+  country       String?
+  state         String?
+  city          String?
+  postalCode    String? @map("postal_code")
+  drugLicense   String? @map("drug_license")
+  vatNo         String? @map("vat_no")
+  gstNo         String? @map("gst_no")
+  panNo         String? @map("pan_no")
+  gstState      String? @map("gst_state")
+  cf1           String?
+  cf2           String?
+  cf3           String?
+  cf4           String?
+  cf5           String?
+  cf6           String?
+
   legacySupplierId String? @map("legacy_supplier_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  purchases InventoryPurchase[]
+  purchases       InventoryPurchase[]
+  productSuppliers InventoryProductSupplier[]
 
   @@index([tenantId])
   @@index([deletedAt])
@@ -503,6 +601,43 @@ model InventoryCustomer {
   /// The existing customer who referred this one (legacy referral suggestions).
   referredByCustomerId String? @map("referred_by_customer_id")
   isActive    Boolean  @default(true) @map("is_active")
+
+  // EZ Health Track "Add Customer / Add Patient" parity fields.
+  contactPerson String? @map("contact_person")
+  vatNo         String? @map("vat_no")
+  gstNo         String? @map("gst_no")
+  panNo         String? @map("pan_no")
+  gstState      String? @map("gst_state")
+  customerGroupId String? @map("customer_group_id")
+  countryId     String? @map("country_id")
+  stateId       String? @map("state_id")
+  cityId        String? @map("city_id")
+  country       String?
+  state         String?
+  city          String?
+  postalCode    String? @map("postal_code")
+
+  // EZ Health Track "Add Patient" clinical-registration parity fields.
+  firstName        String?   @map("first_name")
+  middleName       String?   @map("middle_name")
+  lastName         String?   @map("last_name")
+  gender           String?
+  age              String?
+  dob              DateTime?
+  registrationDate DateTime? @map("registration_date")
+  patientType      String?   @map("patient_type")
+  address2         String?
+  areaId           String?   @map("area_id")
+  area             String?
+  idType           String?   @map("id_type")
+  uid              String?
+
+  ccf1          String?
+  ccf2          String?
+  ccf3          String?
+  ccf4          String?
+  ccf5          String?
+  ccf6          String?
 
   legacyCustomerId String? @map("legacy_customer_id")
 
@@ -824,6 +959,13 @@ model InventoryTransfer {
   note         String?
   createdBy    String?  @map("created_by")
 
+  // EZ Health Track "Add Transfer" parity (header totals + departments + document).
+  fromDepartment String?  @map("from_department")
+  toDepartment   String?  @map("to_department")
+  shipping       Decimal? @db.Decimal(18, 4)
+  grandTotal     Decimal? @map("grand_total") @db.Decimal(18, 4)
+  attachmentUrl  String?  @map("attachment_url")
+
   legacyTransferId String? @map("legacy_transfer_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
@@ -850,6 +992,17 @@ model InventoryTransferItem {
   productCode String? @map("product_code")
   quantity    Decimal @db.Decimal(18, 4)
   cost        Decimal @default(0) @db.Decimal(18, 4)
+
+  // EZ Health Track transfer item columns.
+  expiryDate    DateTime? @map("expiry_date")
+  productSerial String?   @map("product_serial")
+  packSize      String?   @map("pack_size")
+  packQuantity  Decimal?  @map("pack_quantity") @db.Decimal(18, 4)
+  rate          Decimal?  @db.Decimal(18, 4)
+  mrp           Decimal?  @db.Decimal(18, 4)
+  taxRate       Decimal?  @map("tax_rate") @db.Decimal(9, 4)
+  taxAmount     Decimal?  @map("tax_amount") @db.Decimal(18, 4)
+  subtotal      Decimal?  @db.Decimal(18, 4)
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -1196,6 +1349,17 @@ model InventoryQuote {
   shipping      Decimal  @default(0) @db.Decimal(18, 4)
   grandTotal    Decimal  @default(0) @map("grand_total") @db.Decimal(18, 4)
   note          String?
+  // EZ Health Track "Add Quote" header parity.
+  billerId        String?  @map("biller_id")
+  warehouseId     String?  @map("warehouse_id")
+  gstNumber       String?  @map("gst_number")
+  gstState        String?  @map("gst_state")
+  attachmentUrl   String?  @map("attachment_url")
+  productDiscount Decimal  @default(0) @map("product_discount") @db.Decimal(18, 4)
+  totalTax        Decimal  @default(0) @map("total_tax") @db.Decimal(18, 4)
+  totalItems      Int      @default(0) @map("total_items")
+  /// Referral sub-form snapshot: { sourceType, contactFname, contactMname, contactLname, businessName, businessAddress }.
+  referralInfo    Json?    @map("referral_info")
   /// Id of the sale/purchase created when this quote was converted.
   convertedToId String?  @map("converted_to_id")
   createdBy     String?  @map("created_by")
@@ -1230,6 +1394,13 @@ model InventoryQuoteItem {
   discount    Decimal @default(0) @db.Decimal(18, 4)
   subtotal    Decimal @db.Decimal(18, 4)
 
+  // EZ Health Track "Add Quote" line parity.
+  netUnitPrice Decimal  @default(0) @map("net_unit_price") @db.Decimal(18, 4)
+  packSize     String?  @map("pack_size")
+  packQuantity Decimal? @map("pack_quantity") @db.Decimal(18, 4)
+  productType  String?  @map("product_type")
+  optionId     String?  @map("option_id")
+
   createdAt DateTime @default(now()) @map("created_at")
 
   quote InventoryQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
@@ -1250,9 +1421,11 @@ model InventoryProforma {
   tenantId      String   @map("tenant_id")
   branchId      String?  @map("branch_id")
   customerId    String?  @map("customer_id")
+  /// Legacy EZHT proforma title/name (required on create).
+  name          String?
   reference     String
   date          DateTime
-  /// DRAFT | SENT | INVOICED.
+  /// ACTIVE | INACTIVE (EZHT) — legacy DRAFT | SENT | INVOICED still accepted.
   status        String   @default("DRAFT")
   subtotal      Decimal  @default(0) @db.Decimal(18, 4)
   orderTax      Decimal  @default(0) @map("order_tax") @db.Decimal(18, 4)
@@ -1288,6 +1461,8 @@ model InventoryProformaItem {
   productName String  @map("product_name")
   productCode String? @map("product_code")
   quantity    Decimal @db.Decimal(18, 4)
+  /// 1 = Single (separate line); 2 = Combined (merge qty on re-add).
+  quantityMethod Int  @default(1) @map("quantity_method")
   unitPrice   Decimal @map("unit_price") @db.Decimal(18, 4)
   taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(8, 4)
   taxAmount   Decimal @default(0) @map("tax_amount") @db.Decimal(18, 4)
@@ -1320,6 +1495,30 @@ model InventoryMaterial {
   cost       Decimal  @default(0) @db.Decimal(18, 4)
   note       String?
   isActive   Boolean  @default(true) @map("is_active")
+
+  // EZ Health Track "Add Material" (asset register) parity fields.
+  entryDate            DateTime? @map("entry_date")
+  purchaseOrderNo      String?   @map("purchase_order_no")
+  billerId             String?   @map("biller_id")
+  warehouseId          String?   @map("warehouse_id")
+  department           String?
+  departmentRoom       String?   @map("department_room")
+  sellerName           String?   @map("seller_name")
+  purchaseDate         DateTime? @map("purchase_date")
+  installationDate     DateTime? @map("installation_date")
+  materialStatus       String?   @map("material_status")
+  grandTotal           Decimal?  @map("grand_total") @db.Decimal(18, 4)
+  amcCost              Decimal?  @map("amc_cost") @db.Decimal(18, 4)
+  cmcCost              Decimal?  @map("cmc_cost") @db.Decimal(18, 4)
+  estimatedPresentCost Decimal?  @map("estimated_present_cost") @db.Decimal(18, 4)
+  codalLife            String?   @map("codal_life")
+  amcStatus            String?   @map("amc_status")
+  amcStartDate         DateTime? @map("amc_start_date")
+  amcEndDate           DateTime? @map("amc_end_date")
+  issueTo              String?   @map("issue_to")
+  transferTo           String?   @map("transfer_to")
+  documentUrl          String?   @map("document_url")
+  staffNote            String?   @map("staff_note")
 
   legacyMaterialId String? @map("legacy_material_id")
 
@@ -1694,6 +1893,13 @@ model InventoryExpense {
   note       String?
   createdBy  String?  @map("created_by")
 
+  // EZ Health Track "Add Expense" parity fields.
+  warehouseId   String? @map("warehouse_id")
+  hsnCode       String? @map("hsn_code")
+  taxMethod     String? @map("tax_method")
+  gstNo         String? @map("gst_no")
+  attachmentUrl String? @map("attachment_url")
+
   legacyExpenseId String? @map("legacy_expense_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
@@ -1717,6 +1923,11 @@ model InventoryIncome {
   date       DateTime
   note       String?
   createdBy  String?  @map("created_by")
+
+  // EZ Health Track "Add Income" parity fields.
+  warehouseId   String? @map("warehouse_id")
+  taxMethod     String? @map("tax_method")
+  attachmentUrl String? @map("attachment_url")
 
   legacyIncomeId String? @map("legacy_income_id")
 

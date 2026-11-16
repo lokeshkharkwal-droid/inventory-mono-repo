@@ -20,6 +20,32 @@ import {
 export class SupplierService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** EZHT parity fields, picked from create/update DTOs for the Prisma `data`. */
+  private parityData(dto: CreateSupplierDto | UpdateSupplierDto) {
+    return {
+      type: dto.type,
+      contactPerson: dto.contactPerson,
+      countryId: dto.countryId,
+      stateId: dto.stateId,
+      cityId: dto.cityId,
+      country: dto.country,
+      state: dto.state,
+      city: dto.city,
+      postalCode: dto.postalCode,
+      drugLicense: dto.drugLicense,
+      vatNo: dto.vatNo,
+      gstNo: dto.gstNo,
+      panNo: dto.panNo,
+      gstState: dto.gstState,
+      cf1: dto.cf1,
+      cf2: dto.cf2,
+      cf3: dto.cf3,
+      cf4: dto.cf4,
+      cf5: dto.cf5,
+      cf6: dto.cf6,
+    };
+  }
+
   async create(tenantId: string, dto: CreateSupplierDto) {
     return this.prisma.inventorySupplier.create({
       data: {
@@ -33,6 +59,7 @@ export class SupplierService {
         taxNumber: dto.taxNumber,
         openingBalance: dto.openingBalance ?? 0,
         isActive: dto.isActive ?? true,
+        ...this.parityData(dto),
       },
     });
   }
@@ -107,6 +134,7 @@ export class SupplierService {
         taxNumber: dto.taxNumber,
         openingBalance: dto.openingBalance,
         isActive: dto.isActive,
+        ...this.parityData(dto),
       },
     });
   }

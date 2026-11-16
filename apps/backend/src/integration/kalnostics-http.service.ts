@@ -61,11 +61,44 @@ export class KalnosticsHttpService {
     return this.request<T>('POST', path, { body, params });
   }
 
+  /**
+   * GET a kalnostics paginated endpoint and return a `{ data, total, page, limit }`
+   * object (lifting the kalnostics `meta` pagination back onto the payload) so the
+   * inventory ResponseInterceptor can re-expose `totalPages` to the frontend.
+   */
+  async getPaged<T>(
+    path: string,
+    params?: QueryParams,
+  ): Promise<{ data: T[]; total: number; page: number; limit: number }> {
+    const env = await this.requestEnvelope<T[]>('GET', path, { params });
+    const meta = (env.meta ?? {}) as {
+      total?: number;
+      page?: number;
+      limit?: number;
+    };
+    const data = (env.data ?? []) as T[];
+    return {
+      data,
+      total: meta.total ?? data.length,
+      page: meta.page ?? 1,
+      limit: meta.limit ?? data.length,
+    };
+  }
+
   private async request<T>(
     method: string,
     path: string,
     opts: { params?: QueryParams; body?: unknown },
   ): Promise<T> {
+    const envelope = await this.requestEnvelope<T>(method, path, opts);
+    return envelope.data as T;
+  }
+
+  private async requestEnvelope<T>(
+    method: string,
+    path: string,
+    opts: { params?: QueryParams; body?: unknown },
+  ): Promise<KalnosticsEnvelope<T>> {
     const url = this.buildUrl(path, opts.params);
     const token = getBearerToken();
 
@@ -119,7 +152,7 @@ export class KalnosticsHttpService {
       });
     }
 
-    return envelope.data as T;
+    return envelope;
   }
 
   private buildUrl(path: string, params?: QueryParams): string {

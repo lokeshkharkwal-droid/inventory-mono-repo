@@ -1,8 +1,12 @@
 import { useMemo } from 'react';
 import { MasterCrudPage } from '@/components/shared/MasterCrudPage';
 import type { Column } from '@/components/shared/DataTable';
-import type { FieldConfig } from '@/components/shared/CrudFormDialog';
 import { incomeHooks, type Income } from '@/features/incomes/api';
+import {
+  incomeFields,
+  incomeEmptyValues,
+  incomeToFormValues,
+} from '@/features/incomes/form';
 import { incomeCategoryHooks } from '@/features/income-categories/api';
 
 /** Non-sale incomes screen (tied to income categories). */
@@ -21,24 +25,6 @@ export function IncomesPage() {
     { key: 'amount', header: 'Amount', render: (r) => r.amount.toFixed(2) },
   ];
 
-  const fields: FieldConfig[] = [
-    { name: 'amount', label: 'Amount', type: 'number', required: true },
-    {
-      name: 'categoryId',
-      label: 'Category',
-      type: 'async-select',
-      async: {
-        queryKey: ['income-categories'],
-        path: '/income-categories',
-        placeholder: 'Select category…',
-        clearable: true,
-      },
-    },
-    { name: 'reference', label: 'Reference', type: 'text' },
-    { name: 'date', label: 'Date', type: 'date' },
-    { name: 'note', label: 'Note', type: 'textarea' },
-  ];
-
   return (
     <MasterCrudPage<Income>
       title="Incomes"
@@ -46,15 +32,10 @@ export function IncomesPage() {
       newLabel="New income"
       hooks={incomeHooks}
       columns={columns}
-      fields={fields}
-      emptyValues={{ amount: '0', categoryId: '', reference: '', date: '', note: '' }}
-      toFormValues={(r) => ({
-        amount: String(r.amount),
-        categoryId: r.categoryId ?? '',
-        reference: r.reference,
-        date: r.date ? r.date.slice(0, 10) : '',
-        note: r.note ?? '',
-      })}
+      fields={incomeFields}
+      formBasePath="/incomes"
+      emptyValues={incomeEmptyValues}
+      toFormValues={incomeToFormValues}
       rowLabel={(r) => r.reference}
     />
   );

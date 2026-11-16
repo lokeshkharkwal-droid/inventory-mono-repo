@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
+import { AttachmentUpload } from '@/components/shared/AttachmentUpload';
 import { getApiErrorMessage, getTokenPayload } from '@/lib/http';
 import { useBranchOptions } from '@/features/_shared/branches';
 import { useDepartmentOptions } from '@/features/_shared/departments';
@@ -40,6 +41,7 @@ interface FormValues {
   reference: string;
   date: string;
   localPurchase: string;
+  status: string;
   orderDiscount: string;
   orderTax: string;
   shipping: string;
@@ -67,6 +69,7 @@ function defaults(): FormValues {
     reference: '',
     date: '',
     localPurchase: 'No',
+    status: 'PENDING',
     orderDiscount: '0',
     orderTax: '0',
     shipping: '0',
@@ -120,6 +123,7 @@ export function RequisitionForm({ editId }: Props) {
       reference: editing.reference ?? '',
       date: editing.date ? String(editing.date).slice(0, 10) : '',
       localPurchase: editing.localPurchase ? 'Yes' : 'No',
+      status: editing.status ?? 'PENDING',
       orderDiscount: String(editing.orderDiscountSpec ?? editing.orderDiscount ?? 0),
       orderTax: String(editing.orderTax ?? 0),
       shipping: String(editing.shipping ?? 0),
@@ -181,6 +185,7 @@ export function RequisitionForm({ editId }: Props) {
       reference: v.reference || undefined,
       date: v.date || undefined,
       localPurchase: v.localPurchase === 'Yes',
+      status: v.status || undefined,
       orderDiscount: v.orderDiscount || undefined,
       orderTax: Number(v.orderTax || 0),
       shipping: Number(v.shipping || 0),
@@ -282,9 +287,10 @@ export function RequisitionForm({ editId }: Props) {
           </select>
         </div>
         <div className="space-y-1.5">
-          <Label>Status</Label>
-          <select className={selectCls} value="PENDING" disabled>
+          <Label htmlFor="status">Status</Label>
+          <select id="status" className={selectCls} {...register('status')}>
             <option value="PENDING">Pending</option>
+            <option value="SENT">Sent</option>
           </select>
         </div>
       </section>
@@ -306,11 +312,11 @@ export function RequisitionForm({ editId }: Props) {
           <table className="w-full min-w-[760px] text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="py-2 pr-2">Product (code)</th>
-                <th className="px-1">Net unit price</th>
-                <th className="px-1">Qty</th>
-                <th className="px-1">Disc</th>
-                <th className="px-1">Tax</th>
+                <th className="py-2 pr-2">Product Name (Product Code)</th>
+                <th className="px-1">Net Unit Price</th>
+                <th className="px-1">Quantity</th>
+                <th className="px-1">Discount</th>
+                <th className="px-1">Product Tax</th>
                 <th className="px-1 text-right">Subtotal</th>
                 <th />
               </tr>
@@ -428,8 +434,17 @@ export function RequisitionForm({ editId }: Props) {
               <Input placeholder="0 or 5%" {...register('orderDiscount')} />
             </div>
             <div className="col-span-2 space-y-1.5">
-              <Label>Attachment URL</Label>
-              <Input placeholder="https://…" {...register('attachmentUrl')} />
+              <Label>Document</Label>
+              <Controller
+                control={control}
+                name="attachmentUrl"
+                render={({ field }) => (
+                  <AttachmentUpload
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Note</Label>

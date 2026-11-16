@@ -23,6 +23,46 @@ import {
 export class CustomerService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** EZHT parity fields, picked from create/update DTOs for the Prisma `data`. */
+  private parityData(dto: CreateCustomerDto | UpdateCustomerDto) {
+    return {
+      contactPerson: dto.contactPerson,
+      vatNo: dto.vatNo,
+      gstNo: dto.gstNo,
+      panNo: dto.panNo,
+      gstState: dto.gstState,
+      customerGroupId: dto.customerGroupId,
+      firstName: dto.firstName,
+      middleName: dto.middleName,
+      lastName: dto.lastName,
+      gender: dto.gender,
+      age: dto.age,
+      dob: dto.dob ? new Date(dto.dob) : undefined,
+      registrationDate: dto.registrationDate
+        ? new Date(dto.registrationDate)
+        : undefined,
+      patientType: dto.patientType,
+      address2: dto.address2,
+      areaId: dto.areaId,
+      area: dto.area,
+      idType: dto.idType,
+      uid: dto.uid,
+      countryId: dto.countryId,
+      stateId: dto.stateId,
+      cityId: dto.cityId,
+      country: dto.country,
+      state: dto.state,
+      city: dto.city,
+      postalCode: dto.postalCode,
+      ccf1: dto.ccf1,
+      ccf2: dto.ccf2,
+      ccf3: dto.ccf3,
+      ccf4: dto.ccf4,
+      ccf5: dto.ccf5,
+      ccf6: dto.ccf6,
+    };
+  }
+
   async create(tenantId: string, dto: CreateCustomerDto) {
     if (dto.referredByCustomerId) {
       await this.findById(dto.referredByCustomerId, tenantId);
@@ -41,6 +81,7 @@ export class CustomerService {
         patientId: dto.patientId,
         referredByCustomerId: dto.referredByCustomerId,
         isActive: dto.isActive ?? true,
+        ...this.parityData(dto),
       },
     });
   }
@@ -124,6 +165,7 @@ export class CustomerService {
         patientId: dto.patientId,
         referredByCustomerId: dto.referredByCustomerId,
         isActive: dto.isActive,
+        ...this.parityData(dto),
       },
     });
   }

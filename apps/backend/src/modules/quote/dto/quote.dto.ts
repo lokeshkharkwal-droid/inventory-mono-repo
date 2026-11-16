@@ -13,6 +13,16 @@ import {
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
+/** Referral sub-form captured on a quote (EZHT `ReferralForm`). */
+export class QuoteReferralDto {
+  @IsOptional() @IsString() @MaxLength(50) sourceType?: string;
+  @IsOptional() @IsString() @MaxLength(100) contactFname?: string;
+  @IsOptional() @IsString() @MaxLength(100) contactMname?: string;
+  @IsOptional() @IsString() @MaxLength(100) contactLname?: string;
+  @IsOptional() @IsString() @MaxLength(255) businessName?: string;
+  @IsOptional() @IsString() @MaxLength(500) businessAddress?: string;
+}
+
 /** A line on a quote. */
 export class QuoteItemDto {
   @IsString()
@@ -39,6 +49,12 @@ export class QuoteItemDto {
   @IsNumber()
   @Min(0)
   discount?: number;
+
+  // EZ Health Track line parity.
+  @IsOptional() @IsString() @MaxLength(50) packSize?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) packQuantity?: number;
+  @IsOptional() @IsString() @MaxLength(30) productType?: string;
+  @IsOptional() @IsString() optionId?: string;
 }
 
 /** Create a quotation. */
@@ -63,11 +79,30 @@ export class CreateQuoteDto {
   @IsDateString()
   date?: string;
 
+  // EZ Health Track "Add Quote" header parity.
+  @IsOptional() @IsString() billerId?: string;
+  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsIn(['DRAFT', 'SENT']) status?: 'DRAFT' | 'SENT';
+  @IsOptional() @IsString() @MaxLength(50) gstNumber?: string;
+  @IsOptional() @IsString() @MaxLength(50) gstState?: string;
+  @IsOptional() @IsString() @MaxLength(1000) attachmentUrl?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => QuoteReferralDto)
+  referral?: QuoteReferralDto;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   orderDiscount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  orderTax?: number;
 
   @IsOptional()
   @Type(() => Number)

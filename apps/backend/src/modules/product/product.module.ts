@@ -4,6 +4,8 @@ import { CategoryModule } from '../category/category.module';
 import { SubCategoryModule } from '../sub-category/sub-category.module';
 import { UnitModule } from '../unit/unit.module';
 import { BrandModule } from '../brand/brand.module';
+import { ManufacturerModule } from '../manufacturer/manufacturer.module';
+import { SupplierModule } from '../supplier/supplier.module';
 import { TaxRateModule } from '../tax-rate/tax-rate.module';
 import { AlertsModule } from '../alerts/alerts.module';
 import { ProductController } from './product.controller';
@@ -23,6 +25,8 @@ import { ProductImportService } from './product-import.service';
     SubCategoryModule,
     UnitModule,
     BrandModule,
+    ManufacturerModule,
+    SupplierModule,
     TaxRateModule,
     AlertsModule,
   ],

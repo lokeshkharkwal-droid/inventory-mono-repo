@@ -30,6 +30,22 @@ const SELECT = {
   imageUrl: true,
   note: true,
   isActive: true,
+  contactPerson: true,
+  vatNo: true,
+  countryId: true,
+  stateId: true,
+  cityId: true,
+  city: true,
+  state: true,
+  postalCode: true,
+  country: true,
+  invoiceFooter: true,
+  cf1: true,
+  cf2: true,
+  cf3: true,
+  cf4: true,
+  cf5: true,
+  cf6: true,
   createdAt: true,
   updatedAt: true,
   deletedAt: true,
@@ -39,6 +55,28 @@ const SELECT = {
 @Injectable()
 export class ManufacturerService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** EZHT parity fields, picked from create/update DTOs for the Prisma `data`. */
+  private parityData(dto: CreateManufacturerDto | UpdateManufacturerDto) {
+    return {
+      contactPerson: dto.contactPerson,
+      vatNo: dto.vatNo,
+      countryId: dto.countryId,
+      stateId: dto.stateId,
+      cityId: dto.cityId,
+      city: dto.city,
+      state: dto.state,
+      postalCode: dto.postalCode,
+      country: dto.country,
+      invoiceFooter: dto.invoiceFooter,
+      cf1: dto.cf1,
+      cf2: dto.cf2,
+      cf3: dto.cf3,
+      cf4: dto.cf4,
+      cf5: dto.cf5,
+      cf6: dto.cf6,
+    };
+  }
 
   async create(tenantId: string, dto: CreateManufacturerDto) {
     if (dto.code) await this.assertCodeFree(tenantId, dto.code);
@@ -55,6 +93,7 @@ export class ManufacturerService {
         imageUrl: dto.imageUrl,
         note: dto.note,
         isActive: dto.isActive ?? true,
+        ...this.parityData(dto),
       },
       select: SELECT,
     });
@@ -133,6 +172,7 @@ export class ManufacturerService {
         imageUrl: dto.imageUrl,
         note: dto.note,
         isActive: dto.isActive,
+        ...this.parityData(dto),
       },
       select: SELECT,
     });

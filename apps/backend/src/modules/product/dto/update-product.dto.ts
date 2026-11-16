@@ -10,7 +10,11 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { ProductVariantInputDto } from './create-product.dto';
+import {
+  ProductVariantInputDto,
+  ProductSupplierInputDto,
+  ProductWarehouseStockInputDto,
+} from './create-product.dto';
 
 /**
  * Update a product (all fields optional). When `variants` is provided it
@@ -42,6 +46,10 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   brandId?: string;
+
+  @IsOptional()
+  @IsString()
+  manufacturerId?: string;
 
   @IsOptional()
   @IsString()
@@ -173,4 +181,18 @@ export class UpdateProductDto {
   @ValidateNested({ each: true })
   @Type(() => ProductVariantInputDto)
   variants?: ProductVariantInputDto[];
+
+  /** Per-product suppliers; when provided, replaces the supplier set. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductSupplierInputDto)
+  suppliers?: ProductSupplierInputDto[];
+
+  /** Initial per-branch stock (applied as an upsert on update). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductWarehouseStockInputDto)
+  warehouseStocks?: ProductWarehouseStockInputDto[];
 }

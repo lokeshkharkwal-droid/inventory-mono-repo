@@ -21,6 +21,7 @@ import {
   UpdateAdjustmentDto,
 } from './dto/stock-adjustment.dto';
 import { ImportProductsDto } from './dto/import-products.dto';
+import { ImportCsvProductsDto } from './dto/import-csv.dto';
 import { UpdateImportProductsDto } from './dto/update-import.dto';
 import { ProductDrugDto } from './dto/product-drug.dto';
 import {
@@ -52,6 +53,15 @@ export class ProductController {
   @Post('import')
   import(@CurrentTenant() tenantId: string, @Body() dto: ImportProductsDto) {
     return this.importService.import(tenantId, dto);
+  }
+
+  /** Import products from the EZHT 29-column CSV (declared before `:id`). */
+  @Post('import-csv')
+  importCsv(
+    @CurrentTenant() tenantId: string,
+    @Body() dto: ImportCsvProductsDto,
+  ) {
+    return this.importService.importCsv(tenantId, dto);
   }
 
   /** Bulk price/cost update (declared before `:id` routes). */

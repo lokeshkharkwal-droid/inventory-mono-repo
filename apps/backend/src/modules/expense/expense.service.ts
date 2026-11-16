@@ -43,6 +43,11 @@ export class ExpenseService {
         date: dto.date ? new Date(dto.date) : new Date(),
         note: dto.note,
         createdBy: actorId,
+        warehouseId: dto.warehouseId,
+        hsnCode: dto.hsnCode,
+        taxMethod: dto.taxMethod,
+        gstNo: dto.gstNo,
+        attachmentUrl: dto.attachmentUrl,
       },
     });
   }
@@ -91,6 +96,11 @@ export class ExpenseService {
         amount: dto.amount,
         date: dto.date ? new Date(dto.date) : undefined,
         note: dto.note,
+        warehouseId: dto.warehouseId,
+        hsnCode: dto.hsnCode,
+        taxMethod: dto.taxMethod,
+        gstNo: dto.gstNo,
+        attachmentUrl: dto.attachmentUrl,
       },
     });
   }

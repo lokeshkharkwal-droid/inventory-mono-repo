@@ -87,6 +87,11 @@ export class CreateRequisitionDto {
   @IsBoolean()
   localPurchase?: boolean;
 
+  /** Initial status — EZ Health Track add form offers Pending / Sent. */
+  @IsOptional()
+  @IsIn(['PENDING', 'SENT'])
+  status?: string;
+
   /** Order-level discount spec: a flat amount or "10%". */
   @IsOptional()
   @IsString()

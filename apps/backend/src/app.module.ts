@@ -56,6 +56,7 @@ import { MasterCatalogModule } from './modules/master-catalog/master-catalog.mod
 import { PromotionModule } from './modules/promotion/promotion.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 /**
  * Root application module. Wires global infrastructure (config, database, auth,
@@ -124,6 +125,7 @@ import { AlertsModule } from './modules/alerts/alerts.module';
     MasterSettingModule,
     MasterCatalogModule,
     PromotionModule,
+    UploadsModule,
   ],
   providers: [
     // Global business authentication (opt out with @Public()).

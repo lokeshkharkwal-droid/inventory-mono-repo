@@ -1,10 +1,14 @@
 import { MasterCrudPage } from '@/components/shared/MasterCrudPage';
 import type { Column } from '@/components/shared/DataTable';
-import type { FieldConfig } from '@/components/shared/CrudFormDialog';
 import {
   manufacturerHooks,
   type Manufacturer,
 } from '@/features/manufacturers/api';
+import {
+  manufacturerFields,
+  manufacturerEmptyValues,
+  manufacturerToFormValues,
+} from '@/features/manufacturers/form';
 
 const columns: Column<Manufacturer>[] = [
   { key: 'name', header: 'Name' },
@@ -19,20 +23,7 @@ const columns: Column<Manufacturer>[] = [
   },
 ];
 
-const fields: FieldConfig[] = [
-  { name: 'name', label: 'Name', type: 'text', required: true },
-  { name: 'code', label: 'Code', type: 'text' },
-  { name: 'companyName', label: 'Company', type: 'text' },
-  { name: 'phone', label: 'Phone', type: 'text' },
-  { name: 'email', label: 'Email', type: 'text' },
-  { name: 'website', label: 'Website', type: 'text' },
-  { name: 'imageUrl', label: 'Logo URL', type: 'text' },
-  { name: 'address', label: 'Address', type: 'textarea' },
-  { name: 'note', label: 'Note', type: 'textarea' },
-  { name: 'isActive', label: 'Active', type: 'bool' },
-];
-
-/** Manufacturers master-data screen (maker companies). */
+/** Manufacturers list screen — Add/Edit open the dedicated form page. */
 export function ManufacturersPage() {
   return (
     <MasterCrudPage<Manufacturer>
@@ -41,31 +32,10 @@ export function ManufacturersPage() {
       newLabel="New manufacturer"
       hooks={manufacturerHooks}
       columns={columns}
-      fields={fields}
-      emptyValues={{
-        name: '',
-        code: '',
-        companyName: '',
-        phone: '',
-        email: '',
-        website: '',
-        imageUrl: '',
-        address: '',
-        note: '',
-        isActive: true,
-      }}
-      toFormValues={(r) => ({
-        name: r.name,
-        code: r.code ?? '',
-        companyName: r.companyName ?? '',
-        phone: r.phone ?? '',
-        email: r.email ?? '',
-        website: r.website ?? '',
-        imageUrl: r.imageUrl ?? '',
-        address: r.address ?? '',
-        note: r.note ?? '',
-        isActive: r.isActive,
-      })}
+      fields={manufacturerFields}
+      formBasePath="/manufacturers"
+      emptyValues={manufacturerEmptyValues}
+      toFormValues={manufacturerToFormValues}
       rowLabel={(r) => r.name}
       importConfig={{
         endpoint: '/manufacturers/import',

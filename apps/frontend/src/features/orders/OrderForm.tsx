@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
+import { AttachmentUpload } from '@/components/shared/AttachmentUpload';
 import { getApiErrorMessage } from '@/lib/http';
 import { useBranchOptions } from '@/features/_shared/branches';
 import { useBillers, useTaxRates } from '@/features/_shared/options';
@@ -41,6 +42,7 @@ interface LineRow {
   taxInclusive: boolean;
   hsnCode: string;
   batchNo: string;
+  partNo: string;
   expiryDate: string;
   packSize: string;
   packQuantity: string;
@@ -92,6 +94,7 @@ const EMPTY_ROW: LineRow = {
   taxInclusive: false,
   hsnCode: '',
   batchNo: '',
+  partNo: '',
   expiryDate: '',
   packSize: '',
   packQuantity: '',
@@ -211,6 +214,7 @@ export function OrderForm({ mode, editId }: Props) {
         taxInclusive: i.taxMethod === '1',
         hsnCode: String(i.hsnCode ?? ''),
         batchNo: String((isSale ? i.serialNo : i.batchNo) ?? ''),
+        partNo: String(i.partNo ?? ''),
         expiryDate: i.expiryDate ? String(i.expiryDate).slice(0, 10) : '',
         packSize: i.packSize != null ? String(i.packSize) : '',
         packQuantity: i.packQuantity != null ? String(i.packQuantity) : '',
@@ -272,6 +276,7 @@ export function OrderForm({ mode, editId }: Props) {
               freePackQuantity: i.freePackQuantity
                 ? Number(i.freePackQuantity)
                 : undefined,
+              partNo: i.partNo || undefined,
             }),
       }));
 
@@ -357,7 +362,7 @@ export function OrderForm({ mode, editId }: Props) {
     ? ['CASH', 'CARD', 'CHEQUE', 'GIFT_CARD', 'BANK_TRANSFER']
     : ['CASH', 'CARD', 'CHEQUE', 'BANK_TRANSFER'];
 
-  const priceLabel = isSale ? 'Unit price' : 'Unit cost';
+  const priceLabel = isSale ? 'Unit price' : 'Rate';
 
   return (
     <form onSubmit={submit} className="space-y-6 pb-16">
@@ -470,8 +475,12 @@ export function OrderForm({ mode, editId }: Props) {
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th className="py-2 pr-2">Product</th>
-                <th className="px-1">Batch</th>
+                <th className="px-1">{isSale ? 'Batch' : 'Product Serial'}</th>
+                {!isSale && <th className="px-1">Supplier Part No</th>}
                 <th className="px-1">Expiry</th>
+                {!isSale && <th className="px-1">Pack Size</th>}
+                {!isSale && <th className="px-1">Pack Quantity</th>}
+                {!isSale && <th className="px-1">Free Pack Quantity</th>}
                 {!isSale && <th className="px-1">MRP</th>}
                 <th className="px-1">Qty</th>
                 <th className="px-1">{priceLabel}</th>
@@ -514,6 +523,14 @@ export function OrderForm({ mode, editId }: Props) {
                   <td className="px-1">
                     <Input className={inputSm} {...register(`items.${i}.batchNo`)} />
                   </td>
+                  {!isSale && (
+                    <td className="px-1" style={{ width: 120 }}>
+                      <Input
+                        className={inputSm}
+                        {...register(`items.${i}.partNo`)}
+                      />
+                    </td>
+                  )}
                   <td className="px-1">
                     <Input
                       type="date"
@@ -521,6 +538,34 @@ export function OrderForm({ mode, editId }: Props) {
                       {...register(`items.${i}.expiryDate`)}
                     />
                   </td>
+                  {!isSale && (
+                    <td className="px-1" style={{ width: 90 }}>
+                      <Input
+                        className={inputSm}
+                        {...register(`items.${i}.packSize`)}
+                      />
+                    </td>
+                  )}
+                  {!isSale && (
+                    <td className="px-1" style={{ width: 90 }}>
+                      <Input
+                        type="number"
+                        step="any"
+                        className={inputSm}
+                        {...register(`items.${i}.packQuantity`)}
+                      />
+                    </td>
+                  )}
+                  {!isSale && (
+                    <td className="px-1" style={{ width: 90 }}>
+                      <Input
+                        type="number"
+                        step="any"
+                        className={inputSm}
+                        {...register(`items.${i}.freePackQuantity`)}
+                      />
+                    </td>
+                  )}
                   {!isSale && (
                     <td className="px-1" style={{ width: 90 }}>
                       <Input
@@ -634,8 +679,17 @@ export function OrderForm({ mode, editId }: Props) {
               Inter-state (IGST); unchecked = CGST + SGST
             </label>
             <div className="col-span-2 space-y-1.5">
-              <Label>Attachment URL</Label>
-              <Input placeholder="https://…" {...register('attachmentUrl')} />
+              <Label>Document</Label>
+              <Controller
+                control={control}
+                name="attachmentUrl"
+                render={({ field }) => (
+                  <AttachmentUpload
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Note</Label>
@@ -677,6 +731,15 @@ export function OrderForm({ mode, editId }: Props) {
             <Row label="Order discount" value={totals.orderDiscount} money />
             <Row label="Tax" value={totals.totalTax} money />
             <Row label="Shipping" value={totals.shipping} money />
+            {!isSale && (
+              <Row
+                label="Roundoff"
+                value={
+                  (totals as { roundoff?: number }).roundoff ?? 0
+                }
+                money
+              />
+            )}
             <div className="mt-2 flex items-center justify-between border-t pt-2 text-base font-semibold">
               <span>Grand total</span>
               <span className="tabular-nums">{totals.grandTotal.toFixed(2)}</span>

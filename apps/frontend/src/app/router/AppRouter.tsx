@@ -4,8 +4,10 @@ import { AppLayout } from '@/app/layout/AppLayout';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ProductsPage } from '@/pages/products/ProductsPage';
+import { ProductFormPage } from '@/pages/products/ProductFormPage';
 import { PrintBarcodesPage } from '@/pages/products/PrintBarcodesPage';
-import { ImportProductsPage } from '@/pages/products/ImportProductsPage';
+import { ImportFromMasterPage } from '@/pages/products/ImportFromMasterPage';
+import { ImportCsvPage } from '@/pages/products/ImportCsvPage';
 import { UpdateCsvPage } from '@/pages/products/UpdateCsvPage';
 import { QuantityAdjustmentsPage } from '@/pages/products/QuantityAdjustmentsPage';
 import { CategoriesPage } from '@/pages/categories/CategoriesPage';
@@ -13,10 +15,14 @@ import { SubCategoriesPage } from '@/pages/masters/SubCategoriesPage';
 import { UnitsPage } from '@/pages/masters/UnitsPage';
 import { BrandsPage } from '@/pages/masters/BrandsPage';
 import { ManufacturersPage } from '@/pages/masters/ManufacturersPage';
+import { ManufacturerFormPage } from '@/pages/masters/ManufacturerFormPage';
 import { TaxRatesPage } from '@/pages/masters/TaxRatesPage';
 import { VariantsPage } from '@/pages/masters/VariantsPage';
 import { SuppliersPage } from '@/pages/parties/SuppliersPage';
+import { SupplierFormPage } from '@/pages/parties/SupplierFormPage';
 import { CustomersPage } from '@/pages/parties/CustomersPage';
+import { CustomerFormPage } from '@/pages/parties/CustomerFormPage';
+import { PatientFormPage } from '@/pages/parties/PatientFormPage';
 import { PurchasesPage } from '@/pages/purchases/PurchasesPage';
 import { PurchaseFormPage } from '@/pages/purchases/PurchaseFormPage';
 import { PurchaseImportPage } from '@/pages/purchases/PurchaseImportPage';
@@ -26,6 +32,8 @@ import { SaleFormPage } from '@/pages/sales/SaleFormPage';
 import { PosSalesPage } from '@/pages/sales/PosSalesPage';
 import { GenerateOrderByCsvPage } from '@/pages/sales/GenerateOrderByCsvPage';
 import { TransfersPage } from '@/pages/transfers/TransfersPage';
+import { TransferFormPage } from '@/pages/transfers/TransferFormPage';
+import { ReceivedTransfersPage } from '@/pages/transfers/ReceivedTransfersPage';
 import { RequisitionsPage } from '@/pages/requisitions/RequisitionsPage';
 import { ReceivedRequisitionsPage } from '@/pages/requisitions/ReceivedRequisitionsPage';
 import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
@@ -41,15 +49,24 @@ import { UserRolesPage } from '@/pages/settings/UserRolesPage';
 import { EmailTemplatesPage } from '@/pages/settings/EmailTemplatesPage';
 import { PromotionsPage } from '@/pages/settings/PromotionsPage';
 import { ProductTemplatesPage } from '@/pages/masters/ProductTemplatesPage';
-import { MasterDataPage } from '@/pages/masters/MasterDataPage';
 import { QuotesPage } from '@/pages/quotes/QuotesPage';
+import { QuoteFormPage } from '@/pages/quotes/QuoteFormPage';
 import { ProformasPage } from '@/pages/proformas/ProformasPage';
+import { ProformaFormPage } from '@/pages/proformas/ProformaFormPage';
 import { MaterialsPage } from '@/pages/materials/MaterialsPage';
+import { MaterialFormPage } from '@/pages/materials/MaterialFormPage';
+import { MaterialRepairsPage } from '@/pages/materials/MaterialRepairsPage';
+import { MaterialDamagesPage } from '@/pages/materials/MaterialDamagesPage';
 import { PosPage } from '@/pages/pos/PosPage';
 import { ReportsPage } from '@/pages/reports/ReportsPage';
 import { WarehouseStockPage } from '@/pages/reports/WarehouseStockPage';
 import { MaterialsPage as MaterialsReportPage } from '@/pages/reports/MaterialsPage';
 import { ToolsAndPlantsPage } from '@/pages/reports/ToolsAndPlantsPage';
+import { MaterialAndPlantsPage } from '@/pages/reports/MaterialAndPlantsPage';
+import { ProductQuantityPage } from '@/pages/reports/ProductQuantityPage';
+import { ProductQuantityBatchPage } from '@/pages/reports/ProductQuantityBatchPage';
+import { LocalPurchasesPage } from '@/pages/reports/LocalPurchasesPage';
+import { TotalLocalPurchasesPage } from '@/pages/reports/TotalLocalPurchasesPage';
 import { RegisterReportPage } from '@/pages/reports/RegisterReportPage';
 import { QuantityAlertsPage } from '@/pages/reports/QuantityAlertsPage';
 import { ExpiryAlertsPage } from '@/pages/reports/ExpiryAlertsPage';
@@ -86,7 +103,9 @@ import { BloodDonationsPage } from '@/pages/bloodbank/BloodDonationsPage';
 import { BloodRequestsPage } from '@/pages/bloodbank/BloodRequestsPage';
 import { IpdAdmissionsPage } from '@/pages/ipd/IpdAdmissionsPage';
 import { ExpensesPage } from '@/pages/financials/ExpensesPage';
+import { ExpenseFormPage } from '@/pages/financials/ExpenseFormPage';
 import { IncomesPage } from '@/pages/financials/IncomesPage';
+import { IncomeFormPage } from '@/pages/financials/IncomeFormPage';
 import { GiftCardsPage } from '@/pages/financials/GiftCardsPage';
 import { PurchaseReturnsPage } from '@/pages/returns/PurchaseReturnsPage';
 import { SaleReturnsPage } from '@/pages/returns/SaleReturnsPage';
@@ -110,8 +129,13 @@ export function AppRouter() {
           <Route element={<AppLayout />}>
             <Route index element={<DashboardPage />} />
             <Route path="products" element={<ProductsPage />} />
+            <Route path="products/add" element={<ProductFormPage />} />
+            <Route path="products/edit/:id" element={<ProductFormPage />} />
             <Route path="products/print-barcodes" element={<PrintBarcodesPage />} />
-            <Route path="products/import" element={<ImportProductsPage />} />
+            <Route path="products/import-products" element={<ImportFromMasterPage />} />
+            <Route path="products/import-csv" element={<ImportCsvPage />} />
+            {/* Legacy path kept as a redirect to the renamed CSV-import route. */}
+            <Route path="products/import" element={<Navigate to="/products/import-csv" replace />} />
             <Route path="products/update-csv" element={<UpdateCsvPage />} />
             <Route path="products/quantity-adjustments" element={<QuantityAdjustmentsPage />} />
             <Route path="categories" element={<CategoriesPage />} />
@@ -119,13 +143,22 @@ export function AppRouter() {
             <Route path="units" element={<UnitsPage />} />
             <Route path="brands" element={<BrandsPage />} />
             <Route path="manufacturers" element={<ManufacturersPage />} />
+            <Route path="manufacturers/add" element={<ManufacturerFormPage />} />
+            <Route path="manufacturers/edit/:id" element={<ManufacturerFormPage />} />
             <Route path="product-templates" element={<ProductTemplatesPage />} />
-            <Route path="master-data" element={<MasterDataPage />} />
+            {/* Master Data is now the Product accordion's "Import Products" page. */}
+            <Route path="master-data" element={<Navigate to="/products/import-products" replace />} />
             <Route path="tax-rates" element={<TaxRatesPage />} />
             <Route path="variants" element={<VariantsPage />} />
             <Route path="suppliers" element={<SuppliersPage />} />
+            <Route path="suppliers/add" element={<SupplierFormPage />} />
+            <Route path="suppliers/edit/:id" element={<SupplierFormPage />} />
             <Route path="customers" element={<CustomersPage />} />
+            <Route path="customers/add" element={<CustomerFormPage />} />
+            <Route path="customers/edit/:id" element={<CustomerFormPage />} />
             <Route path="patients" element={<CustomersPage patientsOnly />} />
+            <Route path="patients/add" element={<PatientFormPage />} />
+            <Route path="patients/edit/:id" element={<PatientFormPage />} />
             <Route path="purchases" element={<PurchasesPage />} />
             <Route path="purchases/add" element={<PurchaseFormPage />} />
             <Route path="purchases/edit/:id" element={<PurchaseFormPage />} />
@@ -143,6 +176,8 @@ export function AppRouter() {
             />
             <Route path="pos/sales" element={<PosSalesPage />} />
             <Route path="transfers" element={<TransfersPage />} />
+            <Route path="transfers/add" element={<TransferFormPage />} />
+            <Route path="transfers/received" element={<ReceivedTransfersPage />} />
             <Route path="requisitions" element={<RequisitionsPage />} />
             <Route path="requisitions/add" element={<RequisitionFormPage />} />
             <Route
@@ -158,14 +193,31 @@ export function AppRouter() {
             <Route path="expense-categories" element={<ExpenseCategoriesPage />} />
             <Route path="income-categories" element={<IncomeCategoriesPage />} />
             <Route path="billers" element={<BillersPage />} />
-            <Route path="quotes" element={<QuotesPage />} />
+            <Route path="quotes" element={<QuotesPage type="SALE" />} />
+            <Route path="quotes/add" element={<QuoteFormPage type="SALE" />} />
+            <Route path="quotes/sales/add" element={<QuoteFormPage type="SALE" />} />
+            <Route path="quotes/purchases" element={<QuotesPage type="PURCHASE" />} />
+            <Route
+              path="quotes/purchases/add"
+              element={<QuoteFormPage type="PURCHASE" />}
+            />
             <Route path="proformas" element={<ProformasPage />} />
+            <Route path="proformas/add" element={<ProformaFormPage />} />
             <Route path="materials" element={<MaterialsPage />} />
+            <Route path="materials/add" element={<MaterialFormPage />} />
+            <Route path="materials/edit/:id" element={<MaterialFormPage />} />
+            <Route path="materials/repairs" element={<MaterialRepairsPage />} />
+            <Route path="materials/damages" element={<MaterialDamagesPage />} />
             <Route path="pos" element={<PosPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="reports/warehouse-stock" element={<WarehouseStockPage />} />
             <Route path="reports/materials" element={<MaterialsReportPage />} />
             <Route path="reports/tools-and-plants" element={<ToolsAndPlantsPage />} />
+            <Route path="reports/material-and-plants" element={<MaterialAndPlantsPage />} />
+            <Route path="reports/product-quantity" element={<ProductQuantityPage />} />
+            <Route path="reports/product-quantity-batch" element={<ProductQuantityBatchPage />} />
+            <Route path="reports/local-purchases" element={<LocalPurchasesPage />} />
+            <Route path="reports/total-local-purchases" element={<TotalLocalPurchasesPage />} />
             <Route path="reports/register" element={<RegisterReportPage />} />
             <Route path="reports/quantity-alerts" element={<QuantityAlertsPage />} />
             <Route path="reports/expiry-alerts" element={<ExpiryAlertsPage />} />
@@ -205,7 +257,11 @@ export function AppRouter() {
             <Route path="sale-returns" element={<SaleReturnsPage />} />
             <Route path="deliveries" element={<DeliveriesPage />} />
             <Route path="expenses" element={<ExpensesPage />} />
+            <Route path="expenses/add" element={<ExpenseFormPage />} />
+            <Route path="expenses/edit/:id" element={<ExpenseFormPage />} />
             <Route path="incomes" element={<IncomesPage />} />
+            <Route path="incomes/add" element={<IncomeFormPage />} />
+            <Route path="incomes/edit/:id" element={<IncomeFormPage />} />
             <Route path="gift-cards" element={<GiftCardsPage />} />
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="calendar" element={<CalendarPage />} />

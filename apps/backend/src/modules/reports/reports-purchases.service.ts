@@ -27,6 +27,76 @@ export class ReportsPurchasesService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Local Purchases — requisitions fulfilled as a local purchase (the legacy
+   * `local_purchase` flag), listed per requisition. Tenant-scoped, optionally
+   * date/branch filtered.
+   */
+  async localPurchases(tenantId: string, q: ReportQueryDto) {
+    const date = dateFilter(q.from, q.to);
+    const branchId = q.warehouseId ?? q.branchId;
+    const where: Prisma.InventoryRequisitionWhereInput = {
+      tenantId,
+      deletedAt: null,
+      localPurchase: true,
+      ...(branchId ? { branchId } : {}),
+      ...(date ? { date } : {}),
+      ...(q.search
+        ? { reference: { contains: q.search, mode: 'insensitive' } }
+        : {}),
+    };
+    const requisitions = await this.prisma.inventoryRequisition.findMany({
+      where,
+      orderBy: { date: 'desc' },
+    });
+    let grandTotal = D(0);
+    const rows = requisitions.map((r) => {
+      grandTotal = grandTotal.add(r.grandTotal);
+      return {
+        id: r.id,
+        date: r.date,
+        reference: r.reference,
+        branchId: r.branchId,
+        fromBranchId: r.fromBranchId,
+        status: r.status,
+        grandTotal: r.grandTotal,
+      };
+    });
+    return { rows, totals: { grandTotal, count: rows.length } };
+  }
+
+  /**
+   * Total Local Purchases — local-purchase requisitions rolled up per branch
+   * (count + summed grand total).
+   */
+  async totalLocalPurchases(tenantId: string, q: ReportQueryDto) {
+    const date = dateFilter(q.from, q.to);
+    const grouped = await this.prisma.inventoryRequisition.groupBy({
+      by: ['branchId'],
+      where: {
+        tenantId,
+        deletedAt: null,
+        localPurchase: true,
+        ...(date ? { date } : {}),
+      },
+      _sum: { grandTotal: true },
+      _count: { _all: true },
+    });
+    let grandTotal = D(0);
+    let count = 0;
+    const rows = grouped.map((g) => {
+      const total = g._sum.grandTotal ?? D(0);
+      grandTotal = grandTotal.add(total);
+      count += g._count._all;
+      return {
+        branchId: g.branchId,
+        count: g._count._all,
+        grandTotal: total,
+      };
+    });
+    return { rows, totals: { grandTotal, count } };
+  }
+
+  /**
    * Daily Purchases — a month-at-a-glance calendar: one bucket per day-of-month
    * with that day's summed discount, shipping, order tax and grand total for one
    * warehouse/branch (or all), optionally scoped to one staff member's purchases.

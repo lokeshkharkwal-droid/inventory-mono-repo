@@ -16,6 +16,29 @@ export interface Material {
   cost: number;
   note: string | null;
   isActive: boolean;
+  // EZ Health Track asset-register parity fields.
+  entryDate: string | null;
+  purchaseOrderNo: string | null;
+  billerId: string | null;
+  warehouseId: string | null;
+  department: string | null;
+  departmentRoom: string | null;
+  sellerName: string | null;
+  purchaseDate: string | null;
+  installationDate: string | null;
+  materialStatus: string | null;
+  grandTotal: number | null;
+  amcCost: number | null;
+  cmcCost: number | null;
+  estimatedPresentCost: number | null;
+  codalLife: string | null;
+  amcStatus: string | null;
+  amcStartDate: string | null;
+  amcEndDate: string | null;
+  issueTo: string | null;
+  transferTo: string | null;
+  documentUrl: string | null;
+  staffNote: string | null;
 }
 
 const KEY = ['materials'] as const;
@@ -38,6 +61,63 @@ export function useInfiniteMaterials(
   } = {},
 ) {
   return useInfiniteList<Material>(KEY, '/materials', params);
+}
+
+/** Fetch a single material by id — used by the dedicated edit page. */
+export function useMaterial(id: string | undefined) {
+  return useQuery({
+    queryKey: [...KEY, 'one', id],
+    queryFn: () => request<Material>('GET', `/materials/${id}`),
+    enabled: !!id,
+  });
+}
+
+/** A material with its name (joined) — shared by the repair/damage list rows. */
+interface MaterialRef {
+  name: string;
+  code: string | null;
+}
+
+export interface MaterialRepair {
+  id: string;
+  materialId: string;
+  cost: number;
+  status: string;
+  date: string;
+  note: string | null;
+  material: MaterialRef;
+}
+
+export interface MaterialDamage {
+  id: string;
+  materialId: string;
+  quantity: number;
+  reason: string | null;
+  date: string;
+  note: string | null;
+  material: MaterialRef;
+}
+
+/** All repair records across materials (EZHT "Repairs" list). */
+export function useInfiniteMaterialRepairs(
+  params: { search?: string } = {},
+) {
+  return useInfiniteList<MaterialRepair>(
+    [...KEY, 'repairs'],
+    '/materials/repairs',
+    params,
+  );
+}
+
+/** All damage records across materials (EZHT "Damages / Condemned" list). */
+export function useInfiniteMaterialDamages(
+  params: { search?: string } = {},
+) {
+  return useInfiniteList<MaterialDamage>(
+    [...KEY, 'damages'],
+    '/materials/damages',
+    params,
+  );
 }
 
 export function useCreateMaterial() {

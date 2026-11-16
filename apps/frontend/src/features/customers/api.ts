@@ -20,6 +20,40 @@ export interface Customer {
   referredByCustomerId: string | null;
   loyaltyPoints: number;
   isActive: boolean;
+  // EZ Health Track parity fields.
+  contactPerson: string | null;
+  vatNo: string | null;
+  gstNo: string | null;
+  panNo: string | null;
+  gstState: string | null;
+  customerGroupId: string | null;
+  // Patient clinical-registration fields.
+  firstName: string | null;
+  middleName: string | null;
+  lastName: string | null;
+  gender: string | null;
+  age: string | null;
+  dob: string | null;
+  registrationDate: string | null;
+  patientType: string | null;
+  address2: string | null;
+  areaId: string | null;
+  area: string | null;
+  idType: string | null;
+  uid: string | null;
+  countryId: string | null;
+  stateId: string | null;
+  cityId: string | null;
+  country: string | null;
+  state: string | null;
+  city: string | null;
+  postalCode: string | null;
+  ccf1: string | null;
+  ccf2: string | null;
+  ccf3: string | null;
+  ccf4: string | null;
+  ccf5: string | null;
+  ccf6: string | null;
 }
 
 export const customerHooks = makeCrudHooks<Customer, Record<string, unknown>>(

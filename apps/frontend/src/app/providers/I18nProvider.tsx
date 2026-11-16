@@ -33,6 +33,7 @@ const DICT: Record<string, Partial<Record<LocaleCode, string>>> = {
   'app.logout': { en: 'Log out', es: 'Cerrar sesión', fr: 'Déconnexion', de: 'Abmelden', pt: 'Sair', hi: 'लॉग आउट', ar: 'تسجيل خروج' },
   // Nav groups
   'nav.Overview': { en: 'Overview', es: 'Resumen', fr: 'Aperçu', de: 'Übersicht', pt: 'Visão geral', hi: 'अवलोकन', ar: 'نظرة عامة' },
+  'nav.Product': { en: 'Product', es: 'Producto', fr: 'Produit', de: 'Produkt', pt: 'Produto', hi: 'उत्पाद', ar: 'منتج' },
   'nav.Catalog': { en: 'Catalog', es: 'Catálogo', fr: 'Catalogue', de: 'Katalog', pt: 'Catálogo', hi: 'सूची', ar: 'الكتالوج' },
   'nav.Purchasing': { en: 'Purchasing', es: 'Compras', fr: 'Achats', de: 'Einkauf', pt: 'Compras', hi: 'खरीद', ar: 'المشتريات' },
   'nav.Sales': { en: 'Sales', es: 'Ventas', fr: 'Ventes', de: 'Verkauf', pt: 'Vendas', hi: 'बिक्री', ar: 'المبيعات' },
@@ -45,6 +46,19 @@ const DICT: Record<string, Partial<Record<LocaleCode, string>>> = {
   'nav.Finance': { en: 'Finance', es: 'Finanzas', fr: 'Finances', de: 'Finanzen', pt: 'Finanças', hi: 'वित्त', ar: 'المالية' },
   'nav.Reports': { en: 'Reports', es: 'Informes', fr: 'Rapports', de: 'Berichte', pt: 'Relatórios', hi: 'रिपोर्ट', ar: 'التقارير' },
   'nav.System': { en: 'System', es: 'Sistema', fr: 'Système', de: 'System', pt: 'Sistema', hi: 'सिस्टम', ar: 'النظام' },
+  // Nav groups — EZ Health Track sidebar parity
+  'nav.Dashboard': { en: 'Dashboard', es: 'Panel', fr: 'Tableau de bord', de: 'Dashboard', pt: 'Painel', hi: 'डैशबोर्ड', ar: 'لوحة التحكم' },
+  'nav.Proformas': { en: 'Proformas', es: 'Proformas', fr: 'Proformas', de: 'Proformas', pt: 'Proformas', hi: 'प्रोफ़ॉर्मा', ar: 'الفواتير المبدئية' },
+  'nav.People': { en: 'People', es: 'Personas', fr: 'Personnes', de: 'Personen', pt: 'Pessoas', hi: 'लोग', ar: 'الأشخاص' },
+  'nav.Materials': { en: 'Materials', es: 'Materiales', fr: 'Matériaux', de: 'Materialien', pt: 'Materiais', hi: 'सामग्री', ar: 'المواد' },
+  'nav.Quotes': { en: 'Quotes', es: 'Cotizaciones', fr: 'Devis', de: 'Angebote', pt: 'Cotações', hi: 'उद्धरण', ar: 'عروض الأسعار' },
+  'nav.Requisitions': { en: 'Requisitions', es: 'Requisiciones', fr: 'Réquisitions', de: 'Anforderungen', pt: 'Requisições', hi: 'अधियाचनाएँ', ar: 'الطلبات' },
+  'nav.Transfers': { en: 'Transfers', es: 'Transferencias', fr: 'Transferts', de: 'Transfers', pt: 'Transferências', hi: 'स्थानांतरण', ar: 'التحويلات' },
+  'nav.Expenses': { en: 'Expenses', es: 'Gastos', fr: 'Dépenses', de: 'Ausgaben', pt: 'Despesas', hi: 'व्यय', ar: 'المصروفات' },
+  'nav.Incomes': { en: 'Incomes', es: 'Ingresos', fr: 'Revenus', de: 'Einnahmen', pt: 'Receitas', hi: 'आय', ar: 'الإيرادات' },
+  'nav.Settings': { en: 'Settings', es: 'Ajustes', fr: 'Paramètres', de: 'Einstellungen', pt: 'Configurações', hi: 'सेटिंग्स', ar: 'الإعدادات' },
+  'nav.Blood Bank': { en: 'Blood Bank', es: 'Banco de sangre', fr: 'Banque de sang', de: 'Blutbank', pt: 'Banco de sangue', hi: 'ब्लड बैंक', ar: 'بنك الدم' },
+  'nav.IPD': { en: 'IPD', es: 'Hospitalización', fr: 'Hospitalisation', de: 'Stationär', pt: 'Internação', hi: 'आईपीडी', ar: 'التنويم' },
   // Common actions
   'common.save': { en: 'Save', es: 'Guardar', fr: 'Enregistrer', de: 'Speichern', pt: 'Salvar', hi: 'सहेजें', ar: 'حفظ' },
   'common.cancel': { en: 'Cancel', es: 'Cancelar', fr: 'Annuler', de: 'Abbrechen', pt: 'Cancelar', hi: 'रद्द करें', ar: 'إلغاء' },

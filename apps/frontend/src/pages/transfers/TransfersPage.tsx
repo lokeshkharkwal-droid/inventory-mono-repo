@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Send, Download, Upload, FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,6 @@ import {
   useTransferAction,
   type TransferListRow,
 } from '@/features/transfers/api';
-import { TransferFormDialog } from '@/features/transfers/TransferFormDialog';
 
 /** Group flat CSV line rows into transfer documents keyed by reference. */
 function groupTransferRows(records: Record<string, string>[]): unknown[] {
@@ -41,8 +41,8 @@ function groupTransferRows(records: Record<string, string>[]): unknown[] {
 
 /** Transfers list + create + two-stage send/receive. */
 export function TransfersPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
     useInfiniteTransfers({ search });
@@ -116,7 +116,7 @@ export function TransfersPage() {
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Upload className="h-4 w-4" /> Import
           </Button>
-          <Button onClick={() => setFormOpen(true)}>
+          <Button onClick={() => navigate('/transfers/add')}>
             <Plus className="h-4 w-4" /> New transfer
           </Button>
         </div>
@@ -138,7 +138,6 @@ export function TransfersPage() {
         infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
-      <TransferFormDialog open={formOpen} onOpenChange={setFormOpen} />
       <ImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}

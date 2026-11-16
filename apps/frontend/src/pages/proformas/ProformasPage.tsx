@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,12 +13,11 @@ import {
   useDeleteProforma,
   type ProformaListRow,
 } from '@/features/proformas/api';
-import { ProformaFormDialog } from '@/features/proformas/ProformaFormDialog';
 
-/** Proformas list + create. */
+/** Proformas list. Add opens the dedicated `/proformas/add` page. */
 export function ProformasPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [formOpen, setFormOpen] = useState(false);
   const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
     useInfiniteProformas({ search });
   const del = useDeleteProforma();
@@ -66,7 +66,7 @@ export function ProformasPage() {
             Pre-invoice documents (products + lab/radiology lines).
           </p>
         </div>
-        <Button onClick={() => setFormOpen(true)}>
+        <Button onClick={() => navigate('/proformas/add')}>
           <Plus className="h-4 w-4" /> New proforma
         </Button>
       </div>
@@ -86,8 +86,6 @@ export function ProformasPage() {
         emptyMessage="No proformas yet."
         infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
-
-      <ProformaFormDialog open={formOpen} onOpenChange={setFormOpen} />
     </div>
   );
 }

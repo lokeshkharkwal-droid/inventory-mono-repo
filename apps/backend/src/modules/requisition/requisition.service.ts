@@ -169,7 +169,7 @@ export class RequisitionService {
           toDepartmentName: toDepartmentName ?? null,
           reference,
           date: dto.date ? new Date(dto.date) : new Date(),
-          status: 'PENDING',
+          status: dto.status ?? 'PENDING',
           note: dto.note,
           createdBy: actorId,
           ...this.headerData(dto, totals),
@@ -177,7 +177,7 @@ export class RequisitionService {
           statusHistory: {
             create: {
               tenantId,
-              status: 'PENDING',
+              status: dto.status ?? 'PENDING',
               comment: 'Requisition created',
               createdBy: actorId,
             },
@@ -223,6 +223,7 @@ export class RequisitionService {
           toDepartmentName: toDepartmentName ?? null,
           reference: dto.reference ?? req.reference,
           date: dto.date ? new Date(dto.date) : req.date,
+          status: dto.status ?? req.status,
           note: dto.note,
           updatedBy: actorId,
           ...this.headerData(dto, totals),

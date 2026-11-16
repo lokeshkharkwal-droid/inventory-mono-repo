@@ -38,6 +38,35 @@ export class MaterialNotFoundException extends KaltrosException {
 export class MaterialService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** EZHT asset-register parity fields → Prisma `data` (dates coerced). */
+  private parityData(dto: CreateMaterialDto | UpdateMaterialDto) {
+    const d = (v?: string) => (v ? new Date(v) : undefined);
+    return {
+      entryDate: d(dto.entryDate),
+      purchaseOrderNo: dto.purchaseOrderNo,
+      billerId: dto.billerId,
+      warehouseId: dto.warehouseId,
+      department: dto.department,
+      departmentRoom: dto.departmentRoom,
+      sellerName: dto.sellerName,
+      purchaseDate: d(dto.purchaseDate),
+      installationDate: d(dto.installationDate),
+      materialStatus: dto.materialStatus,
+      grandTotal: dto.grandTotal,
+      amcCost: dto.amcCost,
+      cmcCost: dto.cmcCost,
+      estimatedPresentCost: dto.estimatedPresentCost,
+      codalLife: dto.codalLife,
+      amcStatus: dto.amcStatus,
+      amcStartDate: d(dto.amcStartDate),
+      amcEndDate: d(dto.amcEndDate),
+      issueTo: dto.issueTo,
+      transferTo: dto.transferTo,
+      documentUrl: dto.documentUrl,
+      staffNote: dto.staffNote,
+    };
+  }
+
   async create(
     tenantId: string,
     branchId: string | null,
@@ -55,6 +84,7 @@ export class MaterialService {
         cost: dto.cost ?? 0,
         note: dto.note,
         isActive: dto.isActive ?? true,
+        ...this.parityData(dto),
       },
     });
   }
@@ -106,6 +136,64 @@ export class MaterialService {
     return { data, total, page, limit };
   }
 
+  /** All repair records across the tenant's materials (EZHT "Repairs" list). */
+  async listRepairs(
+    tenantId: string,
+    query: MaterialQueryDto,
+  ): Promise<PaginatedResult<unknown>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const where: Prisma.InventoryMaterialRepairWhereInput = {
+      tenantId,
+      deletedAt: null,
+    };
+    if (query.search) {
+      where.material = {
+        is: { name: { contains: query.search, mode: 'insensitive' } },
+      };
+    }
+    const [rows, total] = await this.prisma.$transaction(async (tx) => {
+      const data = await tx.inventoryMaterialRepair.findMany({
+        where,
+        include: { material: { select: { name: true, code: true } } },
+        orderBy: { date: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      });
+      return [data, await tx.inventoryMaterialRepair.count({ where })] as const;
+    });
+    return { data: rows, total, page, limit };
+  }
+
+  /** All damage records across the tenant's materials (EZHT "Damages" list). */
+  async listDamages(
+    tenantId: string,
+    query: MaterialQueryDto,
+  ): Promise<PaginatedResult<unknown>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const where: Prisma.InventoryMaterialDamageWhereInput = {
+      tenantId,
+      deletedAt: null,
+    };
+    if (query.search) {
+      where.material = {
+        is: { name: { contains: query.search, mode: 'insensitive' } },
+      };
+    }
+    const [rows, total] = await this.prisma.$transaction(async (tx) => {
+      const data = await tx.inventoryMaterialDamage.findMany({
+        where,
+        include: { material: { select: { name: true, code: true } } },
+        orderBy: { date: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      });
+      return [data, await tx.inventoryMaterialDamage.count({ where })] as const;
+    });
+    return { data: rows, total, page, limit };
+  }
+
   async findById(id: string, tenantId: string) {
     const material = await this.prisma.inventoryMaterial.findFirst({
       where: { id, tenantId, deletedAt: null },
@@ -131,6 +219,7 @@ export class MaterialService {
         cost: dto.cost,
         note: dto.note,
         isActive: dto.isActive,
+        ...this.parityData(dto),
       },
     });
   }

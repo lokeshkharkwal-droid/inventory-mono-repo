@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Upload, Download } from 'lucide-react';
 import type { UseMutationResult } from '@tanstack/react-query';
@@ -66,6 +67,13 @@ interface Props<T extends Row> {
   importConfig?: ImportConfig;
   /** Columns to export to CSV (defaults to the display columns' keys). */
   exportColumns?: { key: string; header: string }[];
+  /**
+   * When set (e.g. `/suppliers`), the New button and row Edit action navigate to
+   * the separate `${formBasePath}/add` and `${formBasePath}/edit/:id` pages
+   * instead of opening the inline dialog (EZ Health Track parity). Omit to keep
+   * the modal form (the default for simple settings masters).
+   */
+  formBasePath?: string;
 }
 
 /**
@@ -86,7 +94,9 @@ export function MasterCrudPage<T extends Row>({
   rowActions,
   importConfig,
   exportColumns,
+  formBasePath,
 }: Props<T>) {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -104,10 +114,18 @@ export function MasterCrudPage<T extends Row>({
   );
 
   const openCreate = () => {
+    if (formBasePath) {
+      navigate(`${formBasePath}/add`);
+      return;
+    }
     setEditing(null);
     setDialogOpen(true);
   };
   const openEdit = (row: T) => {
+    if (formBasePath) {
+      navigate(`${formBasePath}/edit/${row.id}`);
+      return;
+    }
     setEditing(row);
     setDialogOpen(true);
   };
@@ -211,15 +229,17 @@ export function MasterCrudPage<T extends Row>({
         infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
 
-      <CrudFormDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        title={editing ? `Edit ${title}` : newLabel}
-        fields={fields}
-        initialValues={initialValues}
-        submitting={create.isPending || update.isPending}
-        onSubmit={onSubmit}
-      />
+      {!formBasePath && (
+        <CrudFormDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          title={editing ? `Edit ${title}` : newLabel}
+          fields={fields}
+          initialValues={initialValues}
+          submitting={create.isPending || update.isPending}
+          onSubmit={onSubmit}
+        />
+      )}
 
       {importConfig && (
         <ImportDialog

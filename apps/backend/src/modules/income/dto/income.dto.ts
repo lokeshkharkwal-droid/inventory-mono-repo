@@ -16,6 +16,11 @@ export class CreateIncomeDto {
   @IsOptional() @IsString() @MaxLength(100) reference?: string;
   @IsOptional() @IsDateString() date?: string;
   @IsOptional() @IsString() @MaxLength(1000) note?: string;
+
+  // EZ Health Track "Add Income" parity fields.
+  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsString() @MaxLength(50) taxMethod?: string;
+  @IsOptional() @IsString() @MaxLength(2048) attachmentUrl?: string;
 }
 
 /** Update an income (all fields optional). */
@@ -25,6 +30,11 @@ export class UpdateIncomeDto {
   @IsOptional() @IsString() @MaxLength(100) reference?: string;
   @IsOptional() @IsDateString() date?: string;
   @IsOptional() @IsString() @MaxLength(1000) note?: string;
+
+  // EZ Health Track "Add Income" parity fields.
+  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsString() @MaxLength(50) taxMethod?: string;
+  @IsOptional() @IsString() @MaxLength(2048) attachmentUrl?: string;
 }
 
 /** List filters for incomes. */

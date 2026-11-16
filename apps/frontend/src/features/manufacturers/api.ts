@@ -12,6 +12,23 @@ export interface Manufacturer {
   imageUrl: string | null;
   note: string | null;
   isActive: boolean;
+  // EZ Health Track parity fields.
+  contactPerson: string | null;
+  vatNo: string | null;
+  countryId: string | null;
+  stateId: string | null;
+  cityId: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
+  invoiceFooter: string | null;
+  cf1: string | null;
+  cf2: string | null;
+  cf3: string | null;
+  cf4: string | null;
+  cf5: string | null;
+  cf6: string | null;
 }
 
 /** Manufacturer CRUD hooks (backend routes under /manufacturers). */

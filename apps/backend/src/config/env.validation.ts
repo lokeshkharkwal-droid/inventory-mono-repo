@@ -32,6 +32,17 @@ export const envValidationSchema = Joi.object({
   // Comma-separated allowed frontend origins; '*' permissive fallback in dev.
   CORS_ORIGIN: Joi.string().default('*'),
 
+  // DigitalOcean Spaces attachment uploads (POST /uploads/attachment). Spaces is
+  // S3-compatible (driven via the AWS S3 SDK). All optional — leave blank to
+  // disable uploads (the endpoint then returns UPLOAD_NOT_CONFIGURED). Objects
+  // are uploaded public-read; the returned URL is stored in attachmentUrl cols.
+  SPACES_REGION: Joi.string().allow('').default('sgp1'),
+  SPACES_BUCKET: Joi.string().allow('').optional(),
+  SPACES_ENDPOINT: Joi.string().allow('').optional(),
+  SPACES_ACCESS_KEY: Joi.string().allow('').optional(),
+  SPACES_SECRET_KEY: Joi.string().allow('').optional(),
+  SPACES_PUBLIC_BASE_URL: Joi.string().allow('').optional(),
+
   // Legacy MySQL source — only read by the data-migration script, never at
   // runtime. All optional so the app boots without them.
   LEGACY_MYSQL_HOST: Joi.string().allow('').optional(),

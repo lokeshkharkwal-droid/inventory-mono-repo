@@ -64,6 +64,13 @@ export class TransferService {
           },
           select: { avgCost: true },
         });
+        // Priced columns (EZHT parity): subtotal = rate × qty + tax.
+        const rate = item.rate != null ? D(item.rate) : null;
+        const taxRate = item.taxRate != null ? D(item.taxRate) : null;
+        const base = (rate ?? D(0)).mul(D(item.quantity));
+        const taxAmount =
+          taxRate != null ? base.mul(taxRate).div(100) : null;
+        const subtotal = rate != null ? base.add(taxAmount ?? D(0)) : null;
         return {
           tenantId,
           productId: product.id,
@@ -71,8 +78,25 @@ export class TransferService {
           productCode: product.code,
           quantity: D(item.quantity),
           cost: stock?.avgCost ?? D(product.cost),
+          expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+          productSerial: item.productSerial ?? null,
+          packSize: item.packSize ?? null,
+          packQuantity: item.packQuantity != null ? D(item.packQuantity) : null,
+          rate,
+          mrp: item.mrp != null ? D(item.mrp) : null,
+          taxRate,
+          taxAmount,
+          subtotal,
         };
       }),
+    );
+
+    const itemsTotal = lines.reduce(
+      (sum, l) => sum.add(l.subtotal ?? D(0)),
+      D(0),
+    );
+    const grandTotal = itemsTotal.add(
+      dto.shipping != null ? D(dto.shipping) : D(0),
     );
 
     const reference =
@@ -86,9 +110,14 @@ export class TransferService {
           toBranchId: dto.toBranchId,
           reference,
           date: dto.date ? new Date(dto.date) : new Date(),
-          status: 'PENDING',
+          status: dto.status ?? 'PENDING',
           note: dto.note,
           createdBy: actorId,
+          fromDepartment: dto.fromDepartment ?? null,
+          toDepartment: dto.toDepartment ?? null,
+          shipping: dto.shipping != null ? D(dto.shipping) : null,
+          attachmentUrl: dto.attachmentUrl ?? null,
+          grandTotal,
           items: { create: lines },
         },
         include: { items: true },

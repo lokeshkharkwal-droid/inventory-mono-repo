@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, FileSpreadsheet, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { getApiErrorMessage } from '@/lib/http';
+import { exportCsv } from '@/lib/csv';
+import { useBranchOptions } from '@/features/_shared/branches';
 import {
   useAllAdjustments,
   useDeleteAdjustment,
@@ -33,11 +35,36 @@ export function QuantityAdjustmentsPage() {
 
   const { data, isLoading, refetch } = useAllAdjustments({ page, limit, search });
   const del = useDeleteAdjustment();
+  const { data: branches } = useBranchOptions();
   const { can } = usePermissions();
   const canAdjust = can(permKey('products', 'adjust_stock'));
 
   const rows = data?.data ?? [];
   const totalPages = data?.meta.totalPages ?? 1;
+
+  const branchName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of branches ?? []) map.set(b.id, b.name);
+    return (id: string | null) => (id ? (map.get(id) ?? '—') : '—');
+  }, [branches]);
+
+  const exportRows = () => {
+    if (rows.length === 0) {
+      toast.error('Nothing to export.');
+      return;
+    }
+    exportCsv(
+      'quantity-adjustments.csv',
+      rows.map((r) => ({
+        date: fmtDate(r.adjustedAt ?? r.createdAt),
+        product_code: r.product?.code ?? '',
+        product_name: r.product?.name ?? '',
+        quantity: r.quantity,
+        type: r.type === 'ADDITION' ? 'Addition' : 'Subtraction',
+        warehouse: branchName(r.branchId),
+      })),
+    );
+  };
 
   const onDelete = async (row: AdjustmentRow) => {
     if (!confirm('Delete this adjustment and reverse its stock effect?')) return;
@@ -51,10 +78,15 @@ export function QuantityAdjustmentsPage() {
 
   const columns: Column<AdjustmentRow>[] = [
     { key: 'date', header: 'Date', render: (r) => fmtDate(r.adjustedAt ?? r.createdAt) },
-    { key: 'code', header: 'Code', render: (r) => r.product?.code ?? '—' },
-    { key: 'name', header: 'Product', render: (r) => r.product?.name ?? '—' },
-    { key: 'batchNo', header: 'Batch', render: (r) => r.batchNo ?? '—' },
-    { key: 'quantity', header: 'Quantity', render: (r) => String(r.quantity) },
+    { key: 'code', header: 'Product Code', render: (r) => r.product?.code ?? '—' },
+    { key: 'name', header: 'Product Name', render: (r) => r.product?.name ?? '—' },
+    { key: 'variant', header: 'Product Variant', render: () => '—' },
+    {
+      key: 'quantity',
+      header: 'Quantity',
+      className: 'text-right',
+      render: (r) => String(Math.abs(r.quantity)),
+    },
     {
       key: 'type',
       header: 'Type',
@@ -68,10 +100,10 @@ export function QuantityAdjustmentsPage() {
         </span>
       ),
     },
-    { key: 'note', header: 'Note', render: (r) => r.note ?? '—' },
+    { key: 'warehouse', header: 'Warehouse', render: (r) => branchName(r.branchId) },
     {
       key: 'actions',
-      header: '',
+      header: 'Actions',
       className: 'text-right',
       render: (r) => (
         <div className="flex justify-end">
@@ -98,13 +130,21 @@ export function QuantityAdjustmentsPage() {
             History of stock additions and subtractions across products.
           </p>
         </div>
-        <Button
-          onClick={() => setAddOpen(true)}
-          disabled={!canAdjust}
-          title={canAdjust ? undefined : 'No stock-adjust permission'}
-        >
-          <Plus className="h-4 w-4" /> Add adjustment
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={exportRows} title="Export to Excel">
+            <FileSpreadsheet className="h-4 w-4" /> Export to Excel
+          </Button>
+          <Button variant="outline" onClick={() => window.print()} title="Export to PDF">
+            <FileText className="h-4 w-4" /> Export to PDF
+          </Button>
+          <Button
+            onClick={() => setAddOpen(true)}
+            disabled={!canAdjust}
+            title={canAdjust ? undefined : 'No stock-adjust permission'}
+          >
+            <Plus className="h-4 w-4" /> Add adjustment
+          </Button>
+        </div>
       </div>
 
       <Input

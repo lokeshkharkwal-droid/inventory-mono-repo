@@ -75,6 +75,9 @@ export const REPORTS: ReportMeta[] = [
   { key: 'warehouse-stock', path: '/reports/warehouse-stock', label: 'Warehouse Stock', description: 'Stock valuation by price vs cost, per warehouse.', group: 'Inventory', icon: Building2 },
   { key: 'materials', path: '/reports/materials', label: 'Materials Report', description: 'Materials register with balance quantity & value.', group: 'Inventory', icon: Boxes },
   { key: 'tools-and-plants', path: '/reports/tools-and-plants', label: 'Tools & Plants', description: 'Low-value tools & plants asset register.', group: 'Inventory', icon: Wrench },
+  { key: 'material-and-plants', path: '/reports/material-and-plants', label: 'Material & Plants', description: 'High-value materials & plant asset register.', group: 'Inventory', icon: Wrench },
+  { key: 'product-quantity', path: '/reports/product-quantity', label: 'Product Quantity', description: 'Current on-hand quantity per product.', group: 'Inventory', icon: Package },
+  { key: 'product-quantity-batch', path: '/reports/product-quantity-batch', label: 'Product Quantity (Batch)', description: 'On-hand quantity per product batch, with expiry.', group: 'Inventory', icon: Boxes },
   { key: 'register', path: '/reports/register', label: 'Register Report', description: 'POS register open/close cash reconciliation.', group: 'Inventory', icon: BookOpen },
   { key: 'quantity-alerts', path: '/reports/quantity-alerts', label: 'Product Quantity Alerts', description: 'Products at or below their reorder level.', group: 'Inventory', icon: AlertTriangle },
   { key: 'expiry-alerts', path: '/reports/expiry-alerts', label: 'Product Expiry Alerts', description: 'Batches expiring before the alert horizon.', group: 'Inventory', icon: CalendarClock },
@@ -101,6 +104,8 @@ export const REPORTS: ReportMeta[] = [
   { key: 'purchases', path: '/reports/purchases', label: 'Purchases Report', description: 'Every purchase order with tax, paid & balance.', group: 'Purchases', icon: ShoppingCart },
   { key: 'purchase-age', path: '/reports/purchase-age', label: 'Purchase Aging Report', description: 'Outstanding purchases by age bucket.', group: 'Purchases', icon: Hourglass },
   { key: 'purchases-tax', path: '/reports/purchases-tax', label: 'Purchases Tax Report', description: 'Per-order input tax register.', group: 'Purchases', icon: Percent },
+  { key: 'local-purchases', path: '/reports/local-purchases', label: 'Local Purchases', description: 'Requisitions fulfilled as local purchases.', group: 'Purchases', icon: ShoppingCart },
+  { key: 'total-local-purchases', path: '/reports/total-local-purchases', label: 'Total Local Purchases', description: 'Local-purchase requisitions summarised per branch.', group: 'Purchases', icon: ShoppingCart },
 
   // ── Financial / parties ──
   { key: 'transfers', path: '/reports/transfers', label: 'Transfers Report', description: 'Inter-warehouse stock transfers.', group: 'Financial', icon: ArrowLeftRight },

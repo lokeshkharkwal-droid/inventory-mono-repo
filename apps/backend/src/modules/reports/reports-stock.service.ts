@@ -78,11 +78,20 @@ export class ReportsStockService {
     return this.materialRows(tenantId, q, 1_000_000);
   }
 
-  /** Shared materials query; `valueMax` partitions tools-and-plants from M&P. */
+  /** Material & Plants — the high-value slice (grand total >= 1,000,000). */
+  async materialAndPlants(tenantId: string, q: ReportQueryDto) {
+    return this.materialRows(tenantId, q, undefined, 1_000_000);
+  }
+
+  /**
+   * Shared materials query; `valueMax` partitions tools-and-plants (< max) from
+   * material-and-plants (`valueMin` ≥ min).
+   */
   private async materialRows(
     tenantId: string,
     q: ReportQueryDto,
     valueMax?: number,
+    valueMin?: number,
   ) {
     const date = dateFilter(q.from, q.to);
     const where: Prisma.InventoryMaterialWhereInput = {
@@ -145,10 +154,95 @@ export class ReportsStockService {
       })
       .filter((r) =>
         valueMax == null ? true : r.grandTotal.lessThan(valueMax),
+      )
+      .filter((r) =>
+        valueMin == null ? true : r.grandTotal.greaterThanOrEqualTo(valueMin),
       );
     for (const r of rows) grandTotalSum = grandTotalSum.add(r.grandTotal);
 
     return { rows, totals: { grandTotal: grandTotalSum } };
+  }
+
+  /** Product Quantity — on-hand quantity per product across warehouses. */
+  async productQuantity(tenantId: string, q: ReportQueryDto) {
+    const grouped = await this.prisma.inventoryWarehouseProduct.groupBy({
+      by: ['productId'],
+      where: {
+        product: {
+          tenantId,
+          deletedAt: null,
+          ...(q.categoryId ? { categoryId: q.categoryId } : {}),
+          ...(q.productId ? { id: q.productId } : {}),
+          ...(q.search
+            ? {
+                OR: [
+                  { name: { contains: q.search, mode: 'insensitive' } },
+                  { code: { contains: q.search, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+        ...(q.warehouseId ? { branchId: q.warehouseId } : {}),
+      },
+      _sum: { quantity: true },
+    });
+    const products = await this.prisma.inventoryProduct.findMany({
+      where: { id: { in: grouped.map((g) => g.productId) } },
+      select: { id: true, name: true, code: true },
+    });
+    const nameOf = new Map(products.map((p) => [p.id, p]));
+    let totalQty = D(0);
+    const rows = grouped
+      .map((g) => {
+        const qty = g._sum.quantity ?? D(0);
+        totalQty = totalQty.add(qty);
+        const p = nameOf.get(g.productId);
+        return {
+          productId: g.productId,
+          code: p?.code ?? null,
+          name: p?.name ?? '—',
+          quantity: qty,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { rows, totals: { quantity: totalQty } };
+  }
+
+  /** Product Quantity (Batch) — on-hand quantity per product batch, with expiry. */
+  async productQuantityBatch(tenantId: string, q: ReportQueryDto) {
+    const batches = await this.prisma.inventoryProductBatch.findMany({
+      where: {
+        product: {
+          tenantId,
+          deletedAt: null,
+          ...(q.categoryId ? { categoryId: q.categoryId } : {}),
+          ...(q.productId ? { id: q.productId } : {}),
+          ...(q.search
+            ? {
+                OR: [
+                  { name: { contains: q.search, mode: 'insensitive' } },
+                  { code: { contains: q.search, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+      },
+      include: { product: { select: { name: true, code: true } } },
+      orderBy: [{ expiryDate: 'asc' }],
+    });
+    let totalQty = D(0);
+    const rows = batches.map((b) => {
+      totalQty = totalQty.add(b.quantity);
+      return {
+        id: b.id,
+        productName: b.product?.name ?? '—',
+        code: b.product?.code ?? null,
+        batchNo: b.batchNo,
+        expiryDate: b.expiryDate,
+        quantity: b.quantity,
+      };
+    });
+    return { rows, totals: { quantity: totalQty } };
   }
 
   /** Register Report — POS open/close sessions with cash reconciliation. */

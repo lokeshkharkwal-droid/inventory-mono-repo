@@ -31,6 +31,64 @@ export class ProductVariantInputDto {
   @Type(() => Number)
   @IsNumber()
   priceAdjustment?: number;
+
+  // ── EZHT "attributes" table parity: a variant row carries an initial
+  // warehouse (branch) + quantity + cost. ──
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  quantity?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  cost?: number;
+}
+
+/** A product↔supplier link supplied inline (legacy supplier1..5). */
+export class ProductSupplierInputDto {
+  @IsString()
+  supplierId: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  partNumber?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  price?: number;
+}
+
+/** Initial per-branch (warehouse) stock supplied inline when creating a product. */
+export class ProductWarehouseStockInputDto {
+  @IsString()
+  branchId: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  quantity?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  cost?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  rack?: string;
 }
 
 /** Create a product. */
@@ -57,6 +115,10 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   brandId?: string;
+
+  @IsOptional()
+  @IsString()
+  manufacturerId?: string;
 
   @IsOptional()
   @IsString()
@@ -197,4 +259,18 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => ProductVariantInputDto)
   variants?: ProductVariantInputDto[];
+
+  /** Per-product suppliers (legacy supplier1..5); capped at 5 by the service. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductSupplierInputDto)
+  suppliers?: ProductSupplierInputDto[];
+
+  /** Initial per-branch stock (legacy warehouse quantities section). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductWarehouseStockInputDto)
+  warehouseStocks?: ProductWarehouseStockInputDto[];
 }

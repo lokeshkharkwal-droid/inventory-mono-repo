@@ -18,11 +18,25 @@ export interface ProductListRow {
   type: string;
   cost: number;
   price: number;
+  packCost: number | null;
+  packMrp: number | null;
   alertQuantity: number;
+  imageUrl: string | null;
   isActive: boolean;
   category: ProductRef | null;
+  subCategory: ProductRef | null;
   brand: ProductRef | null;
+  unit: ProductRef | null;
   totalQuantity: number;
+  rack: string | null;
+}
+
+/** A variant's per-branch stock row (EZHT "attributes" table). */
+export interface VariantWarehouseStock {
+  id?: string;
+  branchId: string;
+  quantity: number;
+  cost: number | null;
 }
 
 export interface ProductVariant {
@@ -31,6 +45,17 @@ export interface ProductVariant {
   sku: string | null;
   costAdjustment: number;
   priceAdjustment: number;
+  warehouseStocks?: VariantWarehouseStock[];
+}
+
+/** A product↔supplier link (EZHT supplier1..5). */
+export interface ProductSupplierLink {
+  id?: string;
+  supplierId: string;
+  partNumber: string | null;
+  price: number | null;
+  sortOrder?: number;
+  supplier?: ProductRef | null;
 }
 
 /** A product drug-composition row (EZHT "Drugs" modal). */
@@ -45,6 +70,9 @@ export interface ProductDetail extends ProductListRow {
   subCategoryId?: string | null;
   unitId?: string | null;
   brandId?: string | null;
+  manufacturerId?: string | null;
+  manufacturer?: ProductRef | null;
+  suppliers?: ProductSupplierLink[];
   taxRateId?: string | null;
   categoryId?: string;
   description: string | null;
@@ -56,10 +84,7 @@ export interface ProductDetail extends ProductListRow {
   isTaxIncluded: boolean;
   isSerialized: boolean;
   barcodeSymbology: string | null;
-  imageUrl: string | null;
   variants: ProductVariant[];
-  subCategory?: ProductRef | null;
-  unit?: ProductRef | null;
   taxRate?: ProductRef | null;
   drugs?: ProductDrug[];
 

@@ -3,8 +3,12 @@ import { Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MasterCrudPage } from '@/components/shared/MasterCrudPage';
 import type { Column } from '@/components/shared/DataTable';
-import type { FieldConfig } from '@/components/shared/CrudFormDialog';
 import { customerHooks, type Customer } from '@/features/customers/api';
+import {
+  customerFields,
+  customerEmptyValues,
+  customerToFormValues,
+} from '@/features/customers/form';
 import { CustomerDepositsDialog } from '@/features/customers/CustomerDepositsDialog';
 
 const columns: Column<Customer>[] = [
@@ -24,33 +28,9 @@ const columns: Column<Customer>[] = [
   },
 ];
 
-const fields: FieldConfig[] = [
-  { name: 'name', label: 'Name', type: 'text', required: true },
-  { name: 'code', label: 'Code', type: 'text' },
-  { name: 'companyName', label: 'Company', type: 'text' },
-  { name: 'phone', label: 'Phone', type: 'text' },
-  { name: 'email', label: 'Email', type: 'text' },
-  { name: 'address', label: 'Address', type: 'textarea' },
-  { name: 'taxNumber', label: 'Tax number', type: 'text' },
-  { name: 'creditLimit', label: 'Credit limit', type: 'number' },
-  {
-    name: 'referredByCustomerId',
-    label: 'Referred by',
-    type: 'async-select',
-    async: {
-      queryKey: ['customers', 'referrer-pick'],
-      path: '/customers',
-      optionLabelKey: 'name',
-      placeholder: 'Search a customer…',
-      clearable: true,
-    },
-  },
-  { name: 'isActive', label: 'Active', type: 'bool' },
-];
-
 /**
- * Customers master-data screen. When `patientsOnly` is set it renders the
- * patient-linked subset (legacy "Patients" view).
+ * Customers list screen. When `patientsOnly` is set it renders the patient-linked
+ * subset (legacy "Patients" view). Add/Edit open the dedicated form page.
  */
 export function CustomersPage({ patientsOnly = false }: { patientsOnly?: boolean } = {}) {
   const [depositsFor, setDepositsFor] = useState<Customer | null>(null);
@@ -63,11 +43,12 @@ export function CustomersPage({ patientsOnly = false }: { patientsOnly?: boolean
           ? 'Customers linked to a clinical patient record.'
           : 'People and organisations you sell to.'
       }
-      newLabel="New customer"
+      newLabel={patientsOnly ? 'New patient' : 'New customer'}
       hooks={customerHooks}
       listExtra={patientsOnly ? { patient: 'true' } : undefined}
       columns={columns}
-      fields={fields}
+      fields={customerFields}
+      formBasePath={patientsOnly ? '/patients' : '/customers'}
       rowActions={(r) => (
         <Button
           variant="ghost"
@@ -78,30 +59,8 @@ export function CustomersPage({ patientsOnly = false }: { patientsOnly?: boolean
           <Wallet className="h-4 w-4" />
         </Button>
       )}
-      emptyValues={{
-        name: '',
-        code: '',
-        companyName: '',
-        phone: '',
-        email: '',
-        address: '',
-        taxNumber: '',
-        creditLimit: '',
-        referredByCustomerId: '',
-        isActive: true,
-      }}
-      toFormValues={(r) => ({
-        name: r.name,
-        code: r.code ?? '',
-        companyName: r.companyName ?? '',
-        phone: r.phone ?? '',
-        email: r.email ?? '',
-        address: r.address ?? '',
-        taxNumber: r.taxNumber ?? '',
-        creditLimit: r.creditLimit != null ? String(r.creditLimit) : '',
-        referredByCustomerId: r.referredByCustomerId ?? '',
-        isActive: r.isActive,
-      })}
+      emptyValues={customerEmptyValues}
+      toFormValues={customerToFormValues}
       rowLabel={(r) => r.name}
       importConfig={{
         endpoint: '/customers/import',

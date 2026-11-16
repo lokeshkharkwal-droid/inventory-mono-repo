@@ -364,51 +364,208 @@ export class PrintService {
 
   /**
    * A printable sheet of many barcode labels (legacy Products::print_barcodes).
-   * Each selected product is repeated `quantity` times; `style` sets the label
-   * size; toggles control whether the business name / product name / price show.
+   * Each selected product is repeated `quantity` times. `style` is the legacy
+   * per-sheet count: it fixes the page size (A4 / Letter), label dimensions,
+   * columns×rows and barcode height, and the labels are chunked into pages of
+   * exactly that many — e.g. 100 labels at style `10` produces 10 pages of 10.
+   * Each page container breaks after itself so the print output has one sheet
+   * per page. Toggles control whether the business name / product name / price
+   * show on each label. Dimensions mirror EZHT `print.css`.
    */
   async barcodeSheet(tenantId: string, dto: BarcodeSheetDto): Promise<string> {
-    const SIZES: Record<string, { w: number; bh: number }> = {
-      '20': { w: 140, bh: 24 },
-      '30': { w: 170, bh: 32 },
-      '40': { w: 210, bh: 42 },
-      '50': { w: 250, bh: 52 },
-    };
-    const sz = SIZES[dto.style ?? '40'] ?? SIZES['40']!;
+    /** Per-sheet layout, ported from EZHT print.css (.barcode / .barcodea4). */
+    const STYLES = {
+      '40': {
+        page: 'a4',
+        cols: 4,
+        rows: 10,
+        w: '1.95in',
+        h: '1.07in',
+        margin: '0 0 0 0.06in',
+        pt: '0.04in',
+        bh: 16,
+        fs: '10px',
+        lh: '12px',
+        nf: '11px',
+        nb: false,
+      },
+      '30': {
+        page: 'letter',
+        cols: 3,
+        rows: 10,
+        w: '2.63in',
+        h: '1in',
+        margin: '0 0.06in',
+        pt: '0.04in',
+        bh: 18,
+        fs: '11px',
+        lh: '13px',
+        nf: '12px',
+        nb: false,
+      },
+      '24': {
+        page: 'a4',
+        cols: 3,
+        rows: 8,
+        w: '2.48in',
+        h: '1.335in',
+        margin: '0 0 0 0.079in',
+        pt: '0.05in',
+        bh: 20,
+        fs: '12px',
+        lh: '14px',
+        nf: '14px',
+        nb: false,
+      },
+      '20': {
+        page: 'letter',
+        cols: 2,
+        rows: 10,
+        w: '4in',
+        h: '1in',
+        margin: '0 0.1in',
+        pt: '0.05in',
+        bh: 20,
+        fs: '12px',
+        lh: '14px',
+        nf: '14px',
+        nb: false,
+      },
+      '18': {
+        page: 'a4',
+        cols: 3,
+        rows: 6,
+        w: '2.5in',
+        h: '1.835in',
+        margin: '0 0 0 0.079in',
+        pt: '0.05in',
+        bh: 30,
+        fs: '13px',
+        lh: '20px',
+        nf: '14px',
+        nb: true,
+      },
+      '14': {
+        page: 'letter',
+        cols: 2,
+        rows: 7,
+        w: '4in',
+        h: '1.33in',
+        margin: '0 0.1in',
+        pt: '0.1in',
+        bh: 30,
+        fs: '12px',
+        lh: '14px',
+        nf: '14px',
+        nb: false,
+      },
+      '12': {
+        page: 'a4',
+        cols: 3,
+        rows: 4,
+        w: '2.5in',
+        h: '2.834in',
+        margin: '0 0 0 0.079in',
+        pt: '0.05in',
+        bh: 50,
+        fs: '14px',
+        lh: '20px',
+        nf: '15px',
+        nb: true,
+      },
+      '10': {
+        page: 'letter',
+        cols: 2,
+        rows: 5,
+        w: '4in',
+        h: '2in',
+        margin: '0 0.1in',
+        pt: '0.1in',
+        bh: 50,
+        fs: '14px',
+        lh: '20px',
+        nf: '16px',
+        nb: false,
+      },
+    } as const;
+
+    const st = STYLES[dto.style ?? '24'] ?? STYLES['24'];
+    const perSheet = st.cols * st.rows;
+    const isA4 = st.page === 'a4';
+    const containerClass = isA4 ? 'barcodea4' : 'barcode';
     const showName = dto.showName !== false;
     const showPrice = dto.showPrice !== false;
-    const useQr = dto.symbology === 'QR';
+    const showUnit = dto.showUnit === true;
+    const showCategory = dto.showCategory === true;
+    const showVariants = dto.showVariants === true;
+    const showImage = dto.showImage === true;
+    const priceLabel = dto.showCurrency
+      ? (n: number | { toString(): string }) => `₹${money(n)}`
+      : (n: number | { toString(): string }) => money(n);
+    const symbology = dto.symbology ?? 'CODE128';
 
+    // Build one label HTML per unit, repeated `quantity` times per product.
     const labels: string[] = [];
     for (const item of dto.items) {
       const p = await this.productService.findById(item.productId, tenantId);
-      const code = useQr
-        ? `<img src="${await this.barcode.qrDataUrl(p.code)}" alt="${esc(p.code)}" style="height:${sz.bh + 20}px" />`
-        : this.barcode.code39Svg(p.code, sz.bh);
+      let code: string;
+      if (symbology === 'QR') {
+        code = `<img src="${await this.barcode.qrDataUrl(p.code)}" alt="${esc(p.code)}" style="height:${st.bh + 20}px;max-width:100%" />`;
+      } else if (symbology === 'CODE39') {
+        code = this.barcode.code39Svg(p.code, st.bh);
+      } else {
+        code = this.barcode.code128Svg(p.code, st.bh);
+      }
+      const variantNames = (p.variants ?? []).map((v) => v.name).join(', ');
       const qty = Math.max(1, Math.min(item.quantity, 500));
       const label = `
-        <div class="lbl" style="width:${sz.w}px">
+        <div class="item">
           ${dto.showBusinessName && dto.businessName ? `<div class="biz">${esc(dto.businessName)}</div>` : ''}
+          ${showImage && p.imageUrl ? `<div class="im"><img src="${esc(p.imageUrl)}" alt="" style="max-height:${st.bh}px;max-width:100%" /></div>` : ''}
           ${showName ? `<div class="nm">${esc(p.name)}</div>` : ''}
+          ${showCategory && p.category?.name ? `<div class="ct">${esc(p.category.name)}</div>` : ''}
           <div class="bc">${code}</div>
           <div class="cd">${esc(p.code)}</div>
-          ${showPrice ? `<div class="pr">${money(p.price)}</div>` : ''}
+          ${showVariants && variantNames ? `<div class="vr">${esc(variantNames)}</div>` : ''}
+          ${showPrice ? `<div class="pr">Price: ${priceLabel(p.price)}</div>` : ''}
+          ${showUnit && p.unit?.name ? `<div class="un">${esc(p.unit.name)}</div>` : ''}
         </div>`;
       for (let i = 0; i < qty; i++) labels.push(label);
     }
 
+    // Chunk into pages of exactly `perSheet` labels; each page is its own sheet.
+    const pages: string[] = [];
+    for (let i = 0; i < labels.length; i += perSheet) {
+      pages.push(
+        `<div class="${containerClass}">${labels.slice(i, i + perSheet).join('')}</div>`,
+      );
+    }
+    if (pages.length === 0) pages.push(`<div class="${containerClass}"></div>`);
+
+    const containerCss = isA4
+      ? `.barcodea4{width:8.25in;height:11.6in;display:block;border:1px solid #ccc;margin:10px auto;padding:0.1in 0 0 0.1in;box-sizing:border-box;page-break-after:always}`
+      : `.barcode{width:8.45in;height:10.3in;display:block;border:1px solid #ccc;margin:10px auto;padding-top:0.1in;box-sizing:border-box;page-break-after:always}`;
+
     const css = `
-      body{font-family:Arial,Helvetica,sans-serif;margin:12px;color:#111}
-      .sheet{display:flex;flex-wrap:wrap;gap:6px}
-      .lbl{border:1px solid #e5e5e5;border-radius:4px;padding:6px 8px;text-align:center;box-sizing:border-box}
-      .lbl .biz{font-size:9px;color:#555}
-      .lbl .nm{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .lbl .bc{margin:3px 0}
-      .lbl .cd{font-size:10px;letter-spacing:1px}
-      .lbl .pr{font-size:12px;font-weight:700}
-      @media print{.lbl{border-color:#fff}}
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;background:#f3f4f6}
+      .${containerClass}:last-child{page-break-after:auto}
+      ${containerCss}
+      .item{width:${st.w};height:${st.h};margin:${st.margin};padding-top:${st.pt};float:left;display:block;overflow:hidden;text-align:center;border:1px dotted #ccc;font-size:${st.fs};line-height:${st.lh};text-transform:uppercase;box-sizing:border-box}
+      .item .biz{font-weight:bold}
+      .item .nm{display:block;font-size:${st.nf}${st.nb ? ';font-weight:bold' : ''}}
+      .item .bc{display:block;margin:2px 0}
+      .item .bc svg,.item .bc img{display:block;margin:0 auto;max-width:100%;height:auto}
+      .item .cd{display:block;letter-spacing:1px}
+      .item .pr{display:inline-block;font-weight:bold}
+      @page{size:${isA4 ? 'A4' : 'Letter'};margin:0}
+      @media print{
+        html,body{background:#fff}
+        .barcode,.barcodea4{margin:0;border:none}
+        .item{border:none}
+      }
     `;
-    const body = `<div class="sheet">${labels.join('')}</div>`;
+    const body = pages.join('<div style="clear:both"></div>');
     return `<!doctype html><html><head><meta charset="utf-8"><title>Barcodes</title><style>${css}</style></head><body>${body}</body></html>`;
   }
 }

@@ -49,6 +49,15 @@ export function makeCrudHooks<T, TInput>(resource: string, key: string) {
     return useSharedInfiniteList<T>(KEY, `/${resource}`, params);
   }
 
+  /** Fetch a single record by id — used by the full-page edit route. */
+  function useOne(id: string | undefined) {
+    return useQuery({
+      queryKey: [...KEY, 'one', id],
+      queryFn: () => request<T>('GET', `/${resource}/${id}`),
+      enabled: !!id,
+    });
+  }
+
   function useCreate() {
     const qc = useQueryClient();
     return useMutation({
@@ -75,5 +84,5 @@ export function makeCrudHooks<T, TInput>(resource: string, key: string) {
     });
   }
 
-  return { useList, useInfiniteList, useCreate, useUpdate, useRemove };
+  return { useList, useInfiniteList, useOne, useCreate, useUpdate, useRemove };
 }

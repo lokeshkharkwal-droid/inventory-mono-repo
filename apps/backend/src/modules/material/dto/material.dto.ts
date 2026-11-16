@@ -14,8 +14,36 @@ import {
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
+/** EZ Health Track "Add Material" asset-register parity fields (shared). */
+class MaterialParityDto {
+  @IsOptional() @IsDateString() entryDate?: string;
+  @IsOptional() @IsString() @MaxLength(100) purchaseOrderNo?: string;
+  @IsOptional() @IsString() billerId?: string;
+  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsString() @MaxLength(255) department?: string;
+  @IsOptional() @IsString() @MaxLength(255) departmentRoom?: string;
+  @IsOptional() @IsString() @MaxLength(255) sellerName?: string;
+  @IsOptional() @IsDateString() purchaseDate?: string;
+  @IsOptional() @IsDateString() installationDate?: string;
+  @IsOptional() @IsIn(['completed', 'pending']) materialStatus?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() grandTotal?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() amcCost?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() cmcCost?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() estimatedPresentCost?: number;
+  @IsOptional() @IsString() @MaxLength(100) codalLife?: string;
+  @IsOptional()
+  @IsIn(['pending', 'due', 'expired', 'active'])
+  amcStatus?: string;
+  @IsOptional() @IsDateString() amcStartDate?: string;
+  @IsOptional() @IsDateString() amcEndDate?: string;
+  @IsOptional() @IsString() @MaxLength(255) issueTo?: string;
+  @IsOptional() @IsString() @MaxLength(255) transferTo?: string;
+  @IsOptional() @IsString() @MaxLength(2048) documentUrl?: string;
+  @IsOptional() @IsString() @MaxLength(1000) staffNote?: string;
+}
+
 /** Create a material (consumable/equipment). */
-export class CreateMaterialDto {
+export class CreateMaterialDto extends MaterialParityDto {
   @IsString() @MaxLength(255) name: string;
   @IsOptional() @IsString() @MaxLength(50) code?: string;
   @IsOptional() @IsString() @MaxLength(255) category?: string;
@@ -29,7 +57,7 @@ export class CreateMaterialDto {
 }
 
 /** Update a material (all fields optional). */
-export class UpdateMaterialDto {
+export class UpdateMaterialDto extends MaterialParityDto {
   @IsOptional() @IsString() @MaxLength(255) name?: string;
   @IsOptional() @IsString() @MaxLength(50) code?: string;
   @IsOptional() @IsString() @MaxLength(255) category?: string;

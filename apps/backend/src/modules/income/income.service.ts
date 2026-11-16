@@ -38,6 +38,9 @@ export class IncomeService {
         date: dto.date ? new Date(dto.date) : new Date(),
         note: dto.note,
         createdBy: actorId,
+        warehouseId: dto.warehouseId,
+        taxMethod: dto.taxMethod,
+        attachmentUrl: dto.attachmentUrl,
       },
     });
   }
@@ -86,6 +89,9 @@ export class IncomeService {
         amount: dto.amount,
         date: dto.date ? new Date(dto.date) : undefined,
         note: dto.note,
+        warehouseId: dto.warehouseId,
+        taxMethod: dto.taxMethod,
+        attachmentUrl: dto.attachmentUrl,
       },
     });
   }

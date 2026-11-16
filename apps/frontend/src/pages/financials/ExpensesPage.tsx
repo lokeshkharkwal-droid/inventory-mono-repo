@@ -1,8 +1,12 @@
 import { useMemo } from 'react';
 import { MasterCrudPage } from '@/components/shared/MasterCrudPage';
 import type { Column } from '@/components/shared/DataTable';
-import type { FieldConfig } from '@/components/shared/CrudFormDialog';
 import { expenseHooks, type Expense } from '@/features/expenses/api';
+import {
+  expenseFields,
+  expenseEmptyValues,
+  expenseToFormValues,
+} from '@/features/expenses/form';
 import { expenseCategoryHooks } from '@/features/expense-categories/api';
 
 /** Operating expenses screen (tied to expense categories). */
@@ -21,24 +25,6 @@ export function ExpensesPage() {
     { key: 'amount', header: 'Amount', render: (r) => r.amount.toFixed(2) },
   ];
 
-  const fields: FieldConfig[] = [
-    { name: 'amount', label: 'Amount', type: 'number', required: true },
-    {
-      name: 'categoryId',
-      label: 'Category',
-      type: 'async-select',
-      async: {
-        queryKey: ['expense-categories'],
-        path: '/expense-categories',
-        placeholder: 'Select category…',
-        clearable: true,
-      },
-    },
-    { name: 'reference', label: 'Reference', type: 'text' },
-    { name: 'date', label: 'Date', type: 'date' },
-    { name: 'note', label: 'Note', type: 'textarea' },
-  ];
-
   return (
     <MasterCrudPage<Expense>
       title="Expenses"
@@ -46,15 +32,10 @@ export function ExpensesPage() {
       newLabel="New expense"
       hooks={expenseHooks}
       columns={columns}
-      fields={fields}
-      emptyValues={{ amount: '0', categoryId: '', reference: '', date: '', note: '' }}
-      toFormValues={(r) => ({
-        amount: String(r.amount),
-        categoryId: r.categoryId ?? '',
-        reference: r.reference,
-        date: r.date ? r.date.slice(0, 10) : '',
-        note: r.note ?? '',
-      })}
+      fields={expenseFields}
+      formBasePath="/expenses"
+      emptyValues={expenseEmptyValues}
+      toFormValues={expenseToFormValues}
       rowLabel={(r) => r.reference}
     />
   );

@@ -17,6 +17,27 @@ export interface Supplier {
   taxNumber: string | null;
   openingBalance: number;
   isActive: boolean;
+  // EZ Health Track parity fields.
+  type: string | null;
+  contactPerson: string | null;
+  countryId: string | null;
+  stateId: string | null;
+  cityId: string | null;
+  country: string | null;
+  state: string | null;
+  city: string | null;
+  postalCode: string | null;
+  drugLicense: string | null;
+  vatNo: string | null;
+  gstNo: string | null;
+  panNo: string | null;
+  gstState: string | null;
+  cf1: string | null;
+  cf2: string | null;
+  cf3: string | null;
+  cf4: string | null;
+  cf5: string | null;
+  cf6: string | null;
 }
 
 export const supplierHooks = makeCrudHooks<Supplier, Record<string, unknown>>(

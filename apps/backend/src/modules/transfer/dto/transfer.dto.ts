@@ -14,7 +14,7 @@ import {
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
-/** A line on a transfer. */
+/** A line on a transfer (EZ Health Track item columns). */
 export class TransferItemDto {
   @IsString()
   productId: string;
@@ -23,6 +23,14 @@ export class TransferItemDto {
   @IsNumber()
   @Min(0.0001)
   quantity: number;
+
+  @IsOptional() @IsDateString() expiryDate?: string;
+  @IsOptional() @IsString() @MaxLength(100) productSerial?: string;
+  @IsOptional() @IsString() @MaxLength(50) packSize?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() packQuantity?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() rate?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() mrp?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() taxRate?: number;
 }
 
 /** Create a stock transfer between two branches (warehouses). */
@@ -46,6 +54,14 @@ export class CreateTransferDto {
   @IsString()
   @MaxLength(1000)
   note?: string;
+
+  // EZ Health Track header parity.
+  @IsOptional() @IsString() @MaxLength(255) fromDepartment?: string;
+  @IsOptional() @IsString() @MaxLength(255) toDepartment?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() shipping?: number;
+  @IsOptional() @IsString() @MaxLength(1000) attachmentUrl?: string;
+  /** Legacy "Status": Pending (PENDING) or Sent (IN_TRANSIT). Received is via the receive action. */
+  @IsOptional() @IsIn(['PENDING', 'IN_TRANSIT']) status?: 'PENDING' | 'IN_TRANSIT';
 
   @IsArray()
   @ArrayNotEmpty()

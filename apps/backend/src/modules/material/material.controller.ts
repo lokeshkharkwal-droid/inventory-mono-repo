@@ -50,6 +50,23 @@ export class MaterialController {
     return this.materialService.findAll(tenantId, query);
   }
 
+  // Declared before `:id` so the literal segments are not captured as an id.
+  @Get('repairs')
+  listRepairs(
+    @CurrentTenant() tenantId: string,
+    @Query() query: MaterialQueryDto,
+  ) {
+    return this.materialService.listRepairs(tenantId, query);
+  }
+
+  @Get('damages')
+  listDamages(
+    @CurrentTenant() tenantId: string,
+    @Query() query: MaterialQueryDto,
+  ) {
+    return this.materialService.listDamages(tenantId, query);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.materialService.findById(id, tenantId);

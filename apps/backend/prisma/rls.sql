@@ -43,6 +43,8 @@ BEGIN
     'inventory_variants',
     'inventory_products',
     'inventory_product_variants',
+    'inventory_variant_warehouse_products',
+    'inventory_product_suppliers',
     'inventory_warehouse_products',
     'inventory_stock_adjustments',
     'inventory_product_batches',

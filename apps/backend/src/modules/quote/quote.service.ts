@@ -60,6 +60,10 @@ export class QuoteService {
         const unitPrice = D(item.unitPrice);
         const discount = D(item.discount ?? 0);
         const taxRate = D(item.taxRate ?? 0);
+        // Net unit price = unit price less the per-unit discount (EZHT net_unit_price).
+        const netUnitPrice = qty.gt(0)
+          ? unitPrice.sub(discount.div(qty))
+          : unitPrice;
         const lineSubtotal = qty.mul(unitPrice).sub(discount);
         const taxAmount = lineSubtotal.mul(taxRate).div(100);
         return {
@@ -69,19 +73,32 @@ export class QuoteService {
           productCode: product.code,
           quantity: qty,
           unitPrice,
+          netUnitPrice,
           taxRate,
           taxAmount,
           discount,
           subtotal: lineSubtotal,
+          packSize: item.packSize,
+          packQuantity:
+            item.packQuantity != null ? D(item.packQuantity) : undefined,
+          productType: item.productType,
+          optionId: item.optionId,
         };
       }),
     );
 
     const subtotal = lines.reduce((s, l) => s.add(l.subtotal), D(0));
-    const orderTax = lines.reduce((s, l) => s.add(l.taxAmount), D(0));
+    const productTax = lines.reduce((s, l) => s.add(l.taxAmount), D(0));
+    const productDiscount = lines.reduce((s, l) => s.add(l.discount), D(0));
+    const totalItems = dto.items.reduce((s, i) => s + Number(i.quantity || 0), 0);
     const orderDiscount = D(dto.orderDiscount ?? 0);
+    const orderTax = D(dto.orderTax ?? 0);
+    const totalTax = productTax.add(orderTax);
     const shipping = D(dto.shipping ?? 0);
-    const grandTotal = subtotal.add(orderTax).add(shipping).sub(orderDiscount);
+    const grandTotal = subtotal
+      .add(totalTax)
+      .add(shipping)
+      .sub(orderDiscount);
 
     return this.prisma.withTenant(tenantId, async (tx) =>
       tx.inventoryQuote.create({
@@ -91,14 +108,25 @@ export class QuoteService {
           type: dto.type,
           customerId: dto.customerId,
           supplierId: dto.supplierId,
+          billerId: dto.billerId,
+          warehouseId: dto.warehouseId,
           reference: dto.reference ?? generateReference('QT'),
           date: dto.date ? new Date(dto.date) : new Date(),
-          status: 'DRAFT',
+          status: dto.status ?? 'DRAFT',
           subtotal,
           orderTax,
           orderDiscount,
+          productDiscount,
+          totalTax,
+          totalItems,
           shipping,
           grandTotal,
+          gstNumber: dto.gstNumber,
+          gstState: dto.gstState,
+          attachmentUrl: dto.attachmentUrl,
+          referralInfo: dto.referral
+            ? (dto.referral as unknown as Prisma.InputJsonValue)
+            : undefined,
           note: dto.note,
           createdBy: actorId,
           items: { create: lines },

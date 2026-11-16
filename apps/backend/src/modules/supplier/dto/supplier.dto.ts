@@ -32,6 +32,28 @@ export class CreateSupplierDto {
   openingBalance?: number;
 
   @IsOptional() @IsBoolean() isActive?: boolean;
+
+  // EZ Health Track "Add Supplier" parity fields.
+  @IsOptional() @IsIn(['company', 'person']) type?: string;
+  @IsOptional() @IsString() @MaxLength(255) contactPerson?: string;
+  @IsOptional() @IsString() countryId?: string;
+  @IsOptional() @IsString() stateId?: string;
+  @IsOptional() @IsString() cityId?: string;
+  @IsOptional() @IsString() @MaxLength(100) country?: string;
+  @IsOptional() @IsString() @MaxLength(100) state?: string;
+  @IsOptional() @IsString() @MaxLength(100) city?: string;
+  @IsOptional() @IsString() @MaxLength(20) postalCode?: string;
+  @IsOptional() @IsString() @MaxLength(100) drugLicense?: string;
+  @IsOptional() @IsString() @MaxLength(100) vatNo?: string;
+  @IsOptional() @IsString() @MaxLength(100) gstNo?: string;
+  @IsOptional() @IsString() @MaxLength(100) panNo?: string;
+  @IsOptional() @IsString() @MaxLength(100) gstState?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf1?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf2?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf3?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf4?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf5?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf6?: string;
 }
 
 /** Update a supplier (all fields optional). */
@@ -50,6 +72,28 @@ export class UpdateSupplierDto {
   openingBalance?: number;
 
   @IsOptional() @IsBoolean() isActive?: boolean;
+
+  // EZ Health Track "Add Supplier" parity fields.
+  @IsOptional() @IsIn(['company', 'person']) type?: string;
+  @IsOptional() @IsString() @MaxLength(255) contactPerson?: string;
+  @IsOptional() @IsString() countryId?: string;
+  @IsOptional() @IsString() stateId?: string;
+  @IsOptional() @IsString() cityId?: string;
+  @IsOptional() @IsString() @MaxLength(100) country?: string;
+  @IsOptional() @IsString() @MaxLength(100) state?: string;
+  @IsOptional() @IsString() @MaxLength(100) city?: string;
+  @IsOptional() @IsString() @MaxLength(20) postalCode?: string;
+  @IsOptional() @IsString() @MaxLength(100) drugLicense?: string;
+  @IsOptional() @IsString() @MaxLength(100) vatNo?: string;
+  @IsOptional() @IsString() @MaxLength(100) gstNo?: string;
+  @IsOptional() @IsString() @MaxLength(100) panNo?: string;
+  @IsOptional() @IsString() @MaxLength(100) gstState?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf1?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf2?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf3?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf4?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf5?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf6?: string;
 }
 
 /** Record a supplier-level payment (not tied to a specific purchase). */

@@ -304,6 +304,29 @@ export async function uploadAttachment(file: File): Promise<string> {
   return data.url;
 }
 
+/**
+ * Upload a single document to the INVENTORY backend's own DigitalOcean Spaces
+ * endpoint (`POST /uploads/attachment` on `VITE_API_BASE`) and return its public
+ * URL. Used by the "Document" attachment fields on transfers / quotes /
+ * requisitions / purchases / materials; the backend stores only the returned URL
+ * in the existing attachmentUrl/document fields.
+ */
+export async function uploadInventoryDocument(file: File): Promise<string> {
+  const fd = new FormData();
+  fd.append('file', file);
+  // Go through the `api` instance so the Bearer token is attached AND a 401 is
+  // transparently refreshed + retried (a bare axios call would not refresh).
+  // Override the instance's default JSON Content-Type with `undefined` so the
+  // browser sets `multipart/form-data` with the correct boundary for FormData.
+  const res = await api.post(`/uploads/attachment`, fd, {
+    headers: { 'Content-Type': undefined as unknown as string },
+    timeout: REQUEST_TIMEOUT_MS,
+  });
+  const data = unwrap<{ url: string }>(res.data);
+  if (!data?.url) throw new ApiError(0, 'Upload failed', 'POST', '/uploads/attachment');
+  return data.url;
+}
+
 // ─── JWT payload + profile switching ──────────────────────────────────────────
 /** One of the user's assignable profiles, embedded in the access token. */
 export interface JwtProfile {

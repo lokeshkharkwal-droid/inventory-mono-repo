@@ -7,6 +7,10 @@ export interface Income {
   amount: number;
   date: string;
   note: string | null;
+  // EZ Health Track parity fields.
+  warehouseId: string | null;
+  taxMethod: string | null;
+  attachmentUrl: string | null;
 }
 
 export const incomeHooks = makeCrudHooks<Income, Record<string, unknown>>(

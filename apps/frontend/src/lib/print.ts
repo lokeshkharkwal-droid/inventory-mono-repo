@@ -54,3 +54,32 @@ export async function openPrintDocumentPost(
   const html = await request<string>('POST', path, { body });
   return printHtml(html);
 }
+
+/**
+ * Fetch a print document (POST) and return its raw HTML — for rendering an
+ * on-page preview (e.g. in an iframe `srcDoc`) before printing. Unlike
+ * {@link openPrintDocumentPost} this does not open a window or print.
+ */
+export async function fetchPrintHtml(
+  path: string,
+  body: unknown,
+): Promise<string> {
+  return request<string>('POST', path, { body });
+}
+
+/**
+ * Print only the contents of an iframe (its own document), so surrounding page
+ * chrome — sidebar, navbar, buttons — is never printed. The iframe must be
+ * same-origin (e.g. populated via `srcDoc`).
+ */
+export function printIframe(iframe: HTMLIFrameElement | null): boolean {
+  const win = iframe?.contentWindow;
+  if (!win) return false;
+  try {
+    win.focus();
+    win.print();
+    return true;
+  } catch {
+    return false;
+  }
+}

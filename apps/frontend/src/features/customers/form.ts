@@ -1,0 +1,105 @@
+import type { FieldConfig } from '@/components/shared/CrudFormDialog';
+import type { Customer } from './api';
+
+/**
+ * Customer/Patient create/edit form config — full EZ Health Track "Add Customer"
+ * / "Add Patient" field set (the patient form adds the GST/PAN fields, which we
+ * surface for both). Shared by the Customers & Patients list pages and their
+ * dedicated `/customers/add`, `/patients/add` form pages.
+ */
+export const customerFields: FieldConfig[] = [
+  { name: 'name', label: 'Name', type: 'text', required: true },
+  { name: 'companyName', label: 'Company', type: 'text' },
+  { name: 'code', label: 'Code', type: 'text' },
+  { name: 'contactPerson', label: 'Contact person', type: 'text' },
+  { name: 'email', label: 'Email', type: 'email' },
+  { name: 'phone', label: 'Phone', type: 'text' },
+  { name: 'address', label: 'Address', type: 'textarea' },
+  { name: 'country', label: 'Country', type: 'text' },
+  { name: 'state', label: 'State', type: 'text' },
+  { name: 'city', label: 'City', type: 'text' },
+  { name: 'postalCode', label: 'Postal code', type: 'text' },
+  { name: 'taxNumber', label: 'Tax number', type: 'text' },
+  { name: 'vatNo', label: 'VAT no.', type: 'text' },
+  { name: 'gstNo', label: 'GST no.', type: 'text' },
+  { name: 'panNo', label: 'PAN no.', type: 'text' },
+  { name: 'gstState', label: 'GST state', type: 'text' },
+  { name: 'creditLimit', label: 'Credit limit', type: 'number' },
+  {
+    name: 'referredByCustomerId',
+    label: 'Referred by',
+    type: 'async-select',
+    async: {
+      queryKey: ['customers', 'referrer-pick'],
+      path: '/customers',
+      optionLabelKey: 'name',
+      placeholder: 'Search a customer…',
+      clearable: true,
+    },
+  },
+  { name: 'ccf1', label: 'Custom field 1', type: 'text' },
+  { name: 'ccf2', label: 'Custom field 2', type: 'text' },
+  { name: 'ccf3', label: 'Custom field 3', type: 'text' },
+  { name: 'ccf4', label: 'Custom field 4', type: 'text' },
+  { name: 'ccf5', label: 'Custom field 5', type: 'text' },
+  { name: 'ccf6', label: 'Custom field 6', type: 'text' },
+  { name: 'isActive', label: 'Active', type: 'bool' },
+];
+
+export const customerEmptyValues: Record<string, string | boolean> = {
+  name: '',
+  companyName: '',
+  code: '',
+  contactPerson: '',
+  email: '',
+  phone: '',
+  address: '',
+  country: '',
+  state: '',
+  city: '',
+  postalCode: '',
+  taxNumber: '',
+  vatNo: '',
+  gstNo: '',
+  panNo: '',
+  gstState: '',
+  creditLimit: '',
+  referredByCustomerId: '',
+  ccf1: '',
+  ccf2: '',
+  ccf3: '',
+  ccf4: '',
+  ccf5: '',
+  ccf6: '',
+  isActive: true,
+};
+
+export const customerToFormValues = (
+  r: Customer,
+): Record<string, string | boolean> => ({
+  name: r.name,
+  companyName: r.companyName ?? '',
+  code: r.code ?? '',
+  contactPerson: r.contactPerson ?? '',
+  email: r.email ?? '',
+  phone: r.phone ?? '',
+  address: r.address ?? '',
+  country: r.country ?? '',
+  state: r.state ?? '',
+  city: r.city ?? '',
+  postalCode: r.postalCode ?? '',
+  taxNumber: r.taxNumber ?? '',
+  vatNo: r.vatNo ?? '',
+  gstNo: r.gstNo ?? '',
+  panNo: r.panNo ?? '',
+  gstState: r.gstState ?? '',
+  creditLimit: r.creditLimit != null ? String(r.creditLimit) : '',
+  referredByCustomerId: r.referredByCustomerId ?? '',
+  ccf1: r.ccf1 ?? '',
+  ccf2: r.ccf2 ?? '',
+  ccf3: r.ccf3 ?? '',
+  ccf4: r.ccf4 ?? '',
+  ccf5: r.ccf5 ?? '',
+  ccf6: r.ccf6 ?? '',
+  isActive: r.isActive,
+});

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, ArrowRightLeft, Trash2, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,14 +15,17 @@ import {
   useQuoteStatus,
   type QuoteListRow,
 } from '@/features/quotes/api';
-import { QuoteFormDialog } from '@/features/quotes/QuoteFormDialog';
 
-/** Quotes list + create + approve/reject + convert-to-sale. */
-export function QuotesPage() {
+/**
+ * Quotes list + approve/reject + convert. Add opens the dedicated page. `type`
+ * filters to the sales- or purchase-quote subset (EZ Health Track splits them).
+ */
+export function QuotesPage({ type }: { type?: 'SALE' | 'PURCHASE' } = {}) {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [formOpen, setFormOpen] = useState(false);
+  const extra = useMemo(() => (type ? { type } : undefined), [type]);
   const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
-    useInfiniteQuotes({ search });
+    useInfiniteQuotes({ search, extra });
   const convert = useConvertQuote();
   const del = useDeleteQuote();
   const status = useQuoteStatus();
@@ -106,13 +110,30 @@ export function QuotesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Quotes</h1>
+          <h1 className="text-xl font-semibold">
+            {type === 'PURCHASE'
+              ? 'Purchase Quotes'
+              : type === 'SALE'
+                ? 'Sales Quotes'
+                : 'Quotes'}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Sales & purchase quotations.
+            {type === 'PURCHASE'
+              ? 'Quotations requested from suppliers.'
+              : type === 'SALE'
+                ? 'Quotations issued to customers.'
+                : 'Sales & purchase quotations.'}
           </p>
         </div>
-        <Button onClick={() => setFormOpen(true)}>
-          <Plus className="h-4 w-4" /> New quote
+        <Button
+          onClick={() =>
+            navigate(
+              type === 'PURCHASE' ? '/quotes/purchases/add' : '/quotes/sales/add',
+            )
+          }
+        >
+          <Plus className="h-4 w-4" />{' '}
+          {type === 'PURCHASE' ? 'New purchase quote' : 'New sales quote'}
         </Button>
       </div>
 
@@ -131,8 +152,6 @@ export function QuotesPage() {
         emptyMessage="No quotes yet."
         infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
-
-      <QuoteFormDialog open={formOpen} onOpenChange={setFormOpen} />
     </div>
   );
 }

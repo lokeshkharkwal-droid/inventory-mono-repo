@@ -6,9 +6,16 @@ import { CategoryService } from '../category/category.service';
 import { SubCategoryService } from '../sub-category/sub-category.service';
 import { UnitService } from '../unit/unit.service';
 import { BrandService } from '../brand/brand.service';
+import { ManufacturerService } from '../manufacturer/manufacturer.service';
+import { SupplierService } from '../supplier/supplier.service';
 import { TaxRateService } from '../tax-rate/tax-rate.service';
 import { TenantRegistryService } from '../alerts/tenant-registry.service';
-import { CreateProductDto } from './dto/create-product.dto';
+import {
+  CreateProductDto,
+  ProductSupplierInputDto,
+  ProductVariantInputDto,
+  ProductWarehouseStockInputDto,
+} from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
 import { BulkPriceUpdateDto } from './dto/product-tools.dto';
@@ -24,6 +31,7 @@ const PRODUCT_INCLUDE = {
   subCategory: { select: { id: true, name: true } },
   unit: { select: { id: true, name: true } },
   brand: { select: { id: true, name: true } },
+  manufacturer: { select: { id: true, name: true } },
   taxRate: { select: { id: true, name: true, rate: true } },
   variants: {
     where: { deletedAt: null },
@@ -33,6 +41,22 @@ const PRODUCT_INCLUDE = {
       sku: true,
       costAdjustment: true,
       priceAdjustment: true,
+      warehouseStocks: {
+        where: { deletedAt: null },
+        select: { id: true, branchId: true, quantity: true, cost: true },
+      },
+    },
+  },
+  suppliers: {
+    where: { deletedAt: null },
+    orderBy: { sortOrder: 'asc' },
+    select: {
+      id: true,
+      supplierId: true,
+      partNumber: true,
+      price: true,
+      sortOrder: true,
+      supplier: { select: { id: true, name: true } },
     },
   },
   drugs: {
@@ -80,6 +104,80 @@ function ezhtScalarData(dto: CreateProductDto | UpdateProductDto) {
 }
 
 /**
+ * Build the nested variant create payload. A variant may carry an initial
+ * warehouse (branch) + quantity + cost (EZHT "attributes" table parity), which
+ * is written as an InventoryVariantWarehouseProduct row.
+ */
+function buildVariantCreate(
+  tenantId: string,
+  variants: ProductVariantInputDto[] | undefined,
+):
+  | Prisma.InventoryProductVariantCreateNestedManyWithoutProductInput
+  | undefined {
+  if (!variants?.length) return undefined;
+  return {
+    create: variants.map((v) => ({
+      tenantId,
+      name: v.name,
+      sku: v.sku,
+      costAdjustment: v.costAdjustment ?? 0,
+      priceAdjustment: v.priceAdjustment ?? 0,
+      warehouseStocks:
+        v.branchId && (v.quantity != null || v.cost != null)
+          ? {
+              create: [
+                {
+                  tenantId,
+                  branchId: v.branchId,
+                  quantity: v.quantity ?? 0,
+                  cost: v.cost,
+                },
+              ],
+            }
+          : undefined,
+    })),
+  };
+}
+
+/** Build the nested per-product supplier create payload (capped at 5, ordered). */
+function buildSupplierCreate(
+  tenantId: string,
+  suppliers: ProductSupplierInputDto[] | undefined,
+):
+  | Prisma.InventoryProductSupplierCreateNestedManyWithoutProductInput
+  | undefined {
+  if (!suppliers?.length) return undefined;
+  return {
+    create: suppliers.slice(0, 5).map((s, i) => ({
+      tenantId,
+      supplierId: s.supplierId,
+      partNumber: s.partNumber,
+      price: s.price,
+      sortOrder: i,
+    })),
+  };
+}
+
+/** Build the nested initial per-branch stock create payload. */
+function buildWarehouseStockCreate(
+  tenantId: string,
+  stocks: ProductWarehouseStockInputDto[] | undefined,
+):
+  | Prisma.InventoryWarehouseProductCreateNestedManyWithoutProductInput
+  | undefined {
+  if (!stocks?.length) return undefined;
+  return {
+    create: stocks.map((w) => ({
+      tenantId,
+      branchId: w.branchId,
+      quantity: w.quantity ?? 0,
+      avgCost: w.cost ?? 0,
+      rack: w.rack,
+    })),
+  };
+}
+
+/**
  * Products — tenant-level catalogue (CLAUDE.md §4.7). References (category/
  * sub-category/unit/brand/tax) are validated via injected master-data services
  * (rule #3). Stock lives per-branch and is handled by ProductStockService.
@@ -92,6 +190,8 @@ export class ProductService {
     private readonly subCategoryService: SubCategoryService,
     private readonly unitService: UnitService,
     private readonly brandService: BrandService,
+    private readonly manufacturerService: ManufacturerService,
+    private readonly supplierService: SupplierService,
     private readonly taxRateService: TaxRateService,
     private readonly registry: TenantRegistryService,
   ) {}
@@ -113,6 +213,7 @@ export class ProductService {
           subCategoryId: dto.subCategoryId,
           unitId: dto.unitId,
           brandId: dto.brandId,
+          manufacturerId: dto.manufacturerId,
           taxRateId: dto.taxRateId,
           type: dto.type ?? 'standard',
           cost: dto.cost ?? 0,
@@ -130,17 +231,12 @@ export class ProductService {
           hsnCode: dto.hsnCode,
           isSerialized: dto.isSerialized ?? false,
           sourceMasterProductId: dto.sourceMasterProductId,
-          variants: dto.variants?.length
-            ? {
-                create: dto.variants.map((v) => ({
-                  tenantId,
-                  name: v.name,
-                  sku: v.sku,
-                  costAdjustment: v.costAdjustment ?? 0,
-                  priceAdjustment: v.priceAdjustment ?? 0,
-                })),
-              }
-            : undefined,
+          variants: buildVariantCreate(tenantId, dto.variants),
+          suppliers: buildSupplierCreate(tenantId, dto.suppliers),
+          warehouseStocks: buildWarehouseStockCreate(
+            tenantId,
+            dto.warehouseStocks,
+          ),
         },
         include: PRODUCT_INCLUDE,
       });
@@ -180,13 +276,18 @@ export class ProductService {
           type: true,
           cost: true,
           price: true,
+          packCost: true,
+          packMrp: true,
           alertQuantity: true,
+          imageUrl: true,
           isActive: true,
           category: { select: { id: true, name: true } },
+          subCategory: { select: { id: true, name: true } },
           brand: { select: { id: true, name: true } },
+          unit: { select: { id: true, name: true } },
           warehouseStocks: {
             where: { deletedAt: null },
-            select: { quantity: true },
+            select: { quantity: true, rack: true },
           },
         },
         orderBy: { name: 'asc' },
@@ -197,13 +298,15 @@ export class ProductService {
       return [items, count] as const;
     });
 
-    // Flatten per-branch stock into a single total for the list row.
+    // Flatten per-branch stock into a single total for the list row; surface the
+    // first non-empty rack (EZHT only shows rack in a warehouse-specific view).
     const data = rows.map(({ warehouseStocks, ...p }) => ({
       ...p,
       totalQuantity: warehouseStocks.reduce(
         (sum, s) => sum.add(s.quantity),
         new Prisma.Decimal(0),
       ),
+      rack: warehouseStocks.find((s) => s.rack)?.rack ?? null,
     }));
 
     return { data, total, page, limit };
@@ -236,10 +339,42 @@ export class ProductService {
     if (dto.code) await this.assertCodeFree(tenantId, dto.code, id);
 
     return this.prisma.withTenant(tenantId, async (tx) => {
+      // Variants are replaced wholesale when supplied; their per-warehouse stock
+      // rows cascade-delete with them.
       if (dto.variants) {
         await tx.inventoryProductVariant.deleteMany({
           where: { productId: id },
         });
+      }
+      // Suppliers are likewise replaced wholesale when supplied.
+      if (dto.suppliers) {
+        await tx.inventoryProductSupplier.deleteMany({
+          where: { productId: id },
+        });
+      }
+      // Initial/edited per-branch stock is applied as an upsert so existing
+      // stock + average cost are preserved for branches not in the payload.
+      if (dto.warehouseStocks?.length) {
+        for (const w of dto.warehouseStocks) {
+          await tx.inventoryWarehouseProduct.upsert({
+            where: {
+              productId_branchId: { productId: id, branchId: w.branchId },
+            },
+            update: {
+              quantity: w.quantity ?? 0,
+              ...(w.cost != null ? { avgCost: w.cost } : {}),
+              ...(w.rack !== undefined ? { rack: w.rack } : {}),
+            },
+            create: {
+              tenantId,
+              branchId: w.branchId,
+              productId: id,
+              quantity: w.quantity ?? 0,
+              avgCost: w.cost ?? 0,
+              rack: w.rack,
+            },
+          });
+        }
       }
       return tx.inventoryProduct.update({
         where: { id },
@@ -251,6 +386,7 @@ export class ProductService {
           subCategoryId: dto.subCategoryId,
           unitId: dto.unitId,
           brandId: dto.brandId,
+          manufacturerId: dto.manufacturerId,
           taxRateId: dto.taxRateId,
           type: dto.type,
           cost: dto.cost,
@@ -267,17 +403,8 @@ export class ProductService {
           potency: dto.potency,
           hsnCode: dto.hsnCode,
           isSerialized: dto.isSerialized,
-          variants: dto.variants
-            ? {
-                create: dto.variants.map((v) => ({
-                  tenantId,
-                  name: v.name,
-                  sku: v.sku,
-                  costAdjustment: v.costAdjustment ?? 0,
-                  priceAdjustment: v.priceAdjustment ?? 0,
-                })),
-              }
-            : undefined,
+          variants: buildVariantCreate(tenantId, dto.variants),
+          suppliers: buildSupplierCreate(tenantId, dto.suppliers),
         },
         include: PRODUCT_INCLUDE,
       });
@@ -405,6 +532,7 @@ export class ProductService {
           subCategoryId: source.subCategoryId,
           unitId: source.unitId,
           brandId: source.brandId,
+          manufacturerId: source.manufacturerId,
           taxRateId: source.taxRateId,
           type: source.type,
           cost: source.cost,
@@ -537,8 +665,15 @@ export class ProductService {
       await this.subCategoryService.findById(dto.subCategoryId, tenantId);
     if (dto.unitId) await this.unitService.findById(dto.unitId, tenantId);
     if (dto.brandId) await this.brandService.findById(dto.brandId, tenantId);
+    if (dto.manufacturerId)
+      await this.manufacturerService.findById(dto.manufacturerId, tenantId);
     if (dto.taxRateId)
       await this.taxRateService.findById(dto.taxRateId, tenantId);
+    if (dto.suppliers?.length) {
+      for (const s of dto.suppliers) {
+        await this.supplierService.findById(s.supplierId, tenantId);
+      }
+    }
   }
 
   private async assertCodeFree(

@@ -24,6 +24,24 @@ export class CreateManufacturerDto {
   @IsOptional() @IsString() @MaxLength(2048) imageUrl?: string;
   @IsOptional() @IsString() @MaxLength(1000) note?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+
+  // EZ Health Track "Add Manufacturer" parity fields.
+  @IsOptional() @IsString() @MaxLength(255) contactPerson?: string;
+  @IsOptional() @IsString() @MaxLength(100) vatNo?: string;
+  @IsOptional() @IsString() countryId?: string;
+  @IsOptional() @IsString() stateId?: string;
+  @IsOptional() @IsString() cityId?: string;
+  @IsOptional() @IsString() @MaxLength(100) city?: string;
+  @IsOptional() @IsString() @MaxLength(100) state?: string;
+  @IsOptional() @IsString() @MaxLength(20) postalCode?: string;
+  @IsOptional() @IsString() @MaxLength(100) country?: string;
+  @IsOptional() @IsString() @MaxLength(1000) invoiceFooter?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf1?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf2?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf3?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf4?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf5?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf6?: string;
 }
 
 /** Update a manufacturer (all fields optional). */
@@ -38,6 +56,24 @@ export class UpdateManufacturerDto {
   @IsOptional() @IsString() @MaxLength(2048) imageUrl?: string;
   @IsOptional() @IsString() @MaxLength(1000) note?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+
+  // EZ Health Track "Add Manufacturer" parity fields.
+  @IsOptional() @IsString() @MaxLength(255) contactPerson?: string;
+  @IsOptional() @IsString() @MaxLength(100) vatNo?: string;
+  @IsOptional() @IsString() countryId?: string;
+  @IsOptional() @IsString() stateId?: string;
+  @IsOptional() @IsString() cityId?: string;
+  @IsOptional() @IsString() @MaxLength(100) city?: string;
+  @IsOptional() @IsString() @MaxLength(100) state?: string;
+  @IsOptional() @IsString() @MaxLength(20) postalCode?: string;
+  @IsOptional() @IsString() @MaxLength(100) country?: string;
+  @IsOptional() @IsString() @MaxLength(1000) invoiceFooter?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf1?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf2?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf3?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf4?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf5?: string;
+  @IsOptional() @IsString() @MaxLength(255) cf6?: string;
 }
 
 /** List filters for manufacturers. */
