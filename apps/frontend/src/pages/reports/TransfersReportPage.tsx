@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -10,6 +10,7 @@ import {
   TextFilter,
   CategoryFilter,
   ProductFilter,
+  UserFilter,
 } from '@/features/reports/filters';
 
 interface TransferRow {
@@ -30,6 +31,9 @@ interface TransferRow {
 interface TransferResp {
   rows: TransferRow[];
   totals: { total: number; totalTax: number; shipping: number; grandTotal: number };
+  page: number;
+  limit: number;
+  total: number;
 }
 
 /** Transfers Report — inter-warehouse stock transfers. */
@@ -40,6 +44,14 @@ export function TransfersReportPage() {
   const [reference, setReference] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [productId, setProductId] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [serial, setSerial] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, warehouseId, reference, categoryId, productId, createdBy, serial]);
 
   const { data, isLoading } = useReport<TransferResp>('transfers', '/reports/transfers', {
     from,
@@ -48,9 +60,27 @@ export function TransfersReportPage() {
     reference,
     categoryId,
     productId,
+    createdBy,
+    serial,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
   });
   const rows = data?.rows ?? [];
   const t = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<TransferResp>('transfers-export', '/reports/transfers', {
+    from,
+    to,
+    warehouseId,
+    reference,
+    categoryId,
+    productId,
+    createdBy,
+    serial,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<TransferRow>[] = [
     { key: 'date', header: 'Date', value: (r) => fmtDate(r.date) },
@@ -76,18 +106,37 @@ export function TransfersReportPage() {
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
           <TextFilter label="Reference" value={reference} onChange={setReference} />
+          <TextFilter label="Serial Number" value={serial} onChange={setSerial} placeholder="Serial no…" />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
           <CategoryFilter value={categoryId} onChange={setCategoryId} />
           <ProductFilter value={productId} onChange={setProductId} />
         </>
       }
-      exportConfig={{ filename: 'transfers-report', columns, rows, totalsRow: totalsRow as (string | number)[] | undefined }}
+      exportConfig={{ filename: 'transfers-report', columns, rows: exportRows, totalsRow: totalsRow as (string | number)[] | undefined }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Transfers" value={rows.length} />
+        <StatCard label="Transfers" value={data?.total ?? rows.length} />
         <StatCard label="Total value" value={fmtMoney(t?.grandTotal)} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r) => r.id} isLoading={isLoading} emptyMessage="No transfers in range." totalsRow={totalsRow} />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        isLoading={isLoading}
+        emptyMessage="No transfers in range."
+        totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
     </ReportShell>
   );
 }

@@ -4,7 +4,12 @@ import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
 import { useReport } from '@/features/reports/useReport';
 import { fmtMoney, type ReportColumn } from '@/features/reports/types';
-import { YearFilter, WarehouseFilter } from '@/features/reports/filters';
+import {
+  YearFilter,
+  WarehouseFilter,
+  UserFilter,
+  TextFilter,
+} from '@/features/reports/filters';
 
 interface MonthRow {
   month: number;
@@ -40,8 +45,12 @@ export function MonthlySalesPage() {
   const nowY = new Date().getFullYear();
   const [year, setYear] = useState(nowY);
   const [warehouseId, setWarehouseId] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  // Serial Number has no source in this year-aggregate report — shown disabled
+  // (parity with the legacy filter bar) and never sent to the API.
+  const [serial, setSerial] = useState('');
 
-  const params = { year, warehouseId };
+  const params = { year, warehouseId, createdBy };
   const { data, isLoading } = useReport<MonthlyResp>(
     'monthly-sales',
     '/reports/monthly-sales',
@@ -74,10 +83,20 @@ export function MonthlySalesPage() {
     <ReportShell
       title="Monthly Sales"
       description="Month-by-month sales totals for the selected year."
+      imageExport
       filters={
         <>
           <YearFilter value={year} onChange={setYear} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
+          <TextFilter
+            label="Serial Number"
+            value={serial}
+            onChange={setSerial}
+            placeholder="Not available"
+            disabled
+            title="Serial number is not available on this year-aggregate report."
+          />
         </>
       }
       exportConfig={{
@@ -102,6 +121,7 @@ export function MonthlySalesPage() {
         isLoading={isLoading}
         emptyMessage="No sales for this year."
         totalsRow={totalsRow}
+        showEntries
       />
     </ReportShell>
   );

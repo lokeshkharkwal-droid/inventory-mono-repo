@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatCard } from '@/components/shared/StatCard';
-import { GroupedBarChart } from '@/features/reports/MiniChart';
-import { useReport } from '@/features/reports/useReport';
+import { OverviewChart } from '@/features/reports/OverviewChart';
+import { DonutChart } from '@/features/reports/MiniChart';
 import { fmtMoney } from '@/features/reports/types';
 import {
   REPORT_GROUPS,
@@ -16,27 +16,15 @@ import {
   usePurchaseSummary,
   useProfit,
   usePaymentsSummary,
+  useOverviewChart,
+  useWarehouseStock,
 } from '@/features/reports/api';
 
-interface MonthRow {
-  month: number;
-  label?: string;
-  total?: number | string;
-}
-interface MonthlyResp {
-  year: number;
-  months: MonthRow[];
-}
-
-const MONTH_ABBR = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
-
 /**
- * Reports landing / overview (legacy `reports` index "Overview Chart"):
- * period KPI cards, a monthly sales-vs-purchases trend chart, and a quick-link
- * grid to every migrated report (grouped exactly as the legacy sidebar).
+ * Reports landing / overview (legacy `reports` index "Stock Overview Chart"):
+ * period KPI cards, the monthly sales/purchases + tax combo chart with a
+ * stock-value donut, and a quick-link grid to every migrated report (grouped
+ * exactly as the legacy sidebar).
  */
 export function ReportsPage() {
   const year = useMemo(() => new Date().getFullYear(), []);
@@ -50,16 +38,23 @@ export function ReportsPage() {
   const purchases = usePurchaseSummary(range);
   const profit = useProfit(range);
   const payments = usePaymentsSummary(range);
-  const salesMonthly = useReport<MonthlyResp>('overview-monthly-sales', '/reports/monthly-sales', { year });
-  const purchasesMonthly = useReport<MonthlyResp>('overview-monthly-purchases', '/reports/monthly-purchases', { year });
+  const overview = useOverviewChart();
+  const stock = useWarehouseStock();
 
-  const monthTotal = (resp: MonthlyResp | undefined, m: number): number => {
-    const row = resp?.months?.find((x) => x.month === m);
-    return row ? Number(row.total ?? 0) : 0;
-  };
-  const salesSeries = MONTH_ABBR.map((_, i) => monthTotal(salesMonthly.data, i + 1));
-  const purchaseSeries = MONTH_ABBR.map((_, i) => monthTotal(purchasesMonthly.data, i + 1));
-  const hasTrend = salesSeries.some((v) => v > 0) || purchaseSeries.some((v) => v > 0);
+  const months = overview.data?.months ?? [];
+  const hasTrend = months.some(
+    (m) =>
+      m.sales > 0 ||
+      m.purchases > 0 ||
+      m.soldProductTax > 0 ||
+      m.orderTax > 0 ||
+      m.purchasedProductTax > 0,
+  );
+  const stockDonut = [
+    { name: 'Stock Value by Price', value: stock.data?.stockByPrice ?? 0 },
+    { name: 'Stock Value by Cost', value: stock.data?.stockByCost ?? 0 },
+  ];
+  const hasStock = (stock.data?.stockByPrice ?? 0) > 0 || (stock.data?.stockByCost ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -83,23 +78,39 @@ export function ReportsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Monthly sales vs purchases — {year}</CardTitle>
+          <CardTitle>Stock Overview Chart</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Monthly sales with product &amp; order tax (columns), purchases with
+            purchased product tax (lines) over the last 12 months, plus current
+            stock value by cost &amp; price. Click a legend entry to show/hide it.
+          </p>
         </CardHeader>
         <CardContent>
-          {hasTrend ? (
-            <GroupedBarChart
-              categories={MONTH_ABBR}
-              series={[
-                { name: 'Sales', data: salesSeries },
-                { name: 'Purchases', data: purchaseSeries },
-              ]}
-              formatValue={fmtMoney}
-            />
-          ) : (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No sales or purchases recorded for {year}.
-            </p>
-          )}
+          <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+            <div>
+              {hasTrend ? (
+                <OverviewChart months={months} />
+              ) : (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No sales or purchases recorded in the last 12 months.
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col items-center justify-center">
+              {hasStock ? (
+                <>
+                  <DonutChart data={stockDonut} formatValue={fmtMoney} size={200} />
+                  <p className="mt-2 text-center text-xs text-muted-foreground">
+                    Stock value — by price vs cost
+                  </p>
+                </>
+              ) : (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No stock value to show.
+                </p>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 

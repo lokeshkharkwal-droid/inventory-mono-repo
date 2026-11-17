@@ -90,6 +90,17 @@ export class SaleItemDto {
   @IsNumber()
   @Min(0)
   packQuantity?: number;
+
+  /**
+   * Number of imaging/radiology exposures for this line (legacy
+   * `sale_items.inv_exposure`) — powers the Exposures report. Captured manually
+   * at sale entry; 0 when not applicable.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  invExposure?: number;
 }
 
 /** Optional payment captured together with the sale (status partial/paid). */

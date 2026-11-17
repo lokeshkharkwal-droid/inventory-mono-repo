@@ -76,7 +76,7 @@ export class KalnosticsHttpService {
       page?: number;
       limit?: number;
     };
-    const data = (env.data ?? []) as T[];
+    const data = env.data ?? [];
     return {
       data,
       total: meta.total ?? data.length,

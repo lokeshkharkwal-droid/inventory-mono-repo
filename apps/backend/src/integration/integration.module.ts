@@ -4,6 +4,7 @@ import { KalnosticsHttpService } from './kalnostics-http.service';
 import { KalnosticsBranchClient } from './clients/kalnostics-branch.client';
 import { KalnosticsDepartmentClient } from './clients/kalnostics-department.client';
 import { KalnosticsLocationClient } from './clients/kalnostics-location.client';
+import { KalnosticsUsersClient } from './clients/kalnostics-users.client';
 import { IntegrationController } from './integration.controller';
 
 /**
@@ -23,12 +24,14 @@ import { IntegrationController } from './integration.controller';
     KalnosticsBranchClient,
     KalnosticsDepartmentClient,
     KalnosticsLocationClient,
+    KalnosticsUsersClient,
   ],
   exports: [
     KalnosticsHttpService,
     KalnosticsBranchClient,
     KalnosticsDepartmentClient,
     KalnosticsLocationClient,
+    KalnosticsUsersClient,
   ],
 })
 export class IntegrationModule {}

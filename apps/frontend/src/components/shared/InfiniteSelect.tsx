@@ -68,10 +68,13 @@ export function InfiniteSelect({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
+  // `silent` keeps option fetches off the global loading overlay — the dropdown
+  // renders its own inline spinner, so a filter dropdown must not flash the
+  // full-screen loader while loading/searching options.
   const { rows, isLoading, hasMore, isFetchingMore, fetchMore } = useInfiniteList<any>(
     queryKey,
     path,
-    { search, extra, enabled: open },
+    { search, extra, enabled: open, silent: true },
   );
 
   // Resolve the label to show on the trigger for the current value.

@@ -50,7 +50,7 @@ export class SaleController {
 
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.saleService.findById(id, tenantId);
+    return this.saleService.getDetail(id, tenantId);
   }
 
   @Patch(':id')

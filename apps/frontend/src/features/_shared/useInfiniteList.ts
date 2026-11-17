@@ -10,6 +10,12 @@ export interface InfiniteListParams {
   limit?: number;
   /** Disable the query until true. */
   enabled?: boolean;
+  /**
+   * Keep these fetches off the global loading overlay. Set by dropdown/combobox
+   * primitives (e.g. `InfiniteSelect`) that render their own inline spinner, so
+   * opening a filter dropdown doesn't flash the full-screen loader.
+   */
+  silent?: boolean;
 }
 
 /** Default batch size for infinite scrolling across the app. */
@@ -51,6 +57,7 @@ export function useInfiniteList<T>(
   const limit = params.limit ?? INFINITE_PAGE_SIZE;
   const search = params.search?.trim() || undefined;
   const extra = params.extra;
+  const silent = params.silent;
 
   const query = useInfiniteQuery({
     queryKey: [...key, 'infinite', { search, extra, limit }],
@@ -58,6 +65,7 @@ export function useInfiniteList<T>(
     queryFn: ({ pageParam }) =>
       requestPaged<T>('GET', path, {
         query: { page: pageParam as number, limit, search, ...extra },
+        silent,
       }),
     getNextPageParam: (lastPage) =>
       lastPage.meta.page < lastPage.meta.totalPages

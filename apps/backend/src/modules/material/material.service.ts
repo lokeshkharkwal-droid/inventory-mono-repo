@@ -71,6 +71,7 @@ export class MaterialService {
     tenantId: string,
     branchId: string | null,
     dto: CreateMaterialDto,
+    actorId?: string,
   ) {
     return this.prisma.inventoryMaterial.create({
       data: {
@@ -84,6 +85,7 @@ export class MaterialService {
         cost: dto.cost ?? 0,
         note: dto.note,
         isActive: dto.isActive ?? true,
+        createdBy: actorId,
         ...this.parityData(dto),
       },
     });

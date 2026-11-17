@@ -38,6 +38,8 @@ export class ReportsFinanceService {
   async transfers(tenantId: string, q: ReportQueryDto) {
     const date = dateFilter(q.from, q.to);
     const branchId = q.warehouseId ?? q.branchId;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
     const where: Prisma.InventoryTransferWhereInput = {
       tenantId,
       deletedAt: null,
@@ -47,13 +49,17 @@ export class ReportsFinanceService {
       ...(q.reference
         ? { reference: { contains: q.reference, mode: 'insensitive' } }
         : {}),
-      ...(q.categoryId || q.productId
+      // Product / Category / Serial Number all narrow the transfer's line items.
+      ...(q.categoryId || q.productId || q.serial
         ? {
             items: {
               some: {
                 ...(q.productId ? { productId: q.productId } : {}),
                 ...(q.categoryId
                   ? { product: { categoryId: q.categoryId } }
+                  : {}),
+                ...(q.serial
+                  ? { productSerial: { contains: q.serial, mode: 'insensitive' } }
                   : {}),
               },
             },
@@ -82,7 +88,7 @@ export class ReportsFinanceService {
       shipping: D(0),
       grandTotal: D(0),
     };
-    const rows = transfers.map((t) => {
+    const allRows = transfers.map((t) => {
       const total = t.items.reduce(
         (s, i) => s.add(i.quantity.mul(i.cost)),
         D(0),
@@ -109,11 +115,18 @@ export class ReportsFinanceService {
       };
     });
 
+    // Server-side pagination: totals are over the full filtered set; rows are the page.
+    const total = allRows.length;
+    const rows = allRows.slice((page - 1) * limit, (page - 1) * limit + limit);
+
     return {
       rows,
       totals,
+      page,
+      limit,
+      total,
       dataGap:
-        'InventoryTransfer has no total/tax/shipping/grandTotal columns — Total is derived as Σ(quantity × cost), Total Tax and Shipping are 0, Grand Total equals Total. Branch names and the serial-no filter are not modelled, so fromWarehouse/toWarehouse are null and serial filtering is unavailable.',
+        'InventoryTransfer has no total/tax/shipping/grandTotal columns — Total is derived as Σ(quantity × cost), Total Tax and Shipping are 0, Grand Total equals Total. Branch names are not modelled, so fromWarehouse/toWarehouse are null (the Serial Number filter matches InventoryTransferItem.productSerial).',
     };
   }
 
@@ -132,6 +145,8 @@ export class ReportsFinanceService {
   async expenses(tenantId: string, q: ReportQueryDto) {
     const date = dateFilter(q.from, q.to);
     const branchId = q.warehouseId ?? q.branchId;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
     const where: Prisma.InventoryExpenseWhereInput = {
       tenantId,
       deletedAt: null,
@@ -169,7 +184,7 @@ export class ReportsFinanceService {
     );
 
     let amount = D(0);
-    const rows = expenses.map((e) => {
+    const allRows = expenses.map((e) => {
       amount = amount.add(e.amount);
       return {
         id: e.id,
@@ -183,9 +198,16 @@ export class ReportsFinanceService {
       };
     });
 
+    // Server-side pagination: totals are over the full filtered set; rows are the page.
+    const total = allRows.length;
+    const rows = allRows.slice((page - 1) * limit, (page - 1) * limit + limit);
+
     return {
       rows,
       totals: { amount },
+      page,
+      limit,
+      total,
       from: date?.gte ?? null,
       to: date?.lte ?? null,
       dataGap:
@@ -208,6 +230,8 @@ export class ReportsFinanceService {
   async incomes(tenantId: string, q: ReportQueryDto) {
     const date = dateFilter(q.from, q.to);
     const branchId = q.warehouseId ?? q.branchId;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
     const where: Prisma.InventoryIncomeWhereInput = {
       tenantId,
       deletedAt: null,
@@ -245,7 +269,7 @@ export class ReportsFinanceService {
     );
 
     let amount = D(0);
-    const rows = incomes.map((i) => {
+    const allRows = incomes.map((i) => {
       amount = amount.add(i.amount);
       return {
         id: i.id,
@@ -259,9 +283,16 @@ export class ReportsFinanceService {
       };
     });
 
+    // Server-side pagination: totals are over the full filtered set; rows are the page.
+    const total = allRows.length;
+    const rows = allRows.slice((page - 1) * limit, (page - 1) * limit + limit);
+
     return {
       rows,
       totals: { amount },
+      page,
+      limit,
+      total,
       from: date?.gte ?? null,
       to: date?.lte ?? null,
       dataGap:

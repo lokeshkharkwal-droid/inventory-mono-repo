@@ -157,32 +157,49 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 });
 
 /**
+ * True when a request opted out of the global loading overlay via `silent: true`
+ * (e.g. background polls like the unread-count badge, or filter-dropdown option
+ * fetches that render their own inline spinner). Such requests must skip BOTH
+ * `beginRequest` and `endRequest` so the in-flight counter stays balanced.
+ */
+function isSilentConfig(config: unknown): boolean {
+  return (
+    typeof config === 'object' &&
+    config !== null &&
+    (config as { silent?: boolean }).silent === true
+  );
+}
+
+/**
  * Global loading signal: bump the in-flight counter on every outgoing request
  * and release it when the request settles (success or error). Registered on
  * BOTH the `api` instance and the bare `axios` default (the latter covers the
  * auth/login/refresh/upload calls below, which hit kalnostics-new directly and
  * don't go through `api`). A single `GlobalLoadingOverlay` renders the branded
  * loader whenever the counter is non-zero, so any API call shows the loader.
+ *
+ * Requests flagged `silent: true` (see `RequestOptions`) are skipped entirely so
+ * background polls and dropdown option fetches don't flash the full-screen loader.
  */
 function attachLoadingSignal(instance: AxiosInstance): void {
   instance.interceptors.request.use(
     (config) => {
-      beginRequest();
+      if (!isSilentConfig(config)) beginRequest();
       return config;
     },
     (error) => {
       // Request never left (config/interceptor error) — release immediately.
-      endRequest();
+      if (!isSilentConfig(error?.config)) endRequest();
       return Promise.reject(error);
     },
   );
   instance.interceptors.response.use(
     (response) => {
-      endRequest();
+      if (!isSilentConfig(response.config)) endRequest();
       return response;
     },
     (error) => {
-      endRequest();
+      if (!isSilentConfig(error?.config)) endRequest();
       return Promise.reject(error);
     },
   );
@@ -419,6 +436,12 @@ export interface RequestOptions {
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
   timeoutMs?: number;
+  /**
+   * Opt this request out of the global loading overlay. Use for background polls
+   * (e.g. the unread-count badge) and filter-dropdown option fetches that render
+   * their own inline spinner — so they don't flash the full-screen loader.
+   */
+  silent?: boolean;
 }
 
 /** Issue a request and return the unwrapped payload. */
@@ -433,6 +456,7 @@ export async function request<T>(
     data: opts.body,
     params: opts.query,
     ...(opts.timeoutMs != null ? { timeout: opts.timeoutMs } : {}),
+    ...(opts.silent ? { silent: true } : {}),
   });
   if (res.status === 204) return undefined as T;
   return unwrap<T>(res.data);
@@ -456,6 +480,7 @@ export async function requestPaged<T>(
     method,
     url: path,
     params: opts.query,
+    ...(opts.silent ? { silent: true } : {}),
   });
   if (res.data.success === false) {
     throw new ApiError(0, extractServerMessage(res.data) ?? 'Request failed', '', '');

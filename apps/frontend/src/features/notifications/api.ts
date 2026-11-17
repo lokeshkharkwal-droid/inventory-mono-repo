@@ -48,7 +48,12 @@ export function useInfiniteNotifications(
 export function useUnreadCount() {
   return useQuery({
     queryKey: [...KEY, 'unread-count'],
-    queryFn: () => request<{ count: number }>('GET', '/notifications/unread-count'),
+    // `silent` keeps this background poll off the global loading overlay — otherwise
+    // the full-screen loader flickers on every refetch interval.
+    queryFn: () =>
+      request<{ count: number }>('GET', '/notifications/unread-count', {
+        silent: true,
+      }),
     refetchInterval: 60_000,
   });
 }

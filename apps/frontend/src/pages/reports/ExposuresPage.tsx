@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
 import { useReport } from '@/features/reports/useReport';
-import { fmtMoney, fmtDate, type ReportColumn } from '@/features/reports/types';
+import { fmtQty, fmtDate, type ReportColumn } from '@/features/reports/types';
 import {
   DateRangeFilter,
   CustomerFilter,
   WarehouseFilter,
   TextFilter,
+  UserFilter,
+  BillerFilter,
 } from '@/features/reports/filters';
 
 interface ProductExposure {
@@ -28,16 +30,18 @@ interface ExposureRow {
 interface ExposuresResp {
   rows: ExposureRow[];
   totals: { totalExposure: number };
+  total: number;
+  page: number;
+  limit: number;
   dataGap: string;
 }
 
 /**
- * Exposure Report — one row per sale in range with its lab test, per-product
- * exposure breakdown and summed exposure, plus a footer grand-total. Follows the
- * canonical list-report template. NOTE: sale-line exposure and the lab-test
- * linkage are not modelled in the new inventory schema, so the Lab Test, Product
- * Exposure and Exposure columns are a documented data gap (null/empty/0) — the
- * columns are still shown so the report structure stays faithful to the legacy.
+ * Exposure Report — one row per sale that has imaging/radiology exposures, with
+ * its per-product exposure breakdown and summed exposure, plus a footer
+ * grand-total. Exposure counts come from the per sale-line `invExposure` value
+ * captured at sale entry. NOTE: the legacy "Lab Test" column came from a clinical
+ * order link that the inventory schema does not carry — it stays "—".
  */
 export function ExposuresPage() {
   const [from, setFrom] = useState('');
@@ -45,20 +49,46 @@ export function ExposuresPage() {
   const [reference, setReference] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [billerId, setBillerId] = useState('');
+  const [serial, setSerial] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const params = { from, to, reference, customerId, warehouseId };
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, reference, customerId, warehouseId, createdBy, billerId, serial]);
+
+  const filters = {
+    from,
+    to,
+    reference,
+    customerId,
+    warehouseId,
+    createdBy,
+    billerId,
+    serial,
+  };
   const { data, isLoading } = useReport<ExposuresResp>(
     'exposures',
     '/reports/exposures',
-    params,
+    { ...filters, page, limit: pageSize === -1 ? 100000 : pageSize },
   );
   const rows = data?.rows ?? [];
   const totals = data?.totals;
 
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<ExposuresResp>(
+    'exposures-export',
+    '/reports/exposures',
+    { ...filters, limit: 100000 },
+  );
+  const exportRows = exportQuery.data?.rows ?? rows;
+
   const exposureLabel = (r: ExposureRow): string =>
     r.productExposures.length
       ? r.productExposures
-          .map((p) => `${p.productName} (${fmtMoney(p.exposure)})`)
+          .map((p) => `${p.productName} (${fmtQty(p.exposure)})`)
           .join('\n')
       : '—';
 
@@ -80,18 +110,19 @@ export function ExposuresPage() {
       key: 'exposure',
       header: 'Exposure',
       align: 'right',
-      value: (r) => fmtMoney(r.totalExposure),
+      value: (r) => fmtQty(r.totalExposure),
     },
   ];
 
   const totalsRow = totals
-    ? ['Total', '', '', '', '', '', fmtMoney(totals.totalExposure)]
+    ? ['Total', '', '', '', '', '', fmtQty(totals.totalExposure)]
     : undefined;
 
   return (
     <ReportShell
       title="Exposure Report"
-      description="Per-sale lab-test exposure breakdown with a summed exposure per sale."
+      description="Per-sale imaging/radiology exposure breakdown with a summed exposure per sale."
+      imageExport
       filters={
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -100,6 +131,9 @@ export function ExposuresPage() {
             value={reference}
             onChange={setReference}
           />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
+          <BillerFilter value={billerId} onChange={setBillerId} />
+          <TextFilter label="Serial Number" value={serial} onChange={setSerial} placeholder="Serial…" />
           <CustomerFilter value={customerId} onChange={setCustomerId} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
         </>
@@ -107,20 +141,14 @@ export function ExposuresPage() {
       exportConfig={{
         filename: 'exposure-report',
         columns,
-        rows,
+        rows: exportRows,
         subtitle: from || to ? `${from || '…'} → ${to || '…'}` : 'All dates',
         totalsRow: totalsRow as (string | number)[] | undefined,
       }}
     >
-      <p className="text-xs text-muted-foreground">
-        Exposure is not tracked in the current inventory schema — the Lab Test,
-        Product Exposure and Exposure values are shown as empty/0 until a
-        sale-line exposure field and lab-test linkage are added.
-      </p>
-
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Sales" value={rows.length} />
-        <StatCard label="Total exposure" value={fmtMoney(totals?.totalExposure)} />
+        <StatCard label="Sales" value={data?.total ?? rows.length} />
+        <StatCard label="Total exposure" value={fmtQty(totals?.totalExposure)} />
         <StatCard
           label="Date range"
           value={from || to ? `${from || '…'} → ${to || '…'}` : 'All dates'}
@@ -132,8 +160,18 @@ export function ExposuresPage() {
         rows={rows}
         rowKey={(r) => r.saleId}
         isLoading={isLoading}
-        emptyMessage="No sales in range."
+        emptyMessage="No exposed sales in range."
         totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
       />
     </ReportShell>
   );

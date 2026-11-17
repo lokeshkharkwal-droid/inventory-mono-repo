@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -9,6 +9,7 @@ import {
   TextFilter,
   WarehouseFilter,
   EntityFilter,
+  UserFilter,
 } from '@/features/reports/filters';
 
 interface IncomeRow {
@@ -22,6 +23,9 @@ interface IncomeRow {
 interface IncomeResp {
   rows: IncomeRow[];
   totals: { amount: number };
+  page: number;
+  limit: number;
+  total: number;
 }
 
 /** Incomes Report — standalone (non-sale) incomes by category over a date range. */
@@ -32,6 +36,13 @@ export function IncomesReportPage() {
   const [categoryId, setCategoryId] = useState('');
   const [search, setSearch] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, reference, categoryId, search, warehouseId, createdBy]);
 
   const { data, isLoading } = useReport<IncomeResp>('incomes', '/reports/incomes', {
     from,
@@ -40,9 +51,25 @@ export function IncomesReportPage() {
     categoryId,
     search,
     warehouseId,
+    createdBy,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
   });
   const rows = data?.rows ?? [];
   const t = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<IncomeResp>('incomes-export', '/reports/incomes', {
+    from,
+    to,
+    reference,
+    categoryId,
+    search,
+    warehouseId,
+    createdBy,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   // Legacy header set + order. The IGST/CGST/SGST/Total Tax/Grand Total/Attachment
   // columns have no source on the flattened InventoryIncome (documented data gap),
@@ -80,16 +107,34 @@ export function IncomesReportPage() {
             queryKey={['income-categories']}
           />
           <TextFilter label="Note" value={search} onChange={setSearch} />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
         </>
       }
-      exportConfig={{ filename: 'incomes-report', columns, rows, totalsRow: totalsRow as (string | number)[] | undefined }}
+      exportConfig={{ filename: 'incomes-report', columns, rows: exportRows, totalsRow: totalsRow as (string | number)[] | undefined }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Entries" value={rows.length} />
+        <StatCard label="Entries" value={data?.total ?? rows.length} />
         <StatCard label="Total income" value={fmtMoney(t?.amount)} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r) => r.id} isLoading={isLoading} emptyMessage="No incomes in range." totalsRow={totalsRow} />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        isLoading={isLoading}
+        emptyMessage="No incomes in range."
+        totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
     </ReportShell>
   );
 }

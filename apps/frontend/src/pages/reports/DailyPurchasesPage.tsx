@@ -50,6 +50,7 @@ export function DailyPurchasesPage() {
     <ReportShell
       title="Daily Purchases"
       description="Day-by-day purchase totals for the selected month."
+      imageExport
       filters={
         <>
           <MonthFilter value={month} onChange={setMonth} />

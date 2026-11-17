@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
 import { useReport } from '@/features/reports/useReport';
 import { fmtMoney, fmtDate, fmtItems, type ReportColumn } from '@/features/reports/types';
-import { DateRangeFilter, SupplierFilter, WarehouseFilter, TextFilter, ProductFilter, SelectFilter } from '@/features/reports/filters';
+import { DateRangeFilter, SupplierFilter, WarehouseFilter, TextFilter, ProductFilter, SelectFilter, UserFilter } from '@/features/reports/filters';
+import { PurchaseDetailModal } from './PurchaseDetailModal';
 
 interface PurRow {
   id: string;
@@ -21,6 +22,9 @@ interface PurRow {
 interface PurResp {
   rows: PurRow[];
   totals: { grandTotal: number; paid: number; balance: number };
+  page: number;
+  limit: number;
+  total: number;
 }
 
 /** Purchases Report — one row per purchase order with tax/paid/balance. */
@@ -32,10 +36,43 @@ export function PurchasesReportPage() {
   const [productId, setProductId] = useState('');
   const [reference, setReference] = useState('');
   const [status, setStatus] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [purchaseId, setPurchaseId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const { data, isLoading } = useReport<PurResp>('purchases', '/reports/purchases', { from, to, supplierId, warehouseId, productId, reference, status });
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, supplierId, warehouseId, productId, reference, status, createdBy]);
+
+  const { data, isLoading } = useReport<PurResp>('purchases', '/reports/purchases', {
+    from,
+    to,
+    supplierId,
+    warehouseId,
+    productId,
+    reference,
+    status,
+    createdBy,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
+  });
   const rows = data?.rows ?? [];
   const t = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<PurResp>('purchases-export', '/reports/purchases', {
+    from,
+    to,
+    supplierId,
+    warehouseId,
+    productId,
+    reference,
+    status,
+    createdBy,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<PurRow>[] = [
     { key: 'date', header: 'Date', value: (r) => fmtDate(r.date) },
@@ -56,9 +93,11 @@ export function PurchasesReportPage() {
     <ReportShell
       title="Purchases Report"
       description="Every purchase order with grand total, paid and balance."
+      imageExport
       filters={
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
           <SupplierFilter value={supplierId} onChange={setSupplierId} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
           <ProductFilter value={productId} onChange={setProductId} />
@@ -76,15 +115,39 @@ export function PurchasesReportPage() {
           />
         </>
       }
-      exportConfig={{ filename: 'purchases-report', columns, rows, totalsRow: totalsRow as (string | number)[] | undefined }}
+      exportConfig={{ filename: 'purchases-report', columns, rows: exportRows, totalsRow: totalsRow as (string | number)[] | undefined }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Orders" value={rows.length} />
+        <StatCard label="Orders" value={data?.total ?? rows.length} />
         <StatCard label="Grand total" value={fmtMoney(t?.grandTotal)} />
         <StatCard label="Paid" value={fmtMoney(t?.paid)} />
         <StatCard label="Balance due" value={fmtMoney(t?.balance)} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r) => r.id} isLoading={isLoading} emptyMessage="No purchases in range." totalsRow={totalsRow} />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        isLoading={isLoading}
+        emptyMessage="No purchases in range."
+        totalsRow={totalsRow}
+        onRowClick={(r) => setPurchaseId(r.id)}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
+      <PurchaseDetailModal
+        purchaseId={purchaseId}
+        onOpenChange={(open) => {
+          if (!open) setPurchaseId(null);
+        }}
+      />
     </ReportShell>
   );
 }

@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { KalnosticsBranchClient } from './clients/kalnostics-branch.client';
 import { KalnosticsDepartmentClient } from './clients/kalnostics-department.client';
 import { KalnosticsLocationClient } from './clients/kalnostics-location.client';
+import { KalnosticsUsersClient } from './clients/kalnostics-users.client';
 
 /**
  * Thin passthrough endpoints exposing kalnostics reference data the inventory
@@ -15,6 +16,7 @@ export class IntegrationController {
     private readonly branchClient: KalnosticsBranchClient,
     private readonly departmentClient: KalnosticsDepartmentClient,
     private readonly locationClient: KalnosticsLocationClient,
+    private readonly usersClient: KalnosticsUsersClient,
   ) {}
 
   /** Branch (warehouse) options, optionally filtered by branch type. */
@@ -29,6 +31,24 @@ export class IntegrationController {
   @Get('departments')
   departments() {
     return this.departmentClient.getOptions();
+  }
+
+  /**
+   * Tenant staff options (`{ id, name }`, paginated/searchable) — powers the
+   * "Created By" / "User" report filters, resolving inventory `createdBy` /
+   * `openedBy` person ids to names.
+   */
+  @Get('users')
+  users(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.usersClient.getOptions({
+      search,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   // ── SiteAdmin location reference (Country → State → City) ──────────────────

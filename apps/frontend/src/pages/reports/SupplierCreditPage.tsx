@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -27,6 +27,9 @@ interface CreditRow {
 interface CreditResp {
   rows: CreditRow[];
   totals: { grandTotal: number; paid: number; balance: number };
+  page: number;
+  limit: number;
+  total: number;
 }
 
 /** Supplier Credit Report — outstanding balances per purchase. */
@@ -37,10 +40,38 @@ export function SupplierCreditPage() {
   const [warehouseId, setWarehouseId] = useState('');
   const [reference, setReference] = useState('');
   const [status, setStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const { data, isLoading } = useReport<CreditResp>('supplier-credit', '/reports/supplier-credit', { from, to, supplierId, warehouseId, reference, status });
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, supplierId, warehouseId, reference, status]);
+
+  const { data, isLoading } = useReport<CreditResp>('supplier-credit', '/reports/supplier-credit', {
+    from,
+    to,
+    supplierId,
+    warehouseId,
+    reference,
+    status,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
+  });
   const rows = data?.rows ?? [];
   const t = data?.totals;
+
+  // Full filtered set (all pages) for CSV/PDF export — keyed by filters only, so
+  // it isn't refetched on page changes. Falls back to the current page.
+  const exportQuery = useReport<CreditResp>('supplier-credit-export', '/reports/supplier-credit', {
+    from,
+    to,
+    supplierId,
+    warehouseId,
+    reference,
+    status,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<CreditRow>[] = [
     { key: 'date', header: 'Date', value: (r) => fmtDate(r.date) },
@@ -61,6 +92,7 @@ export function SupplierCreditPage() {
     <ReportShell
       title="Supplier Credit Report"
       description="Outstanding credit per purchase — billed, paid and balance owed."
+      imageExport
       filters={
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -79,15 +111,32 @@ export function SupplierCreditPage() {
           />
         </>
       }
-      exportConfig={{ filename: 'supplier-credit-report', columns, rows, totalsRow: totalsRow as (string | number)[] | undefined }}
+      exportConfig={{ filename: 'supplier-credit-report', columns, rows: exportRows, totalsRow: totalsRow as (string | number)[] | undefined }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Purchases" value={rows.length} />
+        <StatCard label="Purchases" value={data?.total ?? rows.length} />
         <StatCard label="Billed" value={fmtMoney(t?.grandTotal)} />
         <StatCard label="Paid" value={fmtMoney(t?.paid)} />
         <StatCard label="Balance owed" value={fmtMoney(t?.balance)} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r) => r.purchaseId} isLoading={isLoading} emptyMessage="No supplier credit in range." totalsRow={totalsRow} />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.purchaseId}
+        isLoading={isLoading}
+        emptyMessage="No supplier credit in range."
+        totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
     </ReportShell>
   );
 }

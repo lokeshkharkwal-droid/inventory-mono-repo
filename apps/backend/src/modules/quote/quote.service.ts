@@ -90,15 +90,15 @@ export class QuoteService {
     const subtotal = lines.reduce((s, l) => s.add(l.subtotal), D(0));
     const productTax = lines.reduce((s, l) => s.add(l.taxAmount), D(0));
     const productDiscount = lines.reduce((s, l) => s.add(l.discount), D(0));
-    const totalItems = dto.items.reduce((s, i) => s + Number(i.quantity || 0), 0);
+    const totalItems = dto.items.reduce(
+      (s, i) => s + Number(i.quantity || 0),
+      0,
+    );
     const orderDiscount = D(dto.orderDiscount ?? 0);
     const orderTax = D(dto.orderTax ?? 0);
     const totalTax = productTax.add(orderTax);
     const shipping = D(dto.shipping ?? 0);
-    const grandTotal = subtotal
-      .add(totalTax)
-      .add(shipping)
-      .sub(orderDiscount);
+    const grandTotal = subtotal.add(totalTax).add(shipping).sub(orderDiscount);
 
     return this.prisma.withTenant(tenantId, async (tx) =>
       tx.inventoryQuote.create({

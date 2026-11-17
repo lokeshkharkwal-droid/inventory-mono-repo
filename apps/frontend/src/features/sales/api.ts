@@ -5,6 +5,7 @@ import {
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
 import { useInfiniteList } from '@/features/_shared/useInfiniteList';
+import type { WarehouseDetail } from '@/features/_shared/warehouse';
 
 export interface SaleListRow {
   id: string;
@@ -41,6 +42,8 @@ export interface SaleItemDetail {
   igst: number;
   cgst: number;
   sgst: number;
+  /** Product unit name, resolved server-side (sale lines have no product relation). */
+  unit: string | null;
 }
 
 export interface SalePaymentDetail {
@@ -55,7 +58,19 @@ export interface SalePaymentDetail {
   giftCardNo: string | null;
 }
 
+/** The invoice "To" party, with the contact + GST fields the detail view/email need. */
+export interface SaleCustomerDetail {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  gstNo: string | null;
+}
+
 export interface SaleDetail extends SaleListRow {
+  /** Richer than the list row's `{id,name}` — carries contact + GST fields. */
+  customer: SaleCustomerDetail | null;
   branchId: string;
   billerId: string | null;
   billerName: string | null;
@@ -81,6 +96,12 @@ export interface SaleDetail extends SaleListRow {
   note: string | null;
   staffNote: string | null;
   doctorName: string | null;
+  /** Warehouse (branch) summary resolved server-side; null if unresolved. */
+  warehouse: WarehouseDetail | null;
+  /** Staff name resolved from `createdBy`; null if unknown/unresolved. */
+  createdByName: string | null;
+  createdAt: string;
+  updatedAt: string;
   items: SaleItemDetail[];
   payments: SalePaymentDetail[];
 }

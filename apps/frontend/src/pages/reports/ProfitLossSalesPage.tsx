@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -10,6 +10,7 @@ import {
   WarehouseFilter,
   TextFilter,
   CategoryFilter,
+  UserFilter,
 } from '@/features/reports/filters';
 
 interface PlsRow {
@@ -29,6 +30,9 @@ interface PlsRow {
 interface PlsResp {
   rows: PlsRow[];
   totals: { totalSales: number; totalPurchase: number; profit: number; marginPct: number };
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 /** Profit and/or Loss on Sales — per sale-line margin (revenue − COGS). */
@@ -40,8 +44,16 @@ export function ProfitLossSalesPage() {
   const [reference, setReference] = useState('');
   const [billerName, setBillerName] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [serial, setSerial] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const { data, isLoading } = useReport<PlsResp>('profit-loss-sales', '/reports/profit-loss-sales', {
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, customerId, warehouseId, reference, billerName, categoryId, createdBy, serial]);
+
+  const filters = {
     from,
     to,
     customerId,
@@ -49,9 +61,23 @@ export function ProfitLossSalesPage() {
     reference,
     billerName,
     categoryId,
+    createdBy,
+    serial,
+  };
+  const { data, isLoading } = useReport<PlsResp>('profit-loss-sales', '/reports/profit-loss-sales', {
+    ...filters,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
   });
   const rows = data?.rows ?? [];
   const t = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<PlsResp>('profit-loss-sales-export', '/reports/profit-loss-sales', {
+    ...filters,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<PlsRow>[] = [
     { key: 'date', header: 'Date', value: (r) => fmtDate(r.date) },
@@ -84,15 +110,17 @@ export function ProfitLossSalesPage() {
       description="Per sale-line profit: revenue minus snapshotted unit cost."
       filters={
         <>
+          <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
           <TextFilter label="Reference" value={reference} onChange={setReference} />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
+          <TextFilter label="Serial Number" value={serial} onChange={setSerial} placeholder="Serial…" />
           <CustomerFilter value={customerId} onChange={setCustomerId} />
           <TextFilter label="Biller" value={billerName} onChange={setBillerName} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
-          <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
           <CategoryFilter value={categoryId} onChange={setCategoryId} />
         </>
       }
-      exportConfig={{ filename: 'profit-loss-on-sales', columns, rows, totalsRow: totalsRow as (string | number)[] | undefined }}
+      exportConfig={{ filename: 'profit-loss-on-sales', columns, rows: exportRows, totalsRow: totalsRow as (string | number)[] | undefined }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Revenue" value={fmtMoney(t?.totalSales)} />
@@ -100,7 +128,24 @@ export function ProfitLossSalesPage() {
         <StatCard label="Profit" value={fmtMoney(t?.profit)} />
         <StatCard label="Margin %" value={`${(t?.marginPct ?? 0).toFixed(2)}%`} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r, i) => `${r.saleId}-${i}`} isLoading={isLoading} emptyMessage="No sales in range." totalsRow={totalsRow} />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r, i) => `${r.saleId}-${i}`}
+        isLoading={isLoading}
+        emptyMessage="No sales in range."
+        totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
     </ReportShell>
   );
 }

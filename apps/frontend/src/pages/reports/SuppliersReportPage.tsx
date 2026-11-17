@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -20,19 +20,38 @@ interface SupplierRow {
 interface SupplierResp {
   rows: SupplierRow[];
   totals: { totalPurchases: number; totalAmount: number; paid: number; balance: number };
+  page: number;
+  limit: number;
+  total: number;
 }
 
 /** Suppliers Report — suppliers with their lifetime purchase totals. */
 export function SuppliersReportPage() {
   const [warehouseId, setWarehouseId] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    setPage(1);
+  }, [warehouseId, search]);
 
   const { data, isLoading } = useReport<SupplierResp>('suppliers', '/reports/suppliers', {
     warehouseId,
     search,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
   });
   const rows = data?.rows ?? [];
   const t = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<SupplierResp>('suppliers-export', '/reports/suppliers', {
+    warehouseId,
+    search,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<SupplierRow>[] = [
     { key: 'company', header: 'Company', value: (r) => r.company ?? '—' },
@@ -52,6 +71,7 @@ export function SuppliersReportPage() {
     <ReportShell
       title="Suppliers Report"
       description="Suppliers with purchase count, billed, paid and balance owed."
+      imageExport
       filters={
         <>
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
@@ -63,15 +83,32 @@ export function SuppliersReportPage() {
           />
         </>
       }
-      exportConfig={{ filename: 'suppliers-report', columns, rows, totalsRow: totalsRow as (string | number)[] | undefined }}
+      exportConfig={{ filename: 'suppliers-report', columns, rows: exportRows, totalsRow: totalsRow as (string | number)[] | undefined }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Suppliers" value={rows.length} />
+        <StatCard label="Suppliers" value={data?.total ?? rows.length} />
         <StatCard label="Total billed" value={fmtMoney(t?.totalAmount)} />
         <StatCard label="Paid" value={fmtMoney(t?.paid)} />
         <StatCard label="Balance owed" value={fmtMoney(t?.balance)} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r) => r.supplierId} isLoading={isLoading} emptyMessage="No suppliers with purchases in range." totalsRow={totalsRow} />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.supplierId}
+        isLoading={isLoading}
+        emptyMessage="No suppliers with purchases in range."
+        totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
     </ReportShell>
   );
 }

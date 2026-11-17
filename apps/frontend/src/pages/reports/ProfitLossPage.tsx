@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
@@ -6,6 +6,7 @@ import { ReportTable } from '@/components/shared/ReportTable';
 import { useReport } from '@/features/reports/useReport';
 import { fmtMoney, type ReportColumn } from '@/features/reports/types';
 import { DateRangeFilter, WarehouseFilter } from '@/features/reports/filters';
+import { getTokenPayload } from '@/lib/http';
 
 interface CountAmount { count: number; amount: number }
 interface WarehouseRow {
@@ -53,8 +54,20 @@ export function ProfitLossPage() {
   const warehouses = data?.warehouses ?? [];
   const pay = data?.payments;
 
+  // Branch names live in kalnostics, not inventory; resolve branchId → name from
+  // the JWT branch profiles (the per-warehouse rows carry only the branchId).
+  const branchNameOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of getTokenPayload()?.profiles ?? []) {
+      if (p.branch_id && p.branch_name) map.set(p.branch_id, p.branch_name);
+    }
+    return map;
+  }, []);
+  const warehouseName = (r: WarehouseRow) =>
+    branchNameOf.get(r.branchId) ?? (r.name !== r.branchId ? r.name : '—');
+
   const wcolumns: ReportColumn<WarehouseRow>[] = [
-    { key: 'name', header: 'Warehouse', value: (r) => r.name },
+    { key: 'name', header: 'Warehouse', value: warehouseName },
     { key: 'sales', header: 'Sales', align: 'right', value: (r) => fmtMoney(r.salesAmount) },
     { key: 'salesTax', header: 'Sales Tax', align: 'right', value: (r) => fmtMoney(r.salesTax) },
     { key: 'purch', header: 'Purchases', align: 'right', value: (r) => fmtMoney(r.purchasesAmount) },
@@ -92,6 +105,7 @@ export function ProfitLossPage() {
     <ReportShell
       title="Profit and/or Loss"
       description="Sales vs purchases, payments (by method), returns, expenses, incomes and the three profit figures."
+      imageExport
       filters={
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />

@@ -68,6 +68,7 @@ export function DailySalesPage() {
     <ReportShell
       title="Daily Sales"
       description="Day-by-day sales totals for the selected month."
+      imageExport
       filters={
         <>
           <MonthFilter value={month} onChange={setMonth} />

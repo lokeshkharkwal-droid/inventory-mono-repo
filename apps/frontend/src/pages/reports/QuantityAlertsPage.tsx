@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -19,7 +19,10 @@ interface AlertsResp {
   warehouseId: string | null;
   warehouseName: string | null;
   rows: AlertRow[];
+  totals: { shortfall: number; outOfStock: number };
   total: number;
+  page: number;
+  limit: number;
 }
 
 /**
@@ -32,14 +35,29 @@ interface AlertsResp {
 export function QuantityAlertsPage() {
   const [warehouseId, setWarehouseId] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const params = { warehouseId, search };
+  useEffect(() => {
+    setPage(1);
+  }, [warehouseId, search]);
+
+  const filters = { warehouseId, search };
   const { data, isLoading } = useReport<AlertsResp>(
     'quantity-alerts',
     '/reports/quantity-alerts',
-    params,
+    { ...filters, page, limit: pageSize === -1 ? 100000 : pageSize },
   );
   const rows = data?.rows ?? [];
+  const totals = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<AlertsResp>(
+    'quantity-alerts-export',
+    '/reports/quantity-alerts',
+    { ...filters, limit: 100000 },
+  );
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<AlertRow>[] = [
     {
@@ -82,8 +100,8 @@ export function QuantityAlertsPage() {
     },
   ];
 
-  const totalShortfall = rows.reduce((s, r) => s + r.shortfall, 0);
-  const outOfStock = rows.filter((r) => r.quantity <= 0).length;
+  const totalShortfall = totals?.shortfall ?? 0;
+  const outOfStock = totals?.outOfStock ?? 0;
   const scopeLabel = data?.warehouseName ?? (warehouseId ? 'Selected warehouse' : 'All warehouses');
 
   return (
@@ -104,7 +122,7 @@ export function QuantityAlertsPage() {
       exportConfig={{
         filename: 'quantity-alerts',
         columns,
-        rows,
+        rows: exportRows,
         subtitle: scopeLabel,
       }}
     >
@@ -121,6 +139,16 @@ export function QuantityAlertsPage() {
         rowKey={(r) => r.productId}
         isLoading={isLoading}
         emptyMessage="No products below their alert quantity."
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
       />
     </ReportShell>
   );

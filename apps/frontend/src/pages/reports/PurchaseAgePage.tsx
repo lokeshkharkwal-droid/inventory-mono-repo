@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
 import { useReport } from '@/features/reports/useReport';
 import { fmtDate, fmtItems, type ReportColumn } from '@/features/reports/types';
-import { DateRangeFilter, SupplierFilter, WarehouseFilter, TextFilter, ProductFilter } from '@/features/reports/filters';
+import { DateRangeFilter, SupplierFilter, WarehouseFilter, TextFilter, ProductFilter, UserFilter } from '@/features/reports/filters';
+import { PurchaseDetailModal } from './PurchaseDetailModal';
 
 interface AgeRow {
   id: string;
@@ -22,6 +23,8 @@ interface AgeRow {
 interface AgeResp {
   rows: AgeRow[];
   total: number;
+  page: number;
+  limit: number;
 }
 
 /** Purchase Aging Report — purchases with days since the purchase date. */
@@ -32,9 +35,40 @@ export function PurchaseAgePage() {
   const [supplierId, setSupplierId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [productId, setProductId] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [purchaseId, setPurchaseId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const { data, isLoading } = useReport<AgeResp>('purchase-age', '/reports/purchase-age', { from, to, reference, supplierId, warehouseId, productId });
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, reference, supplierId, warehouseId, productId, createdBy]);
+
+  const { data, isLoading } = useReport<AgeResp>('purchase-age', '/reports/purchase-age', {
+    from,
+    to,
+    reference,
+    supplierId,
+    warehouseId,
+    productId,
+    createdBy,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
+  });
   const rows = data?.rows ?? [];
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<AgeResp>('purchase-age-export', '/reports/purchase-age', {
+    from,
+    to,
+    reference,
+    supplierId,
+    warehouseId,
+    productId,
+    createdBy,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<AgeRow>[] = [
     { key: 'date', header: 'Date', value: (r) => fmtDate(r.date) },
@@ -56,18 +90,42 @@ export function PurchaseAgePage() {
       filters={
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
           <TextFilter label="Reference" value={reference} onChange={setReference} />
           <SupplierFilter value={supplierId} onChange={setSupplierId} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
           <ProductFilter value={productId} onChange={setProductId} />
         </>
       }
-      exportConfig={{ filename: 'purchase-aging-report', columns, rows }}
+      exportConfig={{ filename: 'purchase-aging-report', columns, rows: exportRows }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Purchases" value={rows.length} />
+        <StatCard label="Purchases" value={data?.total ?? rows.length} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r) => r.id} isLoading={isLoading} emptyMessage="No purchases in range." />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        isLoading={isLoading}
+        emptyMessage="No purchases in range."
+        onRowClick={(r) => setPurchaseId(r.id)}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
+      <PurchaseDetailModal
+        purchaseId={purchaseId}
+        onOpenChange={(open) => {
+          if (!open) setPurchaseId(null);
+        }}
+      />
     </ReportShell>
   );
 }

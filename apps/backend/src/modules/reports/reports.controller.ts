@@ -39,6 +39,11 @@ export class ReportsController {
     return this.sales.monthlySales(t, q);
   }
 
+  @Get('overview-chart')
+  overviewChart(@CurrentTenant() t: string) {
+    return this.sales.overviewChart(t);
+  }
+
   @Get('sales')
   salesReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
     return this.sales.sales(t, q);
@@ -235,7 +240,7 @@ export class ReportsController {
     @CurrentTenant() tenantId: string,
     @Query() q: ReportQueryDto,
   ) {
-    return this.stock.quantityAlerts(tenantId, q.warehouseId, q.search);
+    return this.stock.quantityAlerts(tenantId, q);
   }
 
   @Get('expiry-alerts')

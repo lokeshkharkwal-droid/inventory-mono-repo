@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
 import { useReport } from '@/features/reports/useReport';
 import { fmtMoney, fmtDateTime, type ReportColumn } from '@/features/reports/types';
-import { DateRangeFilter, WarehouseFilter } from '@/features/reports/filters';
+import { DateRangeFilter, WarehouseFilter, UserFilter } from '@/features/reports/filters';
+import { useUsers } from '@/features/_shared/options';
 
 interface RegisterRow {
   id: string;
@@ -29,6 +30,10 @@ interface RegisterResp {
   from: string | null;
   to: string | null;
   rows: RegisterRow[];
+  totals: { openSessions: number; shortSessions: number; netOverShort: number };
+  total: number;
+  page: number;
+  limit: number;
 }
 
 /**
@@ -43,25 +48,53 @@ export function RegisterReportPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const params = { from, to, warehouseId };
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, warehouseId, createdBy]);
+
+  const filters = { from, to, warehouseId, createdBy };
   const { data, isLoading } = useReport<RegisterResp>(
     'register',
     '/reports/register',
-    params,
+    { ...filters, page, limit: pageSize === -1 ? 100000 : pageSize },
   );
   const rows = data?.rows ?? [];
+  const totals = data?.totals;
 
-  const sessions = rows.length;
-  const shortSessions = rows.filter((r) => r.isShort).length;
-  const openSessions = rows.filter((r) => r.closedAt == null).length;
-  const netOverShort = rows.reduce((s, r) => s + r.cashDifference, 0);
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<RegisterResp>(
+    'register-export',
+    '/reports/register',
+    { ...filters, limit: 100000 },
+  );
+  const exportRows = exportQuery.data?.rows ?? rows;
+
+  // Resolve the openedBy person id → staff name for the User column.
+  const users = useUsers();
+  const userNameOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const u of users.data ?? []) map.set(u.id, u.name);
+    return map;
+  }, [users.data]);
+
+  const sessions = data?.total ?? rows.length;
+  const shortSessions = totals?.shortSessions ?? 0;
+  const openSessions = totals?.openSessions ?? 0;
+  const netOverShort = totals?.netOverShort ?? 0;
 
   const columns: ReportColumn<RegisterRow>[] = [
     { key: 'openedAt', header: 'Open Time', value: (r) => fmtDateTime(r.openedAt) },
     { key: 'closedAt', header: 'Close Time', value: (r) => fmtDateTime(r.closedAt) },
     { key: 'register', header: 'Register', value: (r) => r.registerName },
-    { key: 'user', header: 'User', value: (r) => r.openedBy ?? '—' },
+    {
+      key: 'user',
+      header: 'User',
+      value: (r) => (r.openedBy ? (userNameOf.get(r.openedBy) ?? r.openedBy) : '—'),
+    },
     {
       key: 'openingCash',
       header: 'Cash in Hand',
@@ -122,16 +155,18 @@ export function RegisterReportPage() {
     <ReportShell
       title="Register Report"
       description="POS open/close sessions with per-session cash-drawer reconciliation (declared vs submitted, over/short)."
+      imageExport
       filters={
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+          <UserFilter label="User" value={createdBy} onChange={setCreatedBy} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
         </>
       }
       exportConfig={{
         filename: 'register-report',
         columns,
-        rows,
+        rows: exportRows,
         subtitle: from || to ? `${from || '…'} → ${to || '…'}` : 'All dates',
       }}
     >
@@ -148,6 +183,16 @@ export function RegisterReportPage() {
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No register sessions in range."
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
       />
     </ReportShell>
   );

@@ -435,7 +435,8 @@ export class ReportsPurchasesService {
    * line items, grand total, total product tax (Σ items.taxAmount, falling back
    * to the purchase `orderTax`) and a DERIVED intra-state GST split
    * (CGST = SGST = productTax / 2, IGST = 0 — no place-of-supply is captured).
-   * Footer totals sum grandTotal/productTax/igst/cgst/sgst over the filtered set.
+   * Footer totals sum grandTotal/productTax/igst/cgst/sgst over the FULL filtered
+   * set (a second un-paginated `findMany`), not just the current page.
    *
    * @param tenantId tenant from the JWT.
    * @param q reads `from`/`to`, `reference` (partial), `supplierId`,
@@ -475,7 +476,7 @@ export class ReportsPurchasesService {
         : {}),
     };
 
-    const [total, purchases] = await Promise.all([
+    const [total, purchases, fullSet] = await Promise.all([
       this.prisma.inventoryPurchase.count({ where }),
       this.prisma.inventoryPurchase.findMany({
         where,
@@ -489,8 +490,21 @@ export class ReportsPurchasesService {
         skip: (page - 1) * limit,
         take: limit,
       }),
+      // Full filtered set (no skip/take) so footer totals cover every matching
+      // purchase, not just the current page. Only the fields the totals need.
+      this.prisma.inventoryPurchase.findMany({
+        where,
+        select: {
+          grandTotal: true,
+          orderTax: true,
+          items: { select: { taxAmount: true } },
+        },
+        take: 100_000,
+      }),
     ]);
 
+    // Footer totals computed over the FULL filtered set (same productTax
+    // fallback as the per-row map: Σ(items.taxAmount), else purchase orderTax).
     const totals = {
       grandTotal: D(0),
       productTax: D(0),
@@ -498,6 +512,17 @@ export class ReportsPurchasesService {
       cgst: D(0),
       sgst: D(0),
     };
+    for (const p of fullSet) {
+      const itemTax = p.items.reduce((s, i) => s.add(i.taxAmount), D(0));
+      const productTax = itemTax.isZero() ? p.orderTax : itemTax;
+      const half = productTax.div(2);
+      totals.grandTotal = totals.grandTotal.add(p.grandTotal);
+      totals.productTax = totals.productTax.add(productTax);
+      totals.cgst = totals.cgst.add(half);
+      totals.sgst = totals.sgst.add(productTax.sub(half));
+      // igst stays 0 — derived intra-state split, no place-of-supply captured.
+    }
+
     const rows = purchases.map((p) => {
       const itemTax = p.items.reduce((s, i) => s.add(i.taxAmount), D(0));
       const productTax = itemTax.isZero() ? p.orderTax : itemTax;
@@ -507,11 +532,6 @@ export class ReportsPurchasesService {
       const cgst = half;
       const sgst = productTax.sub(half);
       const igst = D(0);
-      totals.grandTotal = totals.grandTotal.add(p.grandTotal);
-      totals.productTax = totals.productTax.add(productTax);
-      totals.cgst = totals.cgst.add(cgst);
-      totals.sgst = totals.sgst.add(sgst);
-      totals.igst = totals.igst.add(igst);
       return {
         id: p.id,
         date: p.date,

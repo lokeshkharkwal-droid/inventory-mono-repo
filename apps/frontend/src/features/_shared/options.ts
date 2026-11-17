@@ -35,3 +35,24 @@ export function useBillers() {
     staleTime: 5 * 60_000,
   });
 }
+
+export interface UserOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * Tenant staff (`{ id, name }`), proxied from kalnostics-new via
+ * `GET /integration/users`. Used to resolve inventory `createdBy`/`openedBy`
+ * person ids to names (e.g. the Register report's User column).
+ */
+export function useUsers() {
+  return useQuery({
+    queryKey: ['integration-users', 'options'],
+    queryFn: async () =>
+      (await requestPaged<UserOption>('GET', '/integration/users', {
+        query: { page: 1, limit: 100 },
+      })).data,
+    staleTime: 5 * 60_000,
+  });
+}

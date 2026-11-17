@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -35,6 +35,9 @@ interface CategoriesResp {
     categoryId: string | null;
     branchId: string | null;
   };
+  total: number;
+  page: number;
+  limit: number;
 }
 
 /**
@@ -49,15 +52,29 @@ export function CategoriesReportPage() {
   const [to, setTo] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [branchId, setBranchId] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const params = { from, to, categoryId, branchId };
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, categoryId, branchId]);
+
+  const filters = { from, to, categoryId, branchId };
   const { data, isLoading } = useReport<CategoriesResp>(
     'categories',
     '/reports/categories',
-    params,
+    { ...filters, page, limit: pageSize === -1 ? 100000 : pageSize },
   );
   const rows = data?.rows ?? [];
   const totals = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<CategoriesResp>(
+    'categories-export',
+    '/reports/categories',
+    { ...filters, limit: 100000 },
+  );
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<CategoryRow>[] = [
     { key: 'code', header: 'Category Code', value: (r) => r.code ?? '—' },
@@ -115,6 +132,7 @@ export function CategoriesReportPage() {
     <ReportShell
       title="Categories Report"
       description="Purchased vs sold quantity and amount per product category, with profit/loss."
+      imageExport
       filters={
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -125,13 +143,13 @@ export function CategoriesReportPage() {
       exportConfig={{
         filename: 'categories-report',
         columns,
-        rows,
+        rows: exportRows,
         subtitle: from || to ? `${from || '…'} → ${to || '…'}` : 'All dates',
         totalsRow: totalsRow as (string | number)[] | undefined,
       }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Categories" value={rows.length} />
+        <StatCard label="Categories" value={data?.total ?? rows.length} />
         <StatCard label="Purchased amount" value={fmtMoney(totals?.purchasedAmount)} />
         <StatCard label="Sold amount" value={fmtMoney(totals?.soldAmount)} />
         <StatCard label="Profit / Loss" value={fmtMoney(totals?.profit)} />
@@ -144,6 +162,16 @@ export function CategoriesReportPage() {
         isLoading={isLoading}
         emptyMessage="No category activity in range."
         totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
       />
     </ReportShell>
   );

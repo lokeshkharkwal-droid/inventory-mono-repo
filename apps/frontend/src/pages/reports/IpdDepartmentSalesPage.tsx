@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -24,6 +24,9 @@ interface IpdDepartmentResp {
     amount: number;
   };
   range: { from: string | null; to: string | null };
+  page: number;
+  limit: number;
+  total: number;
 }
 
 /**
@@ -39,15 +42,31 @@ export function IpdDepartmentSalesPage() {
   const [departmentName, setDepartmentName] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [ipdRegNo, setIpdRegNo] = useState('');
+  const [productName, setProductName] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const params = { from, to, departmentName, warehouseId, ipdRegNo };
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, departmentName, warehouseId, ipdRegNo, productName]);
+
+  // `productName` matches the charge line's free-text description.
+  const filters = { from, to, departmentName, warehouseId, ipdRegNo, productName };
   const { data, isLoading } = useReport<IpdDepartmentResp>(
     'ipd-department-sales',
     '/reports/ipd-department-sales',
-    params,
+    { ...filters, page, limit: pageSize === -1 ? 100000 : pageSize },
   );
   const rows = data?.rows ?? [];
   const totals = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<IpdDepartmentResp>(
+    'ipd-department-sales-export',
+    '/reports/ipd-department-sales',
+    { ...filters, limit: 100000 },
+  );
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<IpdDepartmentRow>[] = [
     { key: 'department', header: 'Department', value: (r) => r.department },
@@ -94,13 +113,19 @@ export function IpdDepartmentSalesPage() {
             onChange={setIpdRegNo}
             placeholder="IPD reg no…"
           />
+          <TextFilter
+            label="Product Name"
+            value={productName}
+            onChange={setProductName}
+            placeholder="Charge item…"
+          />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
         </>
       }
       exportConfig={{
         filename: 'ipd-department-sales',
         columns,
-        rows,
+        rows: exportRows,
         subtitle: from || to ? `${from || '…'} → ${to || '…'}` : 'All dates',
         totalsRow: totalsRow as (string | number)[] | undefined,
       }}
@@ -118,6 +143,16 @@ export function IpdDepartmentSalesPage() {
         isLoading={isLoading}
         emptyMessage="No IPD department charges in range."
         totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
       />
     </ReportShell>
   );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -10,6 +10,7 @@ import {
   WarehouseFilter,
   CustomerFilter,
   ProductFilter,
+  UserFilter,
 } from '@/features/reports/filters';
 
 interface SalesTaxRow {
@@ -61,8 +62,17 @@ export function SalesTaxPage() {
   const [reference, setReference] = useState('');
   const [productId, setProductId] = useState('');
   const [billerName, setBillerName] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  // "Batch Number" filters the sale line's serial/lot number (`serial` param).
+  const [serial, setSerial] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const params = {
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, customerId, warehouseId, reference, productId, billerName, createdBy, serial]);
+
+  const filters = {
     from,
     to,
     customerId,
@@ -70,14 +80,23 @@ export function SalesTaxPage() {
     reference,
     productId,
     billerName,
+    createdBy,
+    serial,
   };
   const { data, isLoading } = useReport<SalesTaxResp>(
     'sales-tax',
     '/reports/sales-tax',
-    params,
+    { ...filters, page, limit: pageSize === -1 ? 100000 : pageSize },
   );
   const rows = data?.rows ?? [];
   const totals = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<SalesTaxResp>('sales-tax-export', '/reports/sales-tax', {
+    ...filters,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<SalesTaxRow>[] = [
     { key: 'date', header: 'Date', value: (r) => fmtDate(r.date) },
@@ -156,11 +175,18 @@ export function SalesTaxPage() {
           <CustomerFilter value={customerId} onChange={setCustomerId} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
           <ProductFilter value={productId} onChange={setProductId} />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
           <TextFilter
             label="Reference"
             value={reference}
             onChange={setReference}
             placeholder="INV-…"
+          />
+          <TextFilter
+            label="Batch Number"
+            value={serial}
+            onChange={setSerial}
+            placeholder="Batch / serial…"
           />
           <TextFilter
             label="Biller"
@@ -173,13 +199,13 @@ export function SalesTaxPage() {
       exportConfig={{
         filename: 'sales-tax-report',
         columns,
-        rows,
+        rows: exportRows,
         subtitle: from || to ? `${from || '…'} → ${to || '…'}` : 'All dates',
         totalsRow: totalsRow as (string | number)[] | undefined,
       }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Invoices" value={rows.length} />
+        <StatCard label="Invoices" value={data?.total ?? rows.length} />
         <StatCard label="Grand total" value={fmtMoney(totals?.grandTotal)} />
         <StatCard label="Product tax" value={fmtMoney(totals?.productTax)} />
         <StatCard
@@ -196,6 +222,16 @@ export function SalesTaxPage() {
         isLoading={isLoading}
         emptyMessage="No sales in range."
         totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
       />
     </ReportShell>
   );

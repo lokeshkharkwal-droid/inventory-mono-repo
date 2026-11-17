@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -9,6 +9,7 @@ import {
   TextFilter,
   WarehouseFilter,
   EntityFilter,
+  UserFilter,
 } from '@/features/reports/filters';
 
 interface ExpenseRow {
@@ -24,6 +25,9 @@ interface ExpenseRow {
 interface ExpenseResp {
   rows: ExpenseRow[];
   totals: { amount: number };
+  page: number;
+  limit: number;
+  total: number;
 }
 
 /** Expenses Report — operating expenses by category over a date range. */
@@ -35,6 +39,13 @@ export function ExpensesReportPage() {
   // Legacy "note" filter → backend reads the `search` param (note LIKE match).
   const [search, setSearch] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, reference, categoryId, search, warehouseId, createdBy]);
 
   const { data, isLoading } = useReport<ExpenseResp>('expenses', '/reports/expenses', {
     from,
@@ -43,9 +54,25 @@ export function ExpensesReportPage() {
     categoryId,
     search,
     warehouseId,
+    createdBy,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
   });
   const rows = data?.rows ?? [];
   const t = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<ExpenseResp>('expenses-export', '/reports/expenses', {
+    from,
+    to,
+    reference,
+    categoryId,
+    search,
+    warehouseId,
+    createdBy,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   // Legacy GST/tax breakdown and the attachment column have no source in the new
   // InventoryExpense schema (single `amount` Decimal) — kept for header/column
@@ -84,17 +111,35 @@ export function ExpensesReportPage() {
             queryKey={['expense-categories']}
           />
           <TextFilter label="Note" value={search} onChange={setSearch} />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
         </>
       }
-      exportConfig={{ filename: 'expenses-report', columns, rows, totalsRow: totalsRow as (string | number)[] | undefined }}
+      exportConfig={{ filename: 'expenses-report', columns, rows: exportRows, totalsRow: totalsRow as (string | number)[] | undefined }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Entries" value={rows.length} />
+        <StatCard label="Entries" value={data?.total ?? rows.length} />
         <StatCard label="Total expenses" value={fmtMoney(t?.amount)} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r) => r.id} isLoading={isLoading} emptyMessage="No expenses in range." totalsRow={totalsRow} />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        isLoading={isLoading}
+        emptyMessage="No expenses in range."
+        totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
     </ReportShell>
   );
 }

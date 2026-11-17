@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -24,8 +24,12 @@ interface ExpiryRow {
 interface ExpiryResp {
   rows: ExpiryRow[];
   total: number;
+  expired: number;
+  expiringSoon: number;
   alertDays: number;
   horizonDate: string;
+  page: number;
+  limit: number;
 }
 
 const ALERT_DAYS_OPTIONS = [
@@ -45,15 +49,30 @@ export function ExpiryAlertsPage() {
   const [warehouseId, setWarehouseId] = useState('');
   const [search, setSearch] = useState('');
   const [alertDays, setAlertDays] = useState('90');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const params = { warehouseId, search, alertDays };
+  useEffect(() => {
+    setPage(1);
+  }, [warehouseId, search, alertDays]);
+
+  const filters = { warehouseId, search, alertDays };
   const { data, isLoading } = useReport<ExpiryResp>(
     'expiry-alerts',
     '/reports/expiry-alerts',
-    params,
+    { ...filters, page, limit: pageSize === -1 ? 100000 : pageSize },
   );
   const rows = data?.rows ?? [];
-  const expiredCount = rows.filter((r) => r.isExpired).length;
+  const totalCount = data?.total ?? rows.length;
+  const expiredCount = data?.expired ?? 0;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<ExpiryResp>(
+    'expiry-alerts-export',
+    '/reports/expiry-alerts',
+    { ...filters, limit: 100000 },
+  );
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<ExpiryRow>[] = [
     {
@@ -125,14 +144,14 @@ export function ExpiryAlertsPage() {
       exportConfig={{
         filename: 'expiry-alerts',
         columns,
-        rows,
+        rows: exportRows,
         subtitle: `Horizon ${data?.alertDays ?? Number(alertDays)} days → ${fmtDate(data?.horizonDate)}`,
       }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Batches at risk" value={rows.length} />
+        <StatCard label="Batches at risk" value={totalCount} />
         <StatCard label="Already expired" value={expiredCount} />
-        <StatCard label="Expiring soon" value={rows.length - expiredCount} />
+        <StatCard label="Expiring soon" value={data?.expiringSoon ?? totalCount - expiredCount} />
         <StatCard
           label="Horizon"
           value={`${data?.alertDays ?? Number(alertDays)} days`}
@@ -146,6 +165,16 @@ export function ExpiryAlertsPage() {
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No batches expiring in this horizon."
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
       />
     </ReportShell>
   );

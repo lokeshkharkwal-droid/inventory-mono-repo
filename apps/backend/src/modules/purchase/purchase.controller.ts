@@ -84,7 +84,7 @@ export class PurchaseController {
 
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.purchaseService.findById(id, tenantId);
+    return this.purchaseService.getDetail(id, tenantId);
   }
 
   @Patch(':id')

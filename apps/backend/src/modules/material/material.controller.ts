@@ -31,9 +31,15 @@ export class MaterialController {
   create(
     @CurrentTenant() tenantId: string,
     @CurrentProfile() profile: ActiveProfile,
+    @CurrentUser('person_id') personId: string,
     @Body() dto: CreateMaterialDto,
   ) {
-    return this.materialService.create(tenantId, profile.branchId, dto);
+    return this.materialService.create(
+      tenantId,
+      profile.branchId,
+      dto,
+      personId,
+    );
   }
 
   @Post('import')

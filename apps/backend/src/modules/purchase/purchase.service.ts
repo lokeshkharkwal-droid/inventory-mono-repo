@@ -7,6 +7,7 @@ import { ProductService } from '../product/product.service';
 import { ProductStockService } from '../product/product-stock.service';
 import { NumberingService } from '../settings/numbering.service';
 import { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
+import { KalnosticsUsersClient } from '../../integration/clients/kalnostics-users.client';
 import { BranchRequiredException } from '../product/exceptions/product.exceptions';
 import {
   CreatePurchaseDto,
@@ -33,6 +34,10 @@ import {
   derivePaymentStatus,
   type ComputedOrder,
 } from '../../common/utils/order-totals.util';
+import {
+  resolveWarehouseDetail,
+  resolveUserName,
+} from '../../common/utils/party-detail.util';
 
 const D = (v: number | string | Prisma.Decimal) => new Prisma.Decimal(v);
 
@@ -60,6 +65,7 @@ export class PurchaseService {
     private readonly stockService: ProductStockService,
     private readonly numbering: NumberingService,
     private readonly branchClient: KalnosticsBranchClient,
+    private readonly usersClient: KalnosticsUsersClient,
   ) {}
 
   /** Validate a client-supplied warehouse against the tenant, else active branch. */
@@ -363,6 +369,29 @@ export class PurchaseService {
     });
     if (!purchase) throw new PurchaseNotFoundException(id);
     return purchase;
+  }
+
+  /**
+   * Fetch one purchase enriched for the detail modal (legacy `purchases/modal_view`):
+   * the fuller supplier contact/address + GST, the warehouse (branch) name/address,
+   * and the created-by staff name resolved via the kalnostics integration. Kept
+   * separate from {@link findById} — which the write paths reuse — so those stay
+   * fast and independent of the integration being reachable (all lookups here are
+   * best-effort and degrade to `null` on failure).
+   */
+  async getDetail(id: string, tenantId: string) {
+    const purchase = await this.findById(id, tenantId);
+    const [supplier, warehouse, createdByName] = await Promise.all([
+      this.supplierService.findById(purchase.supplierId, tenantId).catch(() => null),
+      resolveWarehouseDetail(this.branchClient, purchase.branchId),
+      resolveUserName(this.usersClient, purchase.createdBy),
+    ]);
+    return {
+      ...purchase,
+      supplier: supplier ?? purchase.supplier,
+      warehouse,
+      createdByName,
+    };
   }
 
   /**

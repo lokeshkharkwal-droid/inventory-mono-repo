@@ -47,17 +47,21 @@ export function DateRangeFilter({
   );
 }
 
-/** A labelled text filter. */
+/** A labelled text filter. `disabled` greys it out (e.g. a filter with no backend source). */
 export function TextFilter({
   label,
   value,
   onChange,
   placeholder,
+  disabled,
+  title,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <FilterField label={label}>
@@ -65,6 +69,8 @@ export function TextFilter({
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        title={title}
       />
     </FilterField>
   );
@@ -217,4 +223,26 @@ export const ProductFilter = (p: { value: string; onChange: (v: string) => void 
 );
 export const CategoryFilter = (p: { value: string; onChange: (v: string) => void }) => (
   <EntityFilter label="Category" path="/categories" queryKey={['categories']} {...p} />
+);
+export const BillerFilter = (p: { value: string; onChange: (v: string) => void }) => (
+  <EntityFilter label="Biller" path="/billers" queryKey={['billers']} {...p} />
+);
+
+/**
+ * "Created By" / "User" filter — staff options proxied from kalnostics-new
+ * (`GET /integration/users`), resolving inventory `createdBy`/`openedBy` person
+ * ids to names. `label` lets a page show it as "Created By" or "User".
+ */
+export const UserFilter = (p: {
+  value: string;
+  onChange: (v: string) => void;
+  label?: string;
+}) => (
+  <EntityFilter
+    label={p.label ?? 'Created By'}
+    path="/integration/users"
+    queryKey={['integration', 'users']}
+    value={p.value}
+    onChange={p.onChange}
+  />
 );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -10,6 +10,7 @@ import {
   SupplierFilter,
   TextFilter,
   WarehouseFilter,
+  UserFilter,
 } from '@/features/reports/filters';
 
 interface PayRow {
@@ -26,6 +27,7 @@ interface PayRow {
 interface PayResp {
   rows: PayRow[];
   totals: { received: number; sent: number; returned: number; net: number };
+  pagination: { page: number; limit: number; total: number; totalPages: number };
 }
 
 /** Payments Report — merged ledger of payments received (sales) and made (purchases). */
@@ -36,17 +38,57 @@ export function PaymentsReportPage() {
   const [customerId, setCustomerId] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [saleReference, setSaleReference] = useState('');
+  const [purchaseReference, setPurchaseReference] = useState('');
+  const [cardNo, setCardNo] = useState('');
+  const [chequeNo, setChequeNo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const { data, isLoading } = useReport<PayResp>('payments', '/reports/payments-ledger', {
+  useEffect(() => {
+    setPage(1);
+  }, [
     from,
     to,
     reference,
     customerId,
     supplierId,
     warehouseId,
+    createdBy,
+    saleReference,
+    purchaseReference,
+    cardNo,
+    chequeNo,
+  ]);
+
+  const filters = {
+    from,
+    to,
+    reference,
+    customerId,
+    supplierId,
+    warehouseId,
+    createdBy,
+    saleReference,
+    purchaseReference,
+    cardNo,
+    chequeNo,
+  };
+  const { data, isLoading } = useReport<PayResp>('payments', '/reports/payments-ledger', {
+    ...filters,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
   });
   const rows = data?.rows ?? [];
   const t = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<PayResp>('payments-export', '/reports/payments-ledger', {
+    ...filters,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<PayRow>[] = [
     { key: 'date', header: 'Date', value: (r) => fmtDate(r.date) },
@@ -62,16 +104,22 @@ export function PaymentsReportPage() {
     <ReportShell
       title="Payments Report"
       description="All payments received (sales) and made (purchases) in the range."
+      imageExport
       filters={
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
-          <TextFilter label="Reference" value={reference} onChange={setReference} />
+          <TextFilter label="Payment Ref" value={reference} onChange={setReference} />
+          <TextFilter label="Sale Reference" value={saleReference} onChange={setSaleReference} />
+          <TextFilter label="Purchase Reference" value={purchaseReference} onChange={setPurchaseReference} />
+          <TextFilter label="Card Number" value={cardNo} onChange={setCardNo} placeholder="Last 4…" />
+          <TextFilter label="Cheque Number" value={chequeNo} onChange={setChequeNo} />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
           <CustomerFilter value={customerId} onChange={setCustomerId} />
           <SupplierFilter value={supplierId} onChange={setSupplierId} />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
         </>
       }
-      exportConfig={{ filename: 'payments-report', columns, rows }}
+      exportConfig={{ filename: 'payments-report', columns, rows: exportRows }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Received" value={fmtMoney(t?.received)} />
@@ -79,7 +127,23 @@ export function PaymentsReportPage() {
         <StatCard label="Returned" value={fmtMoney(t?.returned)} />
         <StatCard label="Net" value={fmtMoney(t?.net)} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r) => r.id} isLoading={isLoading} emptyMessage="No payments in range." />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        isLoading={isLoading}
+        emptyMessage="No payments in range."
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.pagination.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
     </ReportShell>
   );
 }

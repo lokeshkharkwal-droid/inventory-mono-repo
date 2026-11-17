@@ -18,9 +18,137 @@ import { ReportQueryDto } from './dto/reports-query.dto';
  * closest equivalent or returned as 0 / null and flagged — the report degrades
  * gracefully rather than fabricating data.
  */
+const MONTH_ABBR = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
 @Injectable()
 export class ReportsSalesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Overview Chart — the legacy Reports/index "Stock Overview Chart" data
+   * (`Reports_model::getChartData`): a rolling 12-month series combining sales and
+   * purchases. For each of the last 12 months returns:
+   *   - sales                 = Σ sale.subtotal          (legacy `sales.total`)
+   *   - soldProductTax        = Σ sale.totalTax          (legacy `sales.product_tax`, "sp_tax")
+   *   - orderTax              = Σ sale.orderTax          (legacy `sales.order_tax`)
+   *   - purchases             = Σ purchase.subtotal      (legacy `purchases.total`)
+   *   - purchasedProductTax   = Σ purchase.totalTax      (legacy `purchases.product_tax`, "pp_tax")
+   * Tenant-scoped; the FE renders sales/soldProductTax/orderTax as bars and
+   * purchases/purchasedProductTax as lines (stock-value pie comes from
+   * `warehouse-stock`).
+   * @param tenantId tenant from the JWT (never the body).
+   * @returns { months: [{ label, sales, soldProductTax, orderTax, purchases, purchasedProductTax }], totals }.
+   */
+  async overviewChart(tenantId: string) {
+    const now = new Date();
+    // Build the 12 month buckets (oldest → current), keyed by `${year}-${month}`.
+    const buckets = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+      return {
+        key: `${d.getFullYear()}-${d.getMonth()}`,
+        label: `${MONTH_ABBR[d.getMonth()]}-${d.getFullYear()}`,
+        sales: D(0),
+        soldProductTax: D(0),
+        orderTax: D(0),
+        purchases: D(0),
+        purchasedProductTax: D(0),
+      };
+    });
+    const index = new Map(buckets.map((b, i) => [b.key, i]));
+    const windowStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - 11,
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+    const windowEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+
+    const [sales, purchases] = await Promise.all([
+      this.prisma.inventorySale.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          date: { gte: windowStart, lte: windowEnd },
+        },
+        select: { date: true, subtotal: true, totalTax: true, orderTax: true },
+      }),
+      this.prisma.inventoryPurchase.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          date: { gte: windowStart, lte: windowEnd },
+        },
+        select: { date: true, subtotal: true, totalTax: true },
+      }),
+    ]);
+
+    for (const s of sales) {
+      const i = index.get(`${s.date.getFullYear()}-${s.date.getMonth()}`);
+      const b = i == null ? undefined : buckets[i];
+      if (!b) continue;
+      b.sales = b.sales.add(s.subtotal);
+      b.soldProductTax = b.soldProductTax.add(s.totalTax);
+      b.orderTax = b.orderTax.add(s.orderTax);
+    }
+    for (const p of purchases) {
+      const i = index.get(`${p.date.getFullYear()}-${p.date.getMonth()}`);
+      const b = i == null ? undefined : buckets[i];
+      if (!b) continue;
+      b.purchases = b.purchases.add(p.subtotal);
+      b.purchasedProductTax = b.purchasedProductTax.add(p.totalTax);
+    }
+
+    const totals = buckets.reduce(
+      (t, b) => ({
+        sales: t.sales.add(b.sales),
+        soldProductTax: t.soldProductTax.add(b.soldProductTax),
+        orderTax: t.orderTax.add(b.orderTax),
+        purchases: t.purchases.add(b.purchases),
+        purchasedProductTax: t.purchasedProductTax.add(b.purchasedProductTax),
+      }),
+      {
+        sales: D(0),
+        soldProductTax: D(0),
+        orderTax: D(0),
+        purchases: D(0),
+        purchasedProductTax: D(0),
+      },
+    );
+
+    const months = buckets.map((b) => ({
+      label: b.label,
+      sales: b.sales,
+      soldProductTax: b.soldProductTax,
+      orderTax: b.orderTax,
+      purchases: b.purchases,
+      purchasedProductTax: b.purchasedProductTax,
+    }));
+    return { months, totals };
+  }
 
   /**
    * Daily Sales — a per-day roll-up for one month (calendar grid). For each day
@@ -234,7 +362,8 @@ export class ReportsSalesService {
    * "Investigations" column has no source in the inventory schema and is null.
    * @param tenantId tenant from the JWT.
    * @param q date range + optional customerId/createdBy/warehouse/reference/
-   *   categoryId/productId/billerName/paymentStatus + page/limit.
+   *   categoryId/productId/serial (sale-line batch/serial)/billerName/
+   *   paymentStatus + page/limit.
    * @returns { rows, totals, page, limit, total }.
    */
   async sales(tenantId: string, q: ReportQueryDto) {
@@ -257,7 +386,7 @@ export class ReportsSalesService {
       ...(q.reference
         ? { reference: { contains: q.reference, mode: 'insensitive' } }
         : {}),
-      ...(q.productId || q.categoryId
+      ...(q.productId || q.categoryId || q.serial
         ? {
             items: {
               some: {
@@ -265,13 +394,16 @@ export class ReportsSalesService {
                 ...(q.categoryId
                   ? { product: { categoryId: q.categoryId } }
                   : {}),
+                ...(q.serial
+                  ? { serialNo: { contains: q.serial, mode: 'insensitive' } }
+                  : {}),
               },
             },
           }
         : {}),
     };
 
-    const [total, sales] = await Promise.all([
+    const [total, sales, sumAgg] = await Promise.all([
       this.prisma.inventorySale.count({ where }),
       this.prisma.inventorySale.findMany({
         where,
@@ -295,6 +427,16 @@ export class ReportsSalesService {
         orderBy: { date: 'desc' },
         skip: (page - 1) * limit,
         take: Math.min(limit, 1000),
+      }),
+      // Footer totals over the FULL filtered set (not just the current page).
+      this.prisma.inventorySale.aggregate({
+        where,
+        _sum: {
+          orderTax: true,
+          orderDiscount: true,
+          grandTotal: true,
+          paid: true,
+        },
       }),
     ]);
 
@@ -332,22 +474,16 @@ export class ReportsSalesService {
       };
     });
 
-    const totals = rows.reduce(
-      (t, r) => ({
-        totalTax: t.totalTax.add(r.totalTax),
-        totalDiscount: t.totalDiscount.add(r.totalDiscount),
-        grandTotal: t.grandTotal.add(r.grandTotal),
-        paid: t.paid.add(r.paid),
-        balance: t.balance.add(r.balance),
-      }),
-      {
-        totalTax: D(0),
-        totalDiscount: D(0),
-        grandTotal: D(0),
-        paid: D(0),
-        balance: D(0),
-      },
-    );
+    // Totals over the full filtered set; balance = grandTotal − paid.
+    const totalGrand = sumAgg._sum.grandTotal ?? D(0);
+    const totalPaid = sumAgg._sum.paid ?? D(0);
+    const totals = {
+      totalTax: sumAgg._sum.orderTax ?? D(0),
+      totalDiscount: sumAgg._sum.orderDiscount ?? D(0),
+      grandTotal: totalGrand,
+      paid: totalPaid,
+      balance: totalGrand.sub(totalPaid),
+    };
 
     return { rows, totals, page, limit, total };
   }
@@ -383,10 +519,23 @@ export class ReportsSalesService {
       ...(q.reference
         ? { reference: { contains: q.reference, mode: 'insensitive' } }
         : {}),
-      ...(q.productId ? { items: { some: { productId: q.productId } } } : {}),
+      // Product and/or Batch Number (sale-line serialNo is the lot/batch key) —
+      // combined into a single `items.some` so both narrow the same line.
+      ...(q.productId || q.serial
+        ? {
+            items: {
+              some: {
+                ...(q.productId ? { productId: q.productId } : {}),
+                ...(q.serial
+                  ? { serialNo: { contains: q.serial, mode: 'insensitive' } }
+                  : {}),
+              },
+            },
+          }
+        : {}),
     };
 
-    const [total, sales] = await Promise.all([
+    const [total, sales, fullSet] = await Promise.all([
       this.prisma.inventorySale.count({ where }),
       this.prisma.inventorySale.findMany({
         where,
@@ -408,6 +557,13 @@ export class ReportsSalesService {
         orderBy: { date: 'desc' },
         skip: (page - 1) * limit,
         take: Math.min(limit, 1000),
+      }),
+      // Full filtered set (grandTotal + item tax) for footer totals — the
+      // per-sale IGST/CGST/SGST split can't be expressed as a Prisma aggregate.
+      this.prisma.inventorySale.findMany({
+        where,
+        select: { grandTotal: true, items: { select: { taxAmount: true } } },
+        take: 100000,
       }),
     ]);
 
@@ -447,22 +603,20 @@ export class ReportsSalesService {
       };
     });
 
-    const totals = rows.reduce(
-      (t, r) => ({
-        grandTotal: t.grandTotal.add(r.grandTotal),
-        productTax: t.productTax.add(r.productTax),
-        igst: t.igst.add(r.igst),
-        cgst: t.cgst.add(r.cgst),
-        sgst: t.sgst.add(r.sgst),
-      }),
-      {
-        grandTotal: D(0),
-        productTax: D(0),
-        igst: D(0),
-        cgst: D(0),
-        sgst: D(0),
-      },
+    // Totals over the full filtered set: productTax = Σ item tax, grandTotal =
+    // Σ sale total; IGST = 0 and CGST = SGST = productTax / 2 (intra-state).
+    const fullGrand = fullSet.reduce((s, x) => s.add(x.grandTotal), D(0));
+    const fullProductTax = fullSet.reduce(
+      (s, x) => x.items.reduce((inner, i) => inner.add(i.taxAmount), s),
+      D(0),
     );
+    const totals = {
+      grandTotal: fullGrand,
+      productTax: fullProductTax,
+      igst: D(0),
+      cgst: fullProductTax.div(2),
+      sgst: fullProductTax.div(2),
+    };
 
     return {
       rows,
@@ -482,7 +636,7 @@ export class ReportsSalesService {
    * InventoryProduct.unitId → the unit's name (no unit string on the sale line).
    * @param tenantId tenant from the JWT.
    * @param q date range + optional warehouse/customerId/createdBy/productId/
-   *   reference + page/limit.
+   *   serial (sale-line batch/serial)/billerName/reference + page/limit.
    * @returns { rows, totals, meta }.
    */
   async salesQuantity(tenantId: string, q: ReportQueryDto) {
@@ -495,12 +649,18 @@ export class ReportsSalesService {
       where: {
         tenantId,
         ...(q.productId ? { productId: q.productId } : {}),
+        ...(q.serial
+          ? { serialNo: { contains: q.serial, mode: 'insensitive' } }
+          : {}),
         sale: {
           deletedAt: null,
           ...(date ? { date } : {}),
           ...(branchId ? { branchId } : {}),
           ...(q.customerId ? { customerId: q.customerId } : {}),
           ...(q.createdBy ? { createdBy: q.createdBy } : {}),
+          ...(q.billerName
+            ? { billerName: { contains: q.billerName, mode: 'insensitive' } }
+            : {}),
           ...(q.reference
             ? { reference: { contains: q.reference, mode: 'insensitive' } }
             : {}),
@@ -564,8 +724,9 @@ export class ReportsSalesService {
       .sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0));
 
     const total = all.length;
+    // Total quantity over the FULL filtered set (before paging the rows).
+    const quantity = all.reduce((s, r) => s.add(r.quantity), D(0));
     const rows = all.slice((page - 1) * limit, (page - 1) * limit + limit);
-    const quantity = rows.reduce((s, r) => s.add(r.quantity), D(0));
 
     return {
       rows,
@@ -596,20 +757,37 @@ export class ReportsSalesService {
     const page = q.page && q.page > 0 ? q.page : 1;
     const limit = q.limit && q.limit > 0 ? q.limit : 25;
 
+    const card = q.cardNo?.trim();
+    const cheque = q.chequeNo?.trim();
+    const saleRef = q.saleReference?.trim();
+    const purchaseRef = q.purchaseReference?.trim();
+    // A payment belongs to either a sale or a purchase — filtering by one side's
+    // reference excludes the other side (mirrors the legacy LEFT-JOIN behaviour).
+    const excludeSale = !!purchaseRef;
+    const excludePurchase = !!saleRef;
+
     const [salePayments, purchasePayments] = await Promise.all([
       this.prisma.inventorySalePayment.findMany({
         where: {
           tenantId,
           deletedAt: null,
+          ...(excludeSale ? { id: '__none__' } : {}),
           ...(date ? { date } : {}),
           ...(q.createdBy ? { createdBy: q.createdBy } : {}),
           ...(q.reference
             ? { reference: { contains: q.reference, mode: 'insensitive' } }
             : {}),
+          ...(card ? { ccNo: { contains: card, mode: 'insensitive' } } : {}),
+          ...(cheque
+            ? { chequeNo: { contains: cheque, mode: 'insensitive' } }
+            : {}),
           sale: {
             deletedAt: null,
             ...(branchId ? { branchId } : {}),
             ...(q.customerId ? { customerId: q.customerId } : {}),
+            ...(saleRef
+              ? { reference: { contains: saleRef, mode: 'insensitive' } }
+              : {}),
           },
         },
         select: {
@@ -620,21 +798,29 @@ export class ReportsSalesService {
           amount: true,
           sale: { select: { reference: true } },
         },
-        take: 1000,
+        take: 10000,
       }),
       this.prisma.inventoryPurchasePayment.findMany({
         where: {
           tenantId,
           deletedAt: null,
+          ...(excludePurchase ? { id: '__none__' } : {}),
           ...(date ? { date } : {}),
           ...(q.createdBy ? { createdBy: q.createdBy } : {}),
           ...(q.reference
             ? { reference: { contains: q.reference, mode: 'insensitive' } }
             : {}),
+          ...(card ? { ccNo: { contains: card, mode: 'insensitive' } } : {}),
+          ...(cheque
+            ? { chequeNo: { contains: cheque, mode: 'insensitive' } }
+            : {}),
           purchase: {
             deletedAt: null,
             ...(branchId ? { branchId } : {}),
             ...(q.supplierId ? { supplierId: q.supplierId } : {}),
+            ...(purchaseRef
+              ? { reference: { contains: purchaseRef, mode: 'insensitive' } }
+              : {}),
           },
         },
         select: {
@@ -645,7 +831,7 @@ export class ReportsSalesService {
           amount: true,
           purchase: { select: { reference: true } },
         },
-        take: 1000,
+        take: 10000,
       }),
     ]);
 
@@ -712,39 +898,53 @@ export class ReportsSalesService {
    * productTax / 2 — place-of-supply isn't captured). The rate-wise GSTR-1/2/3B
    * filing exports are served separately by the existing ReportsService.
    * @param tenantId tenant from the JWT.
-   * @param q date range + optional branch/customerId/createdBy/reference.
-   * @returns { rows, totals, from, to }.
+   * @param q date range + optional branch/customerId/createdBy/reference + page/limit.
+   * @returns { rows, totals, page, limit, total, from, to }.
    */
   async gst(tenantId: string, q: ReportQueryDto) {
     const date = dateFilter(q.from, q.to);
     const branchId = q.warehouseId ?? q.branchId;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
 
-    const sales = await this.prisma.inventorySale.findMany({
-      where: {
-        tenantId,
-        deletedAt: null,
-        ...(date ? { date } : {}),
-        ...(branchId ? { branchId } : {}),
-        ...(q.customerId ? { customerId: q.customerId } : {}),
-        ...(q.createdBy ? { createdBy: q.createdBy } : {}),
-        ...(q.reference
-          ? { reference: { contains: q.reference, mode: 'insensitive' } }
-          : {}),
-      },
-      select: {
-        id: true,
-        date: true,
-        reference: true,
-        billerName: true,
-        grandTotal: true,
-        customer: { select: { name: true } },
-        items: {
-          select: { productName: true, quantity: true, taxAmount: true },
+    const where: Prisma.InventorySaleWhereInput = {
+      tenantId,
+      deletedAt: null,
+      ...(date ? { date } : {}),
+      ...(branchId ? { branchId } : {}),
+      ...(q.customerId ? { customerId: q.customerId } : {}),
+      ...(q.createdBy ? { createdBy: q.createdBy } : {}),
+      ...(q.reference
+        ? { reference: { contains: q.reference, mode: 'insensitive' } }
+        : {}),
+    };
+
+    const [total, sales, fullSet] = await Promise.all([
+      this.prisma.inventorySale.count({ where }),
+      this.prisma.inventorySale.findMany({
+        where,
+        select: {
+          id: true,
+          date: true,
+          reference: true,
+          billerName: true,
+          grandTotal: true,
+          customer: { select: { name: true } },
+          items: {
+            select: { productName: true, quantity: true, taxAmount: true },
+          },
         },
-      },
-      orderBy: { date: 'desc' },
-      take: 1000,
-    });
+        orderBy: { date: 'desc' },
+        skip: (page - 1) * limit,
+        take: Math.min(limit, 1000),
+      }),
+      // Full filtered set (grandTotal + item tax) for footer totals.
+      this.prisma.inventorySale.findMany({
+        where,
+        select: { grandTotal: true, items: { select: { taxAmount: true } } },
+        take: 100000,
+      }),
+    ]);
 
     const rows = sales.map((s) => {
       const productTax = s.items.reduce((sum, i) => sum.add(i.taxAmount), D(0));
@@ -769,24 +969,29 @@ export class ReportsSalesService {
       };
     });
 
-    const totals = rows.reduce(
-      (t, r) => ({
-        grandTotal: t.grandTotal.add(r.grandTotal),
-        productTax: t.productTax.add(r.productTax),
-        igst: t.igst.add(r.igst),
-        cgst: t.cgst.add(r.cgst),
-        sgst: t.sgst.add(r.sgst),
-      }),
-      {
-        grandTotal: D(0),
-        productTax: D(0),
-        igst: D(0),
-        cgst: D(0),
-        sgst: D(0),
-      },
+    // Totals over the full filtered set (not just the current page).
+    const fullGrand = fullSet.reduce((s, x) => s.add(x.grandTotal), D(0));
+    const fullProductTax = fullSet.reduce(
+      (s, x) => x.items.reduce((inner, i) => inner.add(i.taxAmount), s),
+      D(0),
     );
+    const totals = {
+      grandTotal: fullGrand,
+      productTax: fullProductTax,
+      igst: D(0),
+      cgst: fullProductTax.div(2),
+      sgst: fullProductTax.div(2),
+    };
 
-    return { rows, totals, from: date?.gte ?? null, to: date?.lte ?? null };
+    return {
+      rows,
+      totals,
+      page,
+      limit,
+      total,
+      from: date?.gte ?? null,
+      to: date?.lte ?? null,
+    };
   }
 
   /**
@@ -988,6 +1193,9 @@ export class ReportsSalesService {
     const where: Prisma.InventorySaleItemWhereInput = {
       tenantId,
       ...(q.categoryId ? { product: { categoryId: q.categoryId } } : {}),
+      ...(q.serial
+        ? { serialNo: { contains: q.serial, mode: 'insensitive' } }
+        : {}),
       sale: {
         deletedAt: null,
         ...(date ? { date } : {}),
@@ -1003,7 +1211,7 @@ export class ReportsSalesService {
       },
     };
 
-    const [total, items] = await Promise.all([
+    const [total, items, fullSet] = await Promise.all([
       this.prisma.inventorySaleItem.count({ where }),
       this.prisma.inventorySaleItem.findMany({
         where,
@@ -1025,7 +1233,14 @@ export class ReportsSalesService {
         },
         orderBy: { sale: { date: 'desc' } },
         skip: (page - 1) * pageSize,
-        take: Math.min(pageSize, 1000),
+        take: Math.min(pageSize, 10000),
+      }),
+      // Full filtered set for footer totals — totalPurchase = Σ(cost × quantity)
+      // can't be expressed as a Prisma aggregate.
+      this.prisma.inventorySaleItem.findMany({
+        where,
+        select: { subtotal: true, cost: true, quantity: true },
+        take: 100000,
       }),
     ]);
 
@@ -1049,8 +1264,12 @@ export class ReportsSalesService {
       };
     });
 
-    const totalSales = rows.reduce((s, r) => s.add(r.totalSales), D(0));
-    const totalPurchase = rows.reduce((s, r) => s.add(r.totalPurchase), D(0));
+    // Totals over the full filtered set (not just the current page).
+    const totalSales = fullSet.reduce((s, r) => s.add(r.subtotal), D(0));
+    const totalPurchase = fullSet.reduce(
+      (s, r) => s.add(r.cost.mul(r.quantity)),
+      D(0),
+    );
     const profit = totalSales.sub(totalPurchase);
     const marginPct = totalSales.isZero()
       ? D(0)

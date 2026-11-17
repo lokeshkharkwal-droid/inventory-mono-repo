@@ -24,5 +24,8 @@ export function useReport<T>(key: string, path: string, params: ReportParams = {
   return useQuery({
     queryKey: ['reports', key, query],
     queryFn: () => request<T>('GET', path, { query }),
+    // Keep the prior page's data visible while the next page/filter loads so
+    // server-paginated tables don't flash the whole-table loader on page change.
+    placeholderData: (prev) => prev,
   });
 }

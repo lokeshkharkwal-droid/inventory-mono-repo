@@ -33,16 +33,29 @@ export class ReportsPartiesService {
    * @returns `{ rows, totals }` — totals are the grand totals over the full set
    */
   async customers(tenantId: string, q: ReportQueryDto) {
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
     const agg = await this.prisma.inventorySale.groupBy({
       by: ['customerId'],
-      where: { tenantId, deletedAt: null },
+      where: {
+        tenantId,
+        deletedAt: null,
+        // Created By narrows which sales count toward each customer's totals.
+        ...(q.createdBy ? { createdBy: q.createdBy } : {}),
+      },
       _count: { _all: true },
       _sum: { grandTotal: true, paid: true },
     });
     const byCustomer = new Map(agg.map((a) => [a.customerId, a]));
     const ids = agg.map((a) => a.customerId);
     if (ids.length === 0) {
-      return { rows: [], totals: this.zeroPartyTotals('totalSales') };
+      return {
+        rows: [],
+        totals: this.zeroPartyTotals('totalSales'),
+        page,
+        limit,
+        total: 0,
+      };
     }
 
     const customers = await this.prisma.inventoryCustomer.findMany({
@@ -71,11 +84,10 @@ export class ReportsPartiesService {
         email: true,
       },
       orderBy: [{ companyName: 'asc' }, { name: 'asc' }],
-      take: 1000,
     });
 
     const totals = this.zeroPartyTotals('totalSales');
-    const rows = customers.map((c) => {
+    const allRows = customers.map((c) => {
       const a = byCustomer.get(c.id);
       const totalSales = a?._count._all ?? 0;
       const totalAmount = a?._sum.grandTotal ?? D(0);
@@ -97,7 +109,10 @@ export class ReportsPartiesService {
         balance,
       };
     });
-    return { rows, totals };
+    // Server-side pagination: totals span the full filtered set; rows are the page.
+    const total = allRows.length;
+    const rows = allRows.slice((page - 1) * limit, (page - 1) * limit + limit);
+    return { rows, totals, page, limit, total };
   }
 
   /**
@@ -113,6 +128,8 @@ export class ReportsPartiesService {
    */
   async patients(tenantId: string, q: ReportQueryDto) {
     const branchId = q.warehouseId ?? q.branchId;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
     const agg = await this.prisma.inventorySale.groupBy({
       by: ['customerId'],
       where: {
@@ -130,6 +147,9 @@ export class ReportsPartiesService {
         rows: [],
         totals: this.zeroPartyTotals('totalSales'),
         branchId: branchId ?? null,
+        page,
+        limit,
+        total: 0,
       };
     }
 
@@ -159,11 +179,10 @@ export class ReportsPartiesService {
         email: true,
       },
       orderBy: [{ code: 'asc' }, { name: 'asc' }],
-      take: 1000,
     });
 
     const totals = this.zeroPartyTotals('totalSales');
-    const rows = customers.map((c) => {
+    const allRows = customers.map((c) => {
       const a = byCustomer.get(c.id);
       const totalSales = a?._count._all ?? 0;
       const totalAmount = a?._sum.grandTotal ?? D(0);
@@ -185,7 +204,10 @@ export class ReportsPartiesService {
         balance,
       };
     });
-    return { rows, totals, branchId: branchId ?? null };
+    // Server-side pagination: totals span the full filtered set; rows are the page.
+    const total = allRows.length;
+    const rows = allRows.slice((page - 1) * limit, (page - 1) * limit + limit);
+    return { rows, totals, branchId: branchId ?? null, page, limit, total };
   }
 
   /**
@@ -201,6 +223,8 @@ export class ReportsPartiesService {
    */
   async suppliers(tenantId: string, q: ReportQueryDto) {
     const branchId = q.warehouseId ?? q.branchId;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
     const agg = await this.prisma.inventoryPurchase.groupBy({
       by: ['supplierId'],
       where: {
@@ -214,7 +238,13 @@ export class ReportsPartiesService {
     const bySupplier = new Map(agg.map((a) => [a.supplierId, a]));
     const ids = agg.map((a) => a.supplierId);
     if (ids.length === 0) {
-      return { rows: [], totals: this.zeroPartyTotals('totalPurchases') };
+      return {
+        rows: [],
+        totals: this.zeroPartyTotals('totalPurchases'),
+        page,
+        limit,
+        total: 0,
+      };
     }
 
     const suppliers = await this.prisma.inventorySupplier.findMany({
@@ -241,11 +271,10 @@ export class ReportsPartiesService {
         email: true,
       },
       orderBy: [{ name: 'asc' }, { companyName: 'asc' }],
-      take: 1000,
     });
 
     const totals = this.zeroPartyTotals('totalPurchases');
-    const rows = suppliers.map((s) => {
+    const allRows = suppliers.map((s) => {
       const a = bySupplier.get(s.id);
       const totalPurchases = a?._count._all ?? 0;
       const totalAmount = a?._sum.grandTotal ?? D(0);
@@ -267,7 +296,10 @@ export class ReportsPartiesService {
         balance,
       };
     });
-    return { rows, totals };
+    // Server-side pagination: totals span the full filtered set; rows are the page.
+    const total = allRows.length;
+    const rows = allRows.slice((page - 1) * limit, (page - 1) * limit + limit);
+    return { rows, totals, page, limit, total };
   }
 
   /**
@@ -284,6 +316,8 @@ export class ReportsPartiesService {
   async supplierCredit(tenantId: string, q: ReportQueryDto) {
     const date = dateFilter(q.from, q.to);
     const branchId = q.warehouseId ?? q.branchId;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
     const purchases = await this.prisma.inventoryPurchase.findMany({
       where: {
         tenantId,
@@ -315,7 +349,7 @@ export class ReportsPartiesService {
     });
 
     const totals = { grandTotal: D(0), paid: D(0), balance: D(0) };
-    const rows = purchases.map((p) => {
+    const allRows = purchases.map((p) => {
       const balance = p.grandTotal.sub(p.paid);
       totals.grandTotal = totals.grandTotal.add(p.grandTotal);
       totals.paid = totals.paid.add(p.paid);
@@ -335,9 +369,15 @@ export class ReportsPartiesService {
         paymentStatus: p.paymentStatus,
       };
     });
+    // Server-side pagination: totals span the full filtered set; rows are the page.
+    const total = allRows.length;
+    const rows = allRows.slice((page - 1) * limit, (page - 1) * limit + limit);
     return {
       rows,
       totals,
+      page,
+      limit,
+      total,
       dataGap:
         'Warehouse/branch name is an external kalnostics reference; only branchId is available locally, so warehouseName is null.',
     };

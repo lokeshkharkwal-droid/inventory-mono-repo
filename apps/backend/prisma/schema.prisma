@@ -894,6 +894,8 @@ model InventorySaleItem {
   packSize     Decimal?  @map("pack_size") @db.Decimal(18, 4)
   packQuantity Decimal?  @map("pack_quantity") @db.Decimal(18, 4)
   serialNo     String?   @map("serial_no")
+  /// Imaging/radiology exposure count for this line (legacy inv_exposure) — Exposures report.
+  invExposure  Int       @default(0) @map("inv_exposure")
   expiryDate   DateTime? @map("expiry_date")
   hsnCode      String?   @map("hsn_code")
   taxMethod    String?   @map("tax_method")
@@ -1519,6 +1521,9 @@ model InventoryMaterial {
   transferTo           String?   @map("transfer_to")
   documentUrl          String?   @map("document_url")
   staffNote            String?   @map("staff_note")
+
+  /// Person UUID of the staff member who created this material (from the JWT).
+  createdBy String? @map("created_by")
 
   legacyMaterialId String? @map("legacy_material_id")
 

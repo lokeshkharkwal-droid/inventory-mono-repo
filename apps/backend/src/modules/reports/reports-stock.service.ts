@@ -99,9 +99,16 @@ export class ReportsStockService {
       deletedAt: null,
       ...(q.warehouseId ? { branchId: q.warehouseId } : {}),
       ...(q.categoryId ? { category: q.categoryId } : {}),
+      ...(q.billerId ? { billerId: q.billerId } : {}),
+      ...(q.createdBy ? { createdBy: q.createdBy } : {}),
       ...(date ? { createdAt: date } : {}),
       ...(q.reference
         ? { code: { contains: q.reference, mode: 'insensitive' } }
+        : {}),
+      // EZHT's "Serial No" filter was a no-op; here it functionally matches the
+      // material code (materials have no separate serial column in this schema).
+      ...(q.serial
+        ? { code: { contains: q.serial, mode: 'insensitive' } }
         : {}),
       ...(q.search
         ? {
@@ -121,8 +128,24 @@ export class ReportsStockService {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Resolve biller names in one query (InventoryMaterial has no biller relation).
+    const billerIds = [
+      ...new Set(
+        materials.map((m) => m.billerId).filter((b): b is string => !!b),
+      ),
+    ];
+    const billers = billerIds.length
+      ? await this.prisma.inventoryBiller.findMany({
+          where: { tenantId, id: { in: billerIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const billerNameOf = new Map(billers.map((b) => [b.id, b.name]));
+
     let grandTotalSum = D(0);
-    const rows = materials
+    let quantitySum = D(0);
+    let balanceQuantitySum = D(0);
+    const all = materials
       .map((m) => {
         const damageQuantity = m.damages.reduce(
           (s, d) => s.add(d.quantity),
@@ -137,9 +160,12 @@ export class ReportsStockService {
           id: m.id,
           date: m.createdAt,
           referenceNo: m.code,
-          biller: null as string | null,
+          biller: m.billerId ? (billerNameOf.get(m.billerId) ?? null) : null,
+          // Branch names live in kalnostics-new, not inventory; the FE maps this
+          // branchId → name from the JWT branch profiles (same source as the filter).
+          branchId: m.branchId,
           branchName: null as string | null,
-          sellerName: null as string | null,
+          sellerName: m.sellerName,
           productName: m.name,
           category: m.category,
           quantity: m.quantity,
@@ -148,7 +174,8 @@ export class ReportsStockService {
           balanceQuantity,
           unitPrice: m.cost,
           grandTotal,
-          amcStatus: null as string | null,
+          amcStatus: m.amcStatus,
+          createdBy: m.createdBy,
           isZeroStock: m.quantity.lte(0),
         };
       })
@@ -158,9 +185,30 @@ export class ReportsStockService {
       .filter((r) =>
         valueMin == null ? true : r.grandTotal.greaterThanOrEqualTo(valueMin),
       );
-    for (const r of rows) grandTotalSum = grandTotalSum.add(r.grandTotal);
+    for (const r of all) {
+      grandTotalSum = grandTotalSum.add(r.grandTotal);
+      quantitySum = quantitySum.add(r.quantity);
+      balanceQuantitySum = balanceQuantitySum.add(r.balanceQuantity);
+    }
 
-    return { rows, totals: { grandTotal: grandTotalSum } };
+    // True server-side pagination: totals span the full filtered set; rows are
+    // the requested page slice (limit 100000 = "All"/export returns everything).
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
+    const total = all.length;
+    const rows = all.slice((page - 1) * limit, (page - 1) * limit + limit);
+
+    return {
+      rows,
+      totals: {
+        grandTotal: grandTotalSum,
+        quantity: quantitySum,
+        balanceQuantity: balanceQuantitySum,
+      },
+      total,
+      page,
+      limit,
+    };
   }
 
   /** Product Quantity — on-hand quantity per product across warehouses. */
@@ -259,9 +307,9 @@ export class ReportsStockService {
       },
       include: { register: { select: { name: true } } },
       orderBy: { openedAt: 'desc' },
-      take: 500,
+      take: 5000,
     });
-    const rows = sessions.map((s) => {
+    const all = sessions.map((s) => {
       const cashDeclared = s.expectedCash ?? D(0);
       const cashSubmitted = s.closingCash ?? D(0);
       return {
@@ -283,15 +331,34 @@ export class ReportsStockService {
         cheques: null as number | null,
       };
     });
-    return { from: date?.gte ?? null, to: date?.lte ?? null, rows };
+    // Full-set KPI aggregates (the FE cards can't be summed from a page slice).
+    let openSessions = 0;
+    let shortSessions = 0;
+    let netOverShort = D(0);
+    for (const r of all) {
+      if (r.closedAt == null) openSessions += 1;
+      if (r.isShort) shortSessions += 1;
+      netOverShort = netOverShort.add(r.cashDifference);
+    }
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
+    const total = all.length;
+    const rows = all.slice((page - 1) * limit, (page - 1) * limit + limit);
+    return {
+      from: date?.gte ?? null,
+      to: date?.lte ?? null,
+      rows,
+      totals: { openSessions, shortSessions, netOverShort },
+      total,
+      page,
+      limit,
+    };
   }
 
   /** Product Quantity Alerts — products at/below reorder level for a warehouse. */
-  async quantityAlerts(
-    tenantId: string,
-    warehouseId?: string,
-    search?: string,
-  ) {
+  async quantityAlerts(tenantId: string, q: ReportQueryDto) {
+    const warehouseId = q.warehouseId;
+    const search = q.search;
     const products = await this.prisma.inventoryProduct.findMany({
       where: {
         tenantId,
@@ -323,7 +390,7 @@ export class ReportsStockService {
       },
       orderBy: { code: 'asc' },
     });
-    const rows = products
+    const all = products
       .map((p) => {
         const quantity = p.warehouseStocks.reduce(
           (s, w) => s.add(w.quantity),
@@ -340,11 +407,27 @@ export class ReportsStockService {
         };
       })
       .filter((r) => r.quantity.lessThan(r.alertQuantity));
+
+    // Totals span the full filtered set so the FE KPI cards stay correct under
+    // pagination (they can't sum only the current page slice).
+    let totalShortfall = D(0);
+    let outOfStock = 0;
+    for (const r of all) {
+      totalShortfall = totalShortfall.add(r.shortfall);
+      if (r.quantity.lte(0)) outOfStock += 1;
+    }
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
+    const total = all.length;
+    const rows = all.slice((page - 1) * limit, (page - 1) * limit + limit);
     return {
       warehouseId: warehouseId ?? null,
       warehouseName: null as string | null,
       rows,
-      total: rows.length,
+      totals: { shortfall: totalShortfall, outOfStock },
+      total,
+      page,
+      limit,
     };
   }
 
@@ -385,7 +468,7 @@ export class ReportsStockService {
       orderBy: { expiryDate: 'asc' },
       take: 1000,
     });
-    const data = batches.map((b) => {
+    const all = batches.map((b) => {
       const exp = b.expiryDate as Date;
       const expiringDays = Math.floor(
         (exp.getTime() - today.getTime()) / 86_400_000,
@@ -406,11 +489,21 @@ export class ReportsStockService {
         isExpired: expiringDays < 0,
       };
     });
+    // Full-set KPI counts (the FE cards can't be computed from a page slice).
+    const expired = all.filter((r) => r.isExpired).length;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
+    const total = all.length;
+    const rows = all.slice((page - 1) * limit, (page - 1) * limit + limit);
     return {
-      rows: data,
-      total: data.length,
+      rows,
+      total,
+      expired,
+      expiringSoon: total - expired,
       alertDays,
       horizonDate: horizon,
+      page,
+      limit,
     };
   }
 
@@ -423,7 +516,7 @@ export class ReportsStockService {
     const search = q.search?.toLowerCase();
 
     const totals = this.zeroMovement();
-    const items = mv.products
+    const all = mv.products
       .filter((p) => (wantProd ? p.id === wantProd : true))
       .filter((p) => (wantCat ? p.categoryId === wantCat : true))
       .filter((p) => (wantSub ? p.subCategoryId === wantSub : true))
@@ -465,9 +558,17 @@ export class ReportsStockService {
           balanceValue,
         };
       });
+    // Totals accumulated over the full set above; slice rows for the page.
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
+    const total = all.length;
+    const rows = all.slice((page - 1) * limit, (page - 1) * limit + limit);
     return {
-      rows: items,
+      rows,
       totals,
+      total,
+      page,
+      limit,
       range: { from: q.from ?? null, to: q.to ?? null },
     };
   }
@@ -506,12 +607,12 @@ export class ReportsStockService {
       row.soldAmount = row.soldAmount.add(sal?.value ?? D(0));
       byCat.set(p.categoryId, row);
     }
-    const rows = [...byCat.values()].map((r) => ({
+    const all = [...byCat.values()].map((r) => ({
       ...r,
       profit: r.soldAmount.sub(r.purchasedAmount),
     }));
-    rows.sort((a, b) => b.soldQty.comparedTo(a.soldQty));
-    const totals = rows.reduce(
+    all.sort((a, b) => b.soldQty.comparedTo(a.soldQty));
+    const totals = all.reduce(
       (t, r) => ({
         purchasedQty: t.purchasedQty.add(r.purchasedQty),
         soldQty: t.soldQty.add(r.soldQty),
@@ -527,9 +628,17 @@ export class ReportsStockService {
         profit: D(0),
       },
     );
+    // Totals computed over the full set above; slice rows for the page.
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
+    const total = all.length;
+    const rows = all.slice((page - 1) * limit, (page - 1) * limit + limit);
     return {
       rows,
       totals,
+      total,
+      page,
+      limit,
       meta: {
         from: q.from ?? null,
         to: q.to ?? null,
@@ -540,12 +649,15 @@ export class ReportsStockService {
   }
 
   /**
-   * Exposure Report — legacy per-sale-line "exposure" metric. The inventory
-   * schema has no exposure column, so exposure values are 0 and flagged; the
-   * report still lists sales in range so the structure is faithful.
+   * Exposure Report — per-sale imaging/radiology exposures (legacy EZHT
+   * `getExposuresReport`). Lists sales that have at least one line with
+   * `invExposure > 0`; each row shows the per-product exposure breakdown and the
+   * sale's total exposure. (The legacy "Lab Test" column came from a clinical
+   * order link that the inventory schema does not carry — it stays null.)
    */
   async exposures(tenantId: string, q: ReportQueryDto) {
     const date = dateFilter(q.from, q.to);
+    const serial = q.serial?.trim();
     const sales = await this.prisma.inventorySale.findMany({
       where: {
         tenantId,
@@ -556,9 +668,20 @@ export class ReportsStockService {
           ? { branchId: q.branchId ?? q.warehouseId }
           : {}),
         ...(q.createdBy ? { createdBy: q.createdBy } : {}),
+        ...(q.billerId ? { billerId: q.billerId } : {}),
         ...(q.reference
           ? { reference: { contains: q.reference, mode: 'insensitive' } }
           : {}),
+        // Only sales with at least one exposed line (and, if filtering by serial,
+        // a matching exposed line).
+        items: {
+          some: {
+            invExposure: { gt: 0 },
+            ...(serial
+              ? { serialNo: { contains: serial, mode: 'insensitive' } }
+              : {}),
+          },
+        },
       },
       select: {
         id: true,
@@ -566,25 +689,49 @@ export class ReportsStockService {
         reference: true,
         billerName: true,
         customer: { select: { name: true } },
+        items: {
+          where: { invExposure: { gt: 0 } },
+          select: { productName: true, invExposure: true },
+        },
       },
       orderBy: { date: 'desc' },
-      take: 1000,
+      take: 10000,
     });
-    const rows = sales.map((s) => ({
-      saleId: s.id,
-      date: s.date,
-      reference: s.reference,
-      biller: s.billerName,
-      customer: s.customer?.name ?? '—',
-      labTest: null as string | null,
-      productExposures: [] as { productName: string; exposure: number }[],
-      totalExposure: 0,
-    }));
+    let grand = 0;
+    const all = sales.map((s) => {
+      const productExposures = s.items.map((i) => ({
+        productName: i.productName,
+        exposure: i.invExposure,
+      }));
+      const totalExposure = productExposures.reduce(
+        (sum, p) => sum + p.exposure,
+        0,
+      );
+      grand += totalExposure;
+      return {
+        saleId: s.id,
+        date: s.date,
+        reference: s.reference,
+        biller: s.billerName,
+        customer: s.customer?.name ?? '—',
+        labTest: null as string | null,
+        productExposures,
+        totalExposure,
+      };
+    });
+    // `grand` accumulated over the full set above; slice rows for the page.
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
+    const total = all.length;
+    const rows = all.slice((page - 1) * limit, (page - 1) * limit + limit);
     return {
       rows,
-      totals: { totalExposure: 0 },
+      totals: { totalExposure: grand },
+      total,
+      page,
+      limit,
       dataGap:
-        'Sale-line exposure is not modelled in the inventory schema; exposure values are shown as 0.',
+        'The "Lab Test" column is not available — the inventory schema has no clinical-order link.',
     };
   }
 

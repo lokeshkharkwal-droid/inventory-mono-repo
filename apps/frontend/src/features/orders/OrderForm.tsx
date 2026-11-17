@@ -48,6 +48,8 @@ interface LineRow {
   packQuantity: string;
   mrp: string;
   freePackQuantity: string;
+  /** Imaging/radiology exposures for this line (sales only) — Exposures report. */
+  invExposure: string;
 }
 
 interface FormValues {
@@ -100,6 +102,7 @@ const EMPTY_ROW: LineRow = {
   packQuantity: '',
   mrp: '',
   freePackQuantity: '',
+  invExposure: '',
 };
 
 function defaults(): FormValues {
@@ -221,6 +224,7 @@ export function OrderForm({ mode, editId }: Props) {
         mrp: i.mrp != null ? String(i.mrp) : '',
         freePackQuantity:
           i.freePackQuantity != null ? String(i.freePackQuantity) : '',
+        invExposure: i.invExposure != null ? String(i.invExposure) : '',
       })),
     });
   }, [editId, editing, isSale, reset]);
@@ -264,7 +268,10 @@ export function OrderForm({ mode, editId }: Props) {
         taxInclusive: i.taxInclusive || undefined,
         hsnCode: i.hsnCode || undefined,
         ...(isSale
-          ? { serialNo: i.batchNo || undefined }
+          ? {
+              serialNo: i.batchNo || undefined,
+              invExposure: i.invExposure ? Number(i.invExposure) : undefined,
+            }
           : { batchNo: i.batchNo || undefined }),
         expiryDate: i.expiryDate || undefined,
         packSize: i.packSize ? Number(i.packSize) : undefined,
@@ -487,6 +494,7 @@ export function OrderForm({ mode, editId }: Props) {
                 <th className="px-1">Disc</th>
                 <th className="px-1">Tax</th>
                 <th className="px-1">HSN</th>
+                {isSale && <th className="px-1">Exposure</th>}
                 <th className="px-1 text-right">Subtotal</th>
                 <th />
               </tr>
@@ -625,6 +633,17 @@ export function OrderForm({ mode, editId }: Props) {
                   <td className="px-1" style={{ width: 90 }}>
                     <Input className={inputSm} {...register(`items.${i}.hsnCode`)} />
                   </td>
+                  {isSale && (
+                    <td className="px-1" style={{ width: 90 }}>
+                      <Input
+                        type="number"
+                        step="1"
+                        min="0"
+                        className={inputSm}
+                        {...register(`items.${i}.invExposure`)}
+                      />
+                    </td>
+                  )}
                   <td className="px-1 text-right tabular-nums">
                     {(totals.lines[i]?.subtotal ?? 0).toFixed(2)}
                   </td>

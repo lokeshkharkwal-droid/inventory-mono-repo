@@ -5,6 +5,7 @@ import {
 } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
 import { useInfiniteList } from '@/features/_shared/useInfiniteList';
+import type { WarehouseDetail } from '@/features/_shared/warehouse';
 
 export interface PurchaseListRow {
   id: string;
@@ -56,7 +57,30 @@ export interface PurchasePayment {
   chequeNo: string | null;
 }
 
+/** The purchase "Supplier" party, with the contact + GST fields the detail view needs. */
+export interface PurchaseSupplierDetail {
+  id: string;
+  name: string;
+  companyName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  gstNo?: string | null;
+  gstState?: string | null;
+}
+
 export interface PurchaseDetail extends PurchaseListRow {
+  /** Richer than the list row's `{id,name}` — carries contact + GST fields. */
+  supplier: PurchaseSupplierDetail | null;
+  /** Warehouse (branch) summary resolved server-side; null if unresolved. */
+  warehouse: WarehouseDetail | null;
+  /** Staff name resolved from `createdBy`; null if unknown/unresolved. */
+  createdByName: string | null;
+  createdAt: string;
+  updatedAt: string;
   branchId: string;
   subtotal: number;
   productDiscount: number;

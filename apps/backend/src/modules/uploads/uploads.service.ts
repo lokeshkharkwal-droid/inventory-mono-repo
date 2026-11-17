@@ -157,7 +157,11 @@ export class UploadsService {
    * 2. else the Spaces origin → `{endpoint}/{bucket}/{key}` (path-style, e.g.
    *    `https://sgp1.digitaloceanspaces.com/stage.ez.reports/…`).
    */
-  private buildPublicUrl(bucket: string, key: string, endpoint: string): string {
+  private buildPublicUrl(
+    bucket: string,
+    key: string,
+    endpoint: string,
+  ): string {
     const publicBase = this.config.get<string>('SPACES_PUBLIC_BASE_URL');
     if (publicBase) {
       return `${publicBase.replace(/\/+$/, '')}/${key}`;

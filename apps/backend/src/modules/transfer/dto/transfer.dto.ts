@@ -61,7 +61,8 @@ export class CreateTransferDto {
   @IsOptional() @Type(() => Number) @IsNumber() shipping?: number;
   @IsOptional() @IsString() @MaxLength(1000) attachmentUrl?: string;
   /** Legacy "Status": Pending (PENDING) or Sent (IN_TRANSIT). Received is via the receive action. */
-  @IsOptional() @IsIn(['PENDING', 'IN_TRANSIT']) status?: 'PENDING' | 'IN_TRANSIT';
+  @IsOptional() @IsIn(['PENDING', 'IN_TRANSIT']) status?:
+    'PENDING' | 'IN_TRANSIT';
 
   @IsArray()
   @ArrayNotEmpty()

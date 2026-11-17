@@ -55,9 +55,19 @@ export class ReportQueryDto extends ReportRangeDto {
   @IsOptional() @IsString() supplierId?: string;
   @IsOptional() @IsString() createdBy?: string;
   @IsOptional() @IsString() billerName?: string;
+  @IsOptional() @IsString() billerId?: string;
 
   // ── free-text / enum filters ──
   @IsOptional() @IsString() reference?: string;
+  /** Payments report: filter by the linked sale's reference (contains). */
+  @IsOptional() @IsString() saleReference?: string;
+  /** Payments report: filter by the linked purchase's reference (contains). */
+  @IsOptional() @IsString() purchaseReference?: string;
+  /** Payments report: card number (full/last-4) contains match on `ccNo`. */
+  @IsOptional() @IsString() cardNo?: string;
+  /** Payments report: cheque number contains match. */
+  @IsOptional() @IsString() chequeNo?: string;
+  @IsOptional() @IsString() serial?: string;
   @IsOptional() @IsString() search?: string;
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() paymentStatus?: string;
@@ -65,6 +75,8 @@ export class ReportQueryDto extends ReportRangeDto {
   @IsOptional() @IsString() reportType?: string;
   @IsOptional() @IsString() departmentName?: string;
   @IsOptional() @IsString() ipdRegNo?: string;
+  /** Free-text product/medicine name filter (IPD reports → charge description). */
+  @IsOptional() @IsString() productName?: string;
   @IsOptional() @IsString() sortBy?: string;
   @IsOptional() @IsString() sortDir?: string;
 

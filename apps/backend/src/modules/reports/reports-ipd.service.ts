@@ -49,6 +49,28 @@ export class ReportsIpdService {
   async ipdSales(tenantId: string, q: ReportQueryDto) {
     const date = dateFilter(q.from, q.to);
     const branchId = q.warehouseId ?? q.branchId;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
+
+    // Admission-number filters (IPD Reg No and the "Reference Number" filter both
+    // match the admission number — the only reference the IPD schema carries) plus
+    // the free-text Customer/patient search are AND-combined.
+    const admissionAnd: Prisma.InventoryIpdAdmissionWhereInput[] = [];
+    if (q.ipdRegNo)
+      admissionAnd.push({
+        admissionNo: { contains: q.ipdRegNo, mode: 'insensitive' },
+      });
+    if (q.reference)
+      admissionAnd.push({
+        admissionNo: { contains: q.reference, mode: 'insensitive' },
+      });
+    if (q.search)
+      admissionAnd.push({
+        OR: [
+          { patientName: { contains: q.search, mode: 'insensitive' } },
+          { admissionNo: { contains: q.search, mode: 'insensitive' } },
+        ],
+      });
 
     const admissions = await this.prisma.inventoryIpdAdmission.findMany({
       where: {
@@ -56,17 +78,7 @@ export class ReportsIpdService {
         deletedAt: null,
         ...(branchId ? { branchId } : {}),
         ...(q.status ? { status: q.status } : {}),
-        ...(q.ipdRegNo
-          ? { admissionNo: { contains: q.ipdRegNo, mode: 'insensitive' } }
-          : {}),
-        ...(q.search
-          ? {
-              OR: [
-                { patientName: { contains: q.search, mode: 'insensitive' } },
-                { admissionNo: { contains: q.search, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
+        ...(admissionAnd.length ? { AND: admissionAnd } : {}),
       },
       select: {
         id: true,
@@ -101,6 +113,15 @@ export class ReportsIpdService {
                   },
                 }
               : {}),
+            // "Product Name" maps to the charge line's free-text description.
+            ...(q.productName
+              ? {
+                  description: {
+                    contains: q.productName,
+                    mode: 'insensitive',
+                  },
+                }
+              : {}),
             ...(date ? { date } : {}),
           },
           select: { admissionId: true, amount: true, date: true },
@@ -125,7 +146,7 @@ export class ReportsIpdService {
 
     let grandTotal = D(0);
     let chargeCountTotal = 0;
-    const filterCharges = Boolean(date || q.departmentName);
+    const filterCharges = Boolean(date || q.departmentName || q.productName);
     const rows = admissions
       // When a date / department filter is applied, keep only admissions that
       // actually have matching charges — that is the "IPD sales" set.
@@ -165,10 +186,19 @@ export class ReportsIpdService {
         return bt - at;
       });
 
+    // Totals are computed over the FULL row set above; paginate only the
+    // returned slice so the frontend "Show [N] entries" control is true
+    // server-side pagination.
+    const total = rows.length;
+    const pageRows = rows.slice((page - 1) * limit, (page - 1) * limit + limit);
+
     return {
-      rows,
+      rows: pageRows,
+      total,
+      page,
+      limit,
       totals: {
-        admissions: rows.length,
+        admissions: total,
         chargeCount: chargeCountTotal,
         taxAmount: D(0),
         discount: D(0),
@@ -203,6 +233,8 @@ export class ReportsIpdService {
     const date = dateFilter(q.from, q.to);
     const branchId = q.warehouseId ?? q.branchId;
     const categoryFilter = q.departmentName ?? q.search;
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 25;
 
     // Resolve the admission scope first when a branch / admission-no filter is
     // present; otherwise charges across all of the tenant's admissions qualify.
@@ -236,6 +268,15 @@ export class ReportsIpdService {
                 ? {
                     category: {
                       contains: categoryFilter,
+                      mode: 'insensitive',
+                    },
+                  }
+                : {}),
+              // "Product Name" maps to the charge line's free-text description.
+              ...(q.productName
+                ? {
+                    description: {
+                      contains: q.productName,
                       mode: 'insensitive',
                     },
                   }
@@ -278,11 +319,21 @@ export class ReportsIpdService {
       }))
       .sort((a, b) => b.amount.comparedTo(a.amount));
 
+    // Totals (department count, charge-line count, amount) are computed over the
+    // FULL department set above; paginate only the returned slice for true
+    // server-side "Show [N] entries".
+    const total = rows.length;
+    const chargeCountTotal = rows.reduce((s, r) => s + r.chargeCount, 0);
+    const pageRows = rows.slice((page - 1) * limit, (page - 1) * limit + limit);
+
     return {
-      rows,
+      rows: pageRows,
+      total,
+      page,
+      limit,
       totals: {
-        departments: rows.length,
-        chargeCount: rows.reduce((s, r) => s + r.chargeCount, 0),
+        departments: total,
+        chargeCount: chargeCountTotal,
         amount: grandTotal,
       },
       range: { from: date?.gte ?? null, to: date?.lte ?? null },

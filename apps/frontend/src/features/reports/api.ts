@@ -52,6 +52,45 @@ export interface PaymentsSummary {
 type Range = { from?: string; to?: string };
 const q = (r: Range) => ({ from: r.from || undefined, to: r.to || undefined });
 
+// ── Overview chart (legacy "Stock Overview Chart") ──────────────────────────────
+export interface OverviewChartMonth {
+  label: string;
+  sales: number;
+  soldProductTax: number;
+  orderTax: number;
+  purchases: number;
+  purchasedProductTax: number;
+}
+export interface OverviewChartResp {
+  months: OverviewChartMonth[];
+  totals: Omit<OverviewChartMonth, 'label'>;
+}
+export interface WarehouseStockResp {
+  warehouseId: string | null;
+  stockByPrice: number;
+  stockByCost: number;
+  profitEstimate: number;
+  totalItems: number;
+  totalQuantity: number;
+}
+
+/** Rolling 12-month sales/purchases + tax series for the overview combo chart. */
+export const useOverviewChart = () =>
+  useQuery({
+    queryKey: ['reports', 'overview-chart'],
+    queryFn: () => request<OverviewChartResp>('GET', '/reports/overview-chart'),
+  });
+
+/** Stock valuation (by price/cost) for the overview stock-value donut. */
+export const useWarehouseStock = (warehouseId?: string) =>
+  useQuery({
+    queryKey: ['reports', 'warehouse-stock', warehouseId || null],
+    queryFn: () =>
+      request<WarehouseStockResp>('GET', '/reports/warehouse-stock', {
+        query: { warehouseId: warehouseId || undefined },
+      }),
+  });
+
 export const useDashboard = () =>
   useQuery({
     queryKey: ['reports', 'dashboard'],

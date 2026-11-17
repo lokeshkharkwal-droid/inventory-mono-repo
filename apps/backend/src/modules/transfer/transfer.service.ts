@@ -68,8 +68,7 @@ export class TransferService {
         const rate = item.rate != null ? D(item.rate) : null;
         const taxRate = item.taxRate != null ? D(item.taxRate) : null;
         const base = (rate ?? D(0)).mul(D(item.quantity));
-        const taxAmount =
-          taxRate != null ? base.mul(taxRate).div(100) : null;
+        const taxAmount = taxRate != null ? base.mul(taxRate).div(100) : null;
         const subtotal = rate != null ? base.add(taxAmount ?? D(0)) : null;
         return {
           tenantId,

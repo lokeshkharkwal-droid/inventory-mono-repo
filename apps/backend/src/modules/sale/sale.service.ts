@@ -7,6 +7,7 @@ import { ProductService } from '../product/product.service';
 import { ProductStockService } from '../product/product-stock.service';
 import { NumberingService } from '../settings/numbering.service';
 import { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
+import { KalnosticsUsersClient } from '../../integration/clients/kalnostics-users.client';
 import { BranchRequiredException } from '../product/exceptions/product.exceptions';
 import { CreateSaleDto, SalePaymentInputDto } from './dto/create-sale.dto';
 import { SaleQueryDto } from './dto/sale-query.dto';
@@ -25,6 +26,10 @@ import {
   derivePaymentStatus,
   type ComputedOrder,
 } from '../../common/utils/order-totals.util';
+import {
+  resolveWarehouseDetail,
+  resolveUserName,
+} from '../../common/utils/party-detail.util';
 
 const D = (v: number | string | Prisma.Decimal) => new Prisma.Decimal(v);
 
@@ -50,6 +55,7 @@ export class SaleService {
     private readonly stockService: ProductStockService,
     private readonly numbering: NumberingService,
     private readonly branchClient: KalnosticsBranchClient,
+    private readonly usersClient: KalnosticsUsersClient,
   ) {}
 
   /**
@@ -132,6 +138,7 @@ export class SaleService {
           subtotal: c.subtotal,
           hsnCode: item.hsnCode,
           serialNo: item.serialNo,
+          invExposure: item.invExposure ?? 0,
           expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
           packSize: item.packSize != null ? D(item.packSize) : null,
           packQuantity: item.packQuantity != null ? D(item.packQuantity) : null,
@@ -353,18 +360,66 @@ export class SaleService {
     return { data, total, page, limit };
   }
 
-  /** Fetch one sale with items, payments, and customer. */
+  /**
+   * Fetch one sale with items, payments, and customer. The customer select
+   * carries contact + GST fields (for invoice "To" blocks / email) and each item
+   * is enriched with its product's unit name — sale lines store `productId` with
+   * no Prisma relation, so units are resolved with a single follow-up query.
+   */
   async findById(id: string, tenantId: string) {
     const sale = await this.prisma.inventorySale.findFirst({
       where: { id, tenantId, deletedAt: null },
       include: {
-        customer: { select: { id: true, name: true } },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            address: true,
+            gstNo: true,
+          },
+        },
         items: true,
         payments: { where: { deletedAt: null }, orderBy: { date: 'desc' } },
       },
     });
     if (!sale) throw new SaleNotFoundException(id);
-    return sale;
+
+    const productIds = [...new Set(sale.items.map((i) => i.productId))];
+    const products = productIds.length
+      ? await this.prisma.inventoryProduct.findMany({
+          where: { tenantId, id: { in: productIds } },
+          select: { id: true, unit: { select: { name: true } } },
+        })
+      : [];
+    const unitByProduct = new Map(
+      products.map((p) => [p.id, p.unit?.name ?? null]),
+    );
+
+    return {
+      ...sale,
+      items: sale.items.map((i) => ({
+        ...i,
+        unit: unitByProduct.get(i.productId) ?? null,
+      })),
+    };
+  }
+
+  /**
+   * Fetch one sale enriched for the GST detail modal (legacy `sales/modal_view`):
+   * the warehouse (branch) name/address and the created-by staff name resolved via
+   * the kalnostics integration (the customer is already fully included by
+   * {@link findById}). Kept separate from `findById` — which the write paths reuse —
+   * so those stay fast; both lookups are best-effort and degrade to `null`.
+   */
+  async getDetail(id: string, tenantId: string) {
+    const sale = await this.findById(id, tenantId);
+    const [warehouse, createdByName] = await Promise.all([
+      resolveWarehouseDetail(this.branchClient, sale.branchId),
+      resolveUserName(this.usersClient, sale.createdBy),
+    ]);
+    return { ...sale, warehouse, createdByName };
   }
 
   /** Record a payment, update paid + payment status atomically. */

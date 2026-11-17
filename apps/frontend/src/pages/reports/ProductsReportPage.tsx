@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -37,6 +37,9 @@ interface ProductsResp {
     balanceValue: number;
   };
   range: { from: string | null; to: string | null };
+  total: number;
+  page: number;
+  limit: number;
 }
 
 /** Render a compound "(qty) value" cell — quantity in parentheses, money bold. */
@@ -61,15 +64,29 @@ export function ProductsReportPage() {
   const [subCategoryId, setSubCategoryId] = useState('');
   const [productId, setProductId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const params = { from, to, categoryId, subCategoryId, productId, warehouseId };
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, categoryId, subCategoryId, productId, warehouseId]);
+
+  const filters = { from, to, categoryId, subCategoryId, productId, warehouseId };
   const { data, isLoading } = useReport<ProductsResp>(
     'products',
     '/reports/products',
-    params,
+    { ...filters, page, limit: pageSize === -1 ? 100000 : pageSize },
   );
   const rows = data?.rows ?? [];
   const totals = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<ProductsResp>(
+    'products-export',
+    '/reports/products',
+    { ...filters, limit: 100000 },
+  );
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<ProductRow>[] = [
     { key: 'code', header: 'Product Code', value: (r) => r.code },
@@ -117,6 +134,7 @@ export function ProductsReportPage() {
     <ReportShell
       title="Products Report"
       description="Per-product quantity purchased, sold, profit and current stock-in-hand."
+      imageExport
       filters={
         <>
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -135,13 +153,13 @@ export function ProductsReportPage() {
       exportConfig={{
         filename: 'products-report',
         columns,
-        rows,
+        rows: exportRows,
         subtitle: from || to ? `${from || '…'} → ${to || '…'}` : 'All dates',
         totalsRow: totalsRow as (string | number)[] | undefined,
       }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Products" value={rows.length} />
+        <StatCard label="Products" value={data?.total ?? rows.length} />
         <StatCard label="Purchase value" value={fmtMoney(totals?.purchaseValue)} />
         <StatCard label="Sales value" value={fmtMoney(totals?.salesValue)} />
         <StatCard label="Profit / Loss" value={fmtMoney(totals?.profit)} />
@@ -154,6 +172,16 @@ export function ProductsReportPage() {
         isLoading={isLoading}
         emptyMessage="No products in range."
         totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
       />
     </ReportShell>
   );

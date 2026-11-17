@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
@@ -50,6 +50,9 @@ interface IpdSalesResp {
   };
   range: { from: string | null; to: string | null };
   dataGap: string;
+  page: number;
+  limit: number;
+  total: number;
 }
 
 /** Dash renderer for the documented data-gap money columns (null = no source). */
@@ -84,11 +87,43 @@ export function IpdSalesPage() {
   const [ipdRegNo, setIpdRegNo] = useState('');
   const [departmentName, setDepartmentName] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  const [reference, setReference] = useState('');
+  const [customer, setCustomer] = useState('');
+  const [productName, setProductName] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const params = { from, to, status, ipdRegNo, departmentName, warehouseId };
-  const { data, isLoading } = useReport<IpdSalesResp>('ipd-sales', '/reports/ipd-sales', params);
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, status, ipdRegNo, departmentName, warehouseId, reference, customer, productName]);
+
+  // `customer` maps to the patient-name `search`; `productName` matches the
+  // charge line's description; `reference` matches the admission number.
+  const filters = {
+    from,
+    to,
+    status,
+    ipdRegNo,
+    departmentName,
+    warehouseId,
+    reference,
+    search: customer,
+    productName,
+  };
+  const { data, isLoading } = useReport<IpdSalesResp>('ipd-sales', '/reports/ipd-sales', {
+    ...filters,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
+  });
   const rows = data?.rows ?? [];
   const totals = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<IpdSalesResp>('ipd-sales-export', '/reports/ipd-sales', {
+    ...filters,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<IpdSaleRow>[] = [
     { key: 'dispenseNo', header: 'Dispense No', value: () => '—' },
@@ -148,6 +183,9 @@ export function IpdSalesPage() {
             ]}
           />
           <TextFilter label="IPD Reg No" value={ipdRegNo} onChange={setIpdRegNo} placeholder="ADM-…" />
+          <TextFilter label="Reference Number" value={reference} onChange={setReference} placeholder="Reference…" />
+          <TextFilter label="Customer" value={customer} onChange={setCustomer} placeholder="Patient name…" />
+          <TextFilter label="Product Name" value={productName} onChange={setProductName} placeholder="Charge item…" />
           <TextFilter label="Department" value={departmentName} onChange={setDepartmentName} placeholder="Dept…" />
           <WarehouseFilter value={warehouseId} onChange={setWarehouseId} />
         </>
@@ -155,7 +193,7 @@ export function IpdSalesPage() {
       exportConfig={{
         filename: 'ipd-sales-report',
         columns,
-        rows,
+        rows: exportRows,
         subtitle: from || to ? `${from || '…'} → ${to || '…'}` : 'All dates',
         totalsRow: totalsRow as (string | number)[] | undefined,
       }}
@@ -174,6 +212,16 @@ export function IpdSalesPage() {
         isLoading={isLoading}
         emptyMessage="No IPD sales in range."
         totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
       />
     </ReportShell>
   );

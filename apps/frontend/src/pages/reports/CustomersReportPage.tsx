@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/shared/StatCard';
 import { ReportShell } from '@/components/shared/ReportShell';
 import { ReportTable } from '@/components/shared/ReportTable';
 import { useReport } from '@/features/reports/useReport';
 import { fmtMoney, type ReportColumn } from '@/features/reports/types';
-import { TextFilter } from '@/features/reports/filters';
+import { TextFilter, UserFilter } from '@/features/reports/filters';
 
 interface CustomerRow {
   customerId: string;
@@ -20,18 +20,41 @@ interface CustomerRow {
 interface CustomerResp {
   rows: CustomerRow[];
   totals: { totalSales: number; totalAmount: number; paid: number; balance: number };
+  page: number;
+  limit: number;
+  total: number;
 }
 
 /** Walk-In Customers Report — customers with their lifetime sales totals. */
 export function CustomersReportPage() {
   // Legacy had four per-column text filters (Company/Name/Phone/Email); the
-  // backend collapses them into a single free-text `search` param — the only
-  // query param the `customers` method honours.
+  // backend collapses them into a single free-text `search` param. "Created By"
+  // narrows which sales count toward each customer's totals.
   const [search, setSearch] = useState('');
+  const [createdBy, setCreatedBy] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const { data, isLoading } = useReport<CustomerResp>('customers', '/reports/customers', { search });
+  useEffect(() => {
+    setPage(1);
+  }, [search, createdBy]);
+
+  const { data, isLoading } = useReport<CustomerResp>('customers', '/reports/customers', {
+    search,
+    createdBy,
+    page,
+    limit: pageSize === -1 ? 100000 : pageSize,
+  });
   const rows = data?.rows ?? [];
   const t = data?.totals;
+
+  // Full filtered set for CSV/PDF export (keyed by filters only, not page).
+  const exportQuery = useReport<CustomerResp>('customers-export', '/reports/customers', {
+    search,
+    createdBy,
+    limit: 100000,
+  });
+  const exportRows = exportQuery.data?.rows ?? rows;
 
   const columns: ReportColumn<CustomerRow>[] = [
     { key: 'company', header: 'Company', value: (r) => r.company ?? '—' },
@@ -52,22 +75,42 @@ export function CustomersReportPage() {
       title="Walk-In Customers Report"
       description="Walk-in customers with order count, billed, paid and balance."
       filters={
-        <TextFilter
-          label="Search"
-          value={search}
-          onChange={setSearch}
-          placeholder="Company, name, phone or email"
-        />
+        <>
+          <TextFilter
+            label="Search"
+            value={search}
+            onChange={setSearch}
+            placeholder="Company, name, phone or email"
+          />
+          <UserFilter label="Created By" value={createdBy} onChange={setCreatedBy} />
+        </>
       }
-      exportConfig={{ filename: 'customers-report', columns, rows, totalsRow: totalsRow as (string | number)[] | undefined }}
+      exportConfig={{ filename: 'customers-report', columns, rows: exportRows, totalsRow: totalsRow as (string | number)[] | undefined }}
     >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Customers" value={rows.length} />
+        <StatCard label="Customers" value={data?.total ?? rows.length} />
         <StatCard label="Total billed" value={fmtMoney(t?.totalAmount)} />
         <StatCard label="Paid" value={fmtMoney(t?.paid)} />
         <StatCard label="Balance" value={fmtMoney(t?.balance)} />
       </div>
-      <ReportTable columns={columns} rows={rows} rowKey={(r) => r.customerId} isLoading={isLoading} emptyMessage="No customers with sales in range." totalsRow={totalsRow} />
+      <ReportTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.customerId}
+        isLoading={isLoading}
+        emptyMessage="No customers with sales in range."
+        totalsRow={totalsRow}
+        serverPagination={{
+          page,
+          pageSize,
+          total: data?.total ?? 0,
+          onPageChange: setPage,
+          onPageSizeChange: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+        }}
+      />
     </ReportShell>
   );
 }
