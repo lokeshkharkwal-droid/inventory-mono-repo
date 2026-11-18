@@ -1445,7 +1445,8 @@ model InventoryProforma {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  items InventoryProformaItem[]
+  items     InventoryProformaItem[]
+  relations InventoryProformaRelation[]
 
   @@index([tenantId])
   @@index([branchId])
@@ -1479,6 +1480,64 @@ model InventoryProformaItem {
   @@index([proformaId])
   @@index([productId])
   @@map("inventory_proforma_items")
+}
+
+/// Generic proforma ↔ external-entity mapping (legacy EZHT `ez_proforma_relation`).
+/// `entityType` selects the catalogue the `entityId` points at:
+///   - `lab_test`              → a kalnostics-new master `LabTest.id` (consumption trigger)
+///   - `branch`                → a kalnostics-new `Branch.id` the proforma is enabled at
+///   - `radiology`             → reserved (kalnostics radiology not yet wired) — DISABLED in UI
+///   - `blood_donation_type`   → reserved — DISABLED in UI
+///   - `blood_request_type`    → reserved — DISABLED in UI
+/// A proforma consumes inventory for a lab test only when it is ALSO mapped to the
+/// order's active branch (requirement #13). Soft-deletable; de-duplicated per
+/// (proforma, entityType, entityId) among live rows.
+model InventoryProformaRelation {
+  id         String  @id @default(uuid())
+  tenantId   String  @map("tenant_id")
+  branchId   String? @map("branch_id")
+  proformaId String  @map("proforma_id")
+  entityType String  @map("entity_type")
+  entityId   String  @map("entity_id")
+  /// Snapshot of the entity's display name (lab test / branch name) for listing.
+  label      String?
+  createdBy  String? @map("created_by")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  proforma InventoryProforma @relation(fields: [proformaId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([proformaId])
+  @@index([entityType, entityId])
+  @@index([deletedAt])
+  @@map("inventory_proforma_relations")
+}
+
+/// Idempotency + audit ledger for inventory consumed by a confirmed kalnostics-new
+/// order. One row per kalnostics `Order` (unique) — created the first time the
+/// order's proforma-mapped products are deducted, guaranteeing stock is never
+/// deducted twice and at most one linked sale exists. `saleId` points at the
+/// `InventorySale` auto-generated for the consumption.
+model InventoryOrderConsumption {
+  id                String  @id @default(uuid())
+  tenantId          String  @map("tenant_id")
+  branchId          String  @map("branch_id")
+  /// The kalnostics-new `Order.id` that triggered the consumption (idempotency key).
+  kalnosticsOrderId String  @unique @map("kalnostics_order_id")
+  /// The kalnostics order code (e.g. `ORD-00001`) — sale reference + audit.
+  orderCode         String? @map("order_code")
+  saleId            String? @map("sale_id")
+  status            String  @default("CONSUMED")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([saleId])
+  @@map("inventory_order_consumptions")
 }
 
 // ── Materials (Phase 3) ──────────────────────────────────────────────────────────

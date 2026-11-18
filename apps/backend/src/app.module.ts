@@ -32,6 +32,7 @@ import { BillerModule } from './modules/biller/biller.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { QuoteModule } from './modules/quote/quote.module';
 import { ProformaModule } from './modules/proforma/proforma.module';
+import { ProformaConsumptionModule } from './modules/proforma-consumption/proforma-consumption.module';
 import { MaterialModule } from './modules/material/material.module';
 import { PosModule } from './modules/pos/pos.module';
 import { ReportsModule } from './modules/reports/reports.module';
@@ -102,6 +103,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     SettingsModule,
     QuoteModule,
     ProformaModule,
+    ProformaConsumptionModule,
     MaterialModule,
     PosModule,
     ReportsModule,

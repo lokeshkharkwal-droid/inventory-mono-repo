@@ -203,6 +203,7 @@ export function AppRouter() {
             />
             <Route path="proformas" element={<ProformasPage />} />
             <Route path="proformas/add" element={<ProformaFormPage />} />
+            <Route path="proformas/:id/edit" element={<ProformaFormPage />} />
             <Route path="materials" element={<MaterialsPage />} />
             <Route path="materials/add" element={<MaterialFormPage />} />
             <Route path="materials/edit/:id" element={<MaterialFormPage />} />

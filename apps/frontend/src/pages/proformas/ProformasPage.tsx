@@ -13,6 +13,7 @@ import {
   useDeleteProforma,
   type ProformaListRow,
 } from '@/features/proformas/api';
+import { ProformaActionsMenu } from '@/features/proformas/ProformaActionsMenu';
 
 /** Proformas list. Add opens the dedicated `/proformas/add` page. */
 export function ProformasPage() {
@@ -43,6 +44,7 @@ export function ProformasPage() {
       className: 'text-right',
       render: (r) => (
         <div className="flex justify-end gap-1">
+          <ProformaActionsMenu proforma={r} />
           <PrintButton path={`/print/proforma/${r.id}`} title="Print proforma" />
           <EmailDocumentButton
             type="proforma"

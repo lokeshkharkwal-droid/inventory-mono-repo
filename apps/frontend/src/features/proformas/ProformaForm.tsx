@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
@@ -9,7 +9,7 @@ import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
 import { useTaxRates } from '@/features/_shared/options';
 import { computeOrder } from '@/features/orders/totals';
-import { useCreateProforma } from './api';
+import { useCreateProforma, useUpdateProforma, type ProformaDetail } from './api';
 
 const selectCls =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
@@ -74,25 +74,72 @@ function defaults(): FormValues {
   };
 }
 
+/** Map a loaded proforma (edit mode) into the form's string-based shape. */
+export function toFormValues(p: ProformaDetail): FormValues {
+  return {
+    name: p.name ?? '',
+    customerId: '',
+    reference: p.reference,
+    date: p.date ? new Date(p.date).toISOString().slice(0, 10) : '',
+    status: p.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
+    orderDiscount: '0',
+    orderTax: '0',
+    shipping: '0',
+    note: p.note ?? '',
+    items: (p.items ?? []).map((it) => ({
+      productId: it.productId,
+      productName: it.productName,
+      productCode: it.productCode ?? '',
+      quantity: String(Number(it.quantity)),
+      quantityMethod: String(it.quantityMethod ?? 1),
+      unitPrice: String(Number(it.unitPrice)),
+      discount: String(Number(it.discount ?? 0)),
+      taxRateId: '',
+      taxRate: String(Number(it.taxRate ?? 0)),
+    })),
+    labTests: [],
+  };
+}
+
 interface Props {
   /** Called after a successful save or on cancel. */
   onDone: () => void;
+  /** When set, the form edits this proforma (EZHT `proformas/edit`) instead of creating. */
+  proformaId?: string;
+  /** Prefill values (edit mode). */
+  initialValues?: FormValues;
 }
 
 /**
- * Create-proforma form — EZ Health Track `proformas/add` parity. A named proforma
- * (title + status) over a full order-items table: product search-to-add rows with
- * net unit price, quantity, quantity method (Single/Combined), discount, tax and a
+ * Proforma form — EZ Health Track `proformas/add` / `proformas/edit` parity. A named
+ * proforma (title + status) over a full order-items table: product search-to-add rows
+ * with net unit price, quantity, quantity method (Single/Combined), discount, tax and a
  * live per-line subtotal, plus a running totals summary and optional clinical
- * (lab/radiology/blood) lines. Shared by the `/proformas/add` page and the dialog.
+ * (lab/radiology/blood) lines. In edit mode (`proformaId`) it updates in place.
  */
-export function ProformaForm({ onDone }: Props) {
+export function ProformaForm({ onDone, proformaId, initialValues }: Props) {
+  const isEdit = Boolean(proformaId);
   const create = useCreateProforma();
+  const update = useUpdateProforma(proformaId ?? '');
+  const mutation = isEdit ? update : create;
   const { data: taxRates } = useTaxRates();
 
   const { register, handleSubmit, control, reset, setValue } = useForm<FormValues>({
-    defaultValues: defaults(),
+    defaultValues: initialValues ?? defaults(),
   });
+
+  // Edit mode: once tax rates load, resolve each line's `taxRateId` from its rate
+  // so the tax dropdown reflects the saved tax (the subtotal already uses `taxRate`).
+  useEffect(() => {
+    if (!isEdit || !taxRates?.length || !initialValues) return;
+    initialValues.items.forEach((it, i) => {
+      const rate = Number(it.taxRate || 0);
+      if (rate > 0) {
+        const match = taxRates.find((t) => Number(t.rate) === rate);
+        if (match) setValue(`items.${i}.taxRateId`, match.id);
+      }
+    });
+  }, [isEdit, taxRates, initialValues, setValue]);
   const items = useFieldArray({ control, name: 'items' });
   const labs = useFieldArray({ control, name: 'labTests' });
 
@@ -139,24 +186,35 @@ export function ProformaForm({ onDone }: Props) {
         price: Number(l.price || 0),
         type: l.type || 'LAB_TEST',
       }));
+    const payload = {
+      name: v.name,
+      customerId: v.customerId || undefined,
+      status: v.status || undefined,
+      reference: v.reference || undefined,
+      date: v.date || undefined,
+      orderDiscount: Number(v.orderDiscount || 0) || undefined,
+      shipping: Number(v.shipping || 0) || undefined,
+      note: v.note || undefined,
+      items: productItems,
+      labTests: labTests.length ? labTests : undefined,
+    };
     try {
-      await create.mutateAsync({
-        name: v.name,
-        customerId: v.customerId || undefined,
-        status: v.status || undefined,
-        reference: v.reference || undefined,
-        date: v.date || undefined,
-        orderDiscount: Number(v.orderDiscount || 0) || undefined,
-        shipping: Number(v.shipping || 0) || undefined,
-        note: v.note || undefined,
-        items: productItems,
-        labTests: labTests.length ? labTests : undefined,
-      });
-      toast.success('Proforma created');
-      reset(defaults());
+      if (isEdit) {
+        await update.mutateAsync(payload);
+        toast.success('Proforma updated');
+      } else {
+        await create.mutateAsync(payload);
+        toast.success('Proforma created');
+        reset(defaults());
+      }
       onDone();
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not create proforma'));
+      toast.error(
+        getApiErrorMessage(
+          err,
+          isEdit ? 'Could not update proforma' : 'Could not create proforma',
+        ),
+      );
     }
   });
 
@@ -424,8 +482,12 @@ export function ProformaForm({ onDone }: Props) {
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={create.isPending}>
-          {create.isPending ? 'Saving…' : 'Save'}
+        <Button type="submit" disabled={mutation.isPending}>
+          {mutation.isPending
+            ? 'Saving…'
+            : isEdit
+              ? 'Update'
+              : 'Save'}
         </Button>
       </div>
     </form>
