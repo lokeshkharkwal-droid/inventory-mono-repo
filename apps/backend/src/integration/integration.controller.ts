@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { KalnosticsBranchClient } from './clients/kalnostics-branch.client';
 import { KalnosticsDepartmentClient } from './clients/kalnostics-department.client';
+import { KalnosticsLabTestClient } from './clients/kalnostics-lab-test.client';
 import { KalnosticsLocationClient } from './clients/kalnostics-location.client';
 import { KalnosticsUsersClient } from './clients/kalnostics-users.client';
 
@@ -15,9 +16,27 @@ export class IntegrationController {
   constructor(
     private readonly branchClient: KalnosticsBranchClient,
     private readonly departmentClient: KalnosticsDepartmentClient,
+    private readonly labTestClient: KalnosticsLabTestClient,
     private readonly locationClient: KalnosticsLocationClient,
     private readonly usersClient: KalnosticsUsersClient,
   ) {}
+
+  /**
+   * Tenant master lab-test options (`{ id, name }`, paginated/searchable) — powers
+   * the proforma "Lab Test" mapping picker. Proxies kalnostics `GET /lab-tests/options`.
+   */
+  @Get('lab-tests')
+  labTests(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.labTestClient.getOptions({
+      search,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
 
   /** Branch (warehouse) options, optionally filtered by branch type. */
   @Get('branches')

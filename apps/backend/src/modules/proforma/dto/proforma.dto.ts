@@ -123,6 +123,42 @@ export class CreateProformaDto {
   items: ProformaItemDto[];
 }
 
+/** The external-entity kinds a proforma can be mapped to (EZHT `entity_type`). */
+export const PROFORMA_RELATION_TYPES = [
+  'lab_test',
+  'branch',
+  'radiology',
+  'blood_donation_type',
+  'blood_request_type',
+] as const;
+export type ProformaRelationType = (typeof PROFORMA_RELATION_TYPES)[number];
+
+/** Add a proforma ↔ entity mapping (e.g. a lab test or a branch). */
+export class CreateProformaRelationDto {
+  /** Which catalogue `entityId` points at. */
+  @IsIn(PROFORMA_RELATION_TYPES)
+  entityType: ProformaRelationType;
+
+  /** The mapped entity id (kalnostics master LabTest.id, Branch.id, …). */
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  entityId: string;
+
+  /** Optional display-name snapshot (test / branch name) for the mapping list. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  label?: string;
+}
+
+/** Filter proforma relations by type. */
+export class ProformaRelationQueryDto {
+  @IsOptional()
+  @IsIn(PROFORMA_RELATION_TYPES)
+  type?: ProformaRelationType;
+}
+
 /** Update a proforma's status. */
 export class UpdateProformaStatusDto {
   @IsIn(['DRAFT', 'SENT', 'INVOICED'])

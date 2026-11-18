@@ -11,7 +11,9 @@ import {
 import { ProformaService } from './proforma.service';
 import {
   CreateProformaDto,
+  CreateProformaRelationDto,
   ProformaQueryDto,
+  ProformaRelationQueryDto,
   UpdateProformaStatusDto,
 } from './dto/proforma.dto';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
@@ -58,8 +60,59 @@ export class ProformaController {
     return this.proformaService.updateStatus(id, tenantId, dto);
   }
 
+  /** Full edit of a proforma (EZHT `proformas/edit`). */
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('person_id') personId: string,
+    @Body() dto: CreateProformaDto,
+  ) {
+    return this.proformaService.update(id, tenantId, dto, personId);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.proformaService.remove(id, tenantId);
+  }
+
+  // ── Mappings (Lab Test / Branch / …) ─────────────────────────────────────────
+
+  /** List a proforma's entity mappings, optionally filtered by `?type=`. */
+  @Get(':id/relations')
+  listRelations(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Query() query: ProformaRelationQueryDto,
+  ) {
+    return this.proformaService.listRelations(id, tenantId, query);
+  }
+
+  /** Map a proforma to a lab test / branch (de-duplicated, reactivatable). */
+  @Post(':id/relations')
+  addRelation(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentProfile() profile: ActiveProfile,
+    @CurrentUser('person_id') personId: string,
+    @Body() dto: CreateProformaRelationDto,
+  ) {
+    return this.proformaService.addRelation(
+      id,
+      tenantId,
+      profile.branchId,
+      dto,
+      personId,
+    );
+  }
+
+  /** Remove (soft-delete) a proforma mapping. */
+  @Delete(':id/relations/:relationId')
+  removeRelation(
+    @Param('id') id: string,
+    @Param('relationId') relationId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.proformaService.removeRelation(id, relationId, tenantId);
   }
 }

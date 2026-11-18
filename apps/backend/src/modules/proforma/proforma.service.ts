@@ -8,11 +8,22 @@ import { CustomerService } from '../customer/customer.service';
 import { ProductService } from '../product/product.service';
 import {
   CreateProformaDto,
+  CreateProformaRelationDto,
   ProformaQueryDto,
+  ProformaRelationQueryDto,
+  ProformaRelationType,
   UpdateProformaStatusDto,
 } from './dto/proforma.dto';
 
 const D = (v: number | string | Prisma.Decimal) => new Prisma.Decimal(v);
+
+/** Relation kinds a proforma mapping can currently be created for. The rest are
+ * surfaced (disabled) in the UI but rejected server-side until their kalnostics
+ * feature exists — never persist a half-working mapping (requirement #1). */
+const ENABLED_RELATION_TYPES: ReadonlySet<ProformaRelationType> = new Set([
+  'lab_test',
+  'branch',
+]);
 
 /** 404 — proforma not found (or soft-deleted) in this tenant. */
 export class ProformaNotFoundException extends KaltrosException {
@@ -22,6 +33,30 @@ export class ProformaNotFoundException extends KaltrosException {
       'Proforma not found',
       { id },
       HttpStatus.NOT_FOUND,
+    );
+  }
+}
+
+/** 404 — proforma mapping row not found in this tenant. */
+export class ProformaRelationNotFoundException extends KaltrosException {
+  constructor(id: string) {
+    super(
+      'PROFORMA_RELATION_NOT_FOUND',
+      'Proforma mapping not found',
+      { id },
+      HttpStatus.NOT_FOUND,
+    );
+  }
+}
+
+/** 422 — tried to map a proforma to an entity kind that isn't wired yet. */
+export class ProformaRelationTypeNotEnabledException extends KaltrosException {
+  constructor(entityType: string) {
+    super(
+      'PROFORMA_RELATION_TYPE_NOT_ENABLED',
+      `Mapping a proforma to "${entityType}" is not available yet`,
+      { entityType },
+      HttpStatus.UNPROCESSABLE_ENTITY,
     );
   }
 }
@@ -115,6 +150,88 @@ export class ProformaService {
     );
   }
 
+  /**
+   * Full edit of a proforma (EZHT `proformas/edit`): replaces the header fields
+   * and the entire product-line set, recomputing totals exactly like
+   * {@link create}. Mappings (lab test / branch relations) are preserved.
+   */
+  async update(
+    id: string,
+    tenantId: string,
+    dto: CreateProformaDto,
+    actorId?: string,
+  ) {
+    await this.findById(id, tenantId);
+    if (dto.customerId) {
+      await this.customerService.findById(dto.customerId, tenantId);
+    }
+
+    const lines = await Promise.all(
+      dto.items.map(async (item) => {
+        const product = await this.productService.findById(
+          item.productId,
+          tenantId,
+        );
+        const qty = D(item.quantity);
+        const unitPrice = D(item.unitPrice);
+        const discount = D(item.discount ?? 0);
+        const taxRate = D(item.taxRate ?? 0);
+        const lineSubtotal = qty.mul(unitPrice).sub(discount);
+        const taxAmount = lineSubtotal.mul(taxRate).div(100);
+        return {
+          tenantId,
+          productId: product.id,
+          productName: product.name,
+          productCode: product.code,
+          quantity: qty,
+          quantityMethod: item.quantityMethod ?? 1,
+          unitPrice,
+          taxRate,
+          taxAmount,
+          discount,
+          subtotal: lineSubtotal,
+        };
+      }),
+    );
+
+    const labTotal = (dto.labTests ?? []).reduce(
+      (s, t) => s.add(D(t.price)),
+      D(0),
+    );
+    const subtotal = lines
+      .reduce((s, l) => s.add(l.subtotal), D(0))
+      .add(labTotal);
+    const orderTax = lines.reduce((s, l) => s.add(l.taxAmount), D(0));
+    const orderDiscount = D(dto.orderDiscount ?? 0);
+    const shipping = D(dto.shipping ?? 0);
+    const grandTotal = subtotal.add(orderTax).add(shipping).sub(orderDiscount);
+
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      await tx.inventoryProformaItem.deleteMany({ where: { proformaId: id } });
+      return tx.inventoryProforma.update({
+        where: { id },
+        data: {
+          customerId: dto.customerId ?? null,
+          name: dto.name,
+          reference: dto.reference ?? undefined,
+          date: dto.date ? new Date(dto.date) : undefined,
+          status: dto.status ?? undefined,
+          subtotal,
+          orderTax,
+          orderDiscount,
+          shipping,
+          grandTotal,
+          labTests: dto.labTests
+            ? (dto.labTests as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+          note: dto.note ?? null,
+          items: { create: lines },
+        },
+        include: { items: true },
+      });
+    });
+  }
+
   async findAll(
     tenantId: string,
     query: ProformaQueryDto,
@@ -168,6 +285,97 @@ export class ProformaService {
     await this.findById(id, tenantId);
     return this.prisma.inventoryProforma.update({
       where: { id },
+      data: { deletedAt: new Date() },
+      select: { id: true, deletedAt: true },
+    });
+  }
+
+  // ── Proforma ↔ entity mappings (Lab Test / Branch, …) ────────────────────────
+
+  /**
+   * List a proforma's live mappings, optionally filtered by `type`
+   * (`lab_test` | `branch` | …). Tenant-scoped; newest first.
+   */
+  async listRelations(
+    id: string,
+    tenantId: string,
+    query: ProformaRelationQueryDto = {},
+  ) {
+    await this.findById(id, tenantId);
+    return this.prisma.inventoryProformaRelation.findMany({
+      where: {
+        proformaId: id,
+        tenantId,
+        deletedAt: null,
+        ...(query.type ? { entityType: query.type } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Map a proforma to an external entity (a kalnostics master lab test, a branch).
+   * Idempotent: an existing live mapping for the same (type, entityId) is returned
+   * as-is; a previously soft-deleted one is reactivated instead of duplicated
+   * (mirrors the legacy EZHT reactivate-on-re-add behaviour).
+   *
+   * @throws ProformaRelationTypeNotEnabledException for kinds not wired yet
+   *   (radiology / blood donation / blood request).
+   */
+  async addRelation(
+    id: string,
+    tenantId: string,
+    branchId: string | null,
+    dto: CreateProformaRelationDto,
+    actorId?: string,
+  ) {
+    await this.findById(id, tenantId);
+    if (!ENABLED_RELATION_TYPES.has(dto.entityType)) {
+      throw new ProformaRelationTypeNotEnabledException(dto.entityType);
+    }
+
+    const existing = await this.prisma.inventoryProformaRelation.findFirst({
+      where: {
+        proformaId: id,
+        tenantId,
+        entityType: dto.entityType,
+        entityId: dto.entityId,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing && existing.deletedAt === null) return existing;
+    if (existing) {
+      return this.prisma.inventoryProformaRelation.update({
+        where: { id: existing.id },
+        data: { deletedAt: null, label: dto.label ?? existing.label },
+      });
+    }
+
+    return this.prisma.inventoryProformaRelation.create({
+      data: {
+        tenantId,
+        // A `branch` mapping stores the branch it targets; other kinds record the
+        // caller's active branch purely as provenance.
+        branchId: dto.entityType === 'branch' ? dto.entityId : branchId,
+        proformaId: id,
+        entityType: dto.entityType,
+        entityId: dto.entityId,
+        label: dto.label,
+        createdBy: actorId,
+      },
+    });
+  }
+
+  /** Soft-delete a proforma mapping (tenant-scoped). */
+  async removeRelation(id: string, relationId: string, tenantId: string) {
+    await this.findById(id, tenantId);
+    const relation = await this.prisma.inventoryProformaRelation.findFirst({
+      where: { id: relationId, proformaId: id, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!relation) throw new ProformaRelationNotFoundException(relationId);
+    return this.prisma.inventoryProformaRelation.update({
+      where: { id: relationId },
       data: { deletedAt: new Date() },
       select: { id: true, deletedAt: true },
     });

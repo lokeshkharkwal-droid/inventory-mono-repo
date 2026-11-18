@@ -71,6 +71,8 @@ BEGIN
     'inventory_quote_items',
     'inventory_proformas',
     'inventory_proforma_items',
+    'inventory_proforma_relations',
+    'inventory_order_consumptions',
     'inventory_materials',
     'inventory_material_damages',
     'inventory_material_repairs',
