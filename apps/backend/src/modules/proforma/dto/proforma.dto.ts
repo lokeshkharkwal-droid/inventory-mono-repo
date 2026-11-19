@@ -105,9 +105,15 @@ export class CreateProformaDto {
   @Min(0)
   shipping?: number;
 
+  /**
+   * Rich-text (HTML) note from the TinyMCE editor. The cap is deliberately
+   * huge — it mirrors the frontend's `NOTE_MAX_LENGTH`
+   * (`apps/frontend/src/lib/text-limits.ts`); change both together. The column
+   * is `text`, and the JSON body limit is 10 MB.
+   */
   @IsOptional()
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(1_000_000)
   note?: string;
 
   @IsOptional()
@@ -167,12 +173,32 @@ export class UpdateProformaStatusDto {
 
 /** List filters for proformas. */
 export class ProformaQueryDto extends PaginationQueryDto {
+  /** Matches the proforma name or reference (case-insensitive). */
   @IsOptional()
   @IsString()
   @MaxLength(255)
   search?: string;
 
+  /** Name column filter (case-insensitive "contains"). */
   @IsOptional()
-  @IsIn(['DRAFT', 'SENT', 'INVOICED'])
+  @IsString()
+  @MaxLength(255)
+  name?: string;
+
+  /** ACTIVE | INACTIVE (EZHT); legacy DRAFT | SENT | INVOICED still accepted. */
+  @IsOptional()
+  @IsIn(['ACTIVE', 'INACTIVE', 'DRAFT', 'SENT', 'INVOICED'])
   status?: string;
+
+  /**
+   * Date window (ISO instants): `dateFrom` inclusive, `dateTo` exclusive. The
+   * list's Date filter sends the bounds of the user's local calendar day.
+   */
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
 }

@@ -1,8 +1,4 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { request, requestPaged } from '@/lib/http';
 import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 
@@ -13,16 +9,26 @@ export interface ProformaListRow {
   date: string;
   status: string;
   grandTotal: number;
+  /** Live branch mappings ("Branch Relations" column). */
+  relations?: { id: string; label: string | null }[];
 }
 
 const KEY = ['proformas'] as const;
 
-export function useProformas(params: { page: number; limit: number; search?: string }) {
+export function useProformas(params: {
+  page: number;
+  limit: number;
+  search?: string;
+}) {
   return useQuery({
     queryKey: [...KEY, params],
     queryFn: () =>
       requestPaged<ProformaListRow>('GET', '/proformas', {
-        query: { page: params.page, limit: params.limit, search: params.search || undefined },
+        query: {
+          page: params.page,
+          limit: params.limit,
+          search: params.search || undefined,
+        },
       }),
     placeholderData: (prev) => prev,
   });
@@ -90,7 +96,16 @@ export interface ProformaItem {
   unitPrice: number;
   discount: number;
   taxRate: number;
+  /** Line tax (stored per line; the proforma's orderTax is their sum). */
+  taxAmount?: number | string;
   subtotal: number;
+}
+
+/** A clinical (lab / radiology / blood) line stored on a proforma. */
+export interface ProformaLabTest {
+  name: string;
+  price: number | string;
+  type?: string;
 }
 
 /** A full proforma with its items (for the Detail modal). */
@@ -98,6 +113,22 @@ export interface ProformaDetail extends ProformaListRow {
   name: string | null;
   note: string | null;
   items: ProformaItem[];
+  /**
+   * Order-level values the Add/Edit form no longer edits but carries through
+   * unchanged on update, so saving an older proforma doesn't wipe them.
+   * Decimals arrive as strings.
+   */
+  orderDiscount?: number | string | null;
+  shipping?: number | string | null;
+  orderTax?: number | string | null;
+  labTests?: ProformaLabTest[] | null;
+  customerId?: string | null;
+  /** Customer's name, resolved server-side (details modal). */
+  customerName?: string | null;
+  createdBy?: string | null;
+  /** Created-by staff name, resolved server-side (details modal). */
+  createdByName?: string | null;
+  createdAt?: string;
 }
 
 const RELATIONS_KEY = (proformaId: string) =>
@@ -124,8 +155,11 @@ export function useAddProformaRelation(proformaId: string) {
       entityId: string;
       label?: string;
     }) => request('POST', `/proformas/${proformaId}/relations`, { body }),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: RELATIONS_KEY(proformaId) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: RELATIONS_KEY(proformaId) });
+      // The list shows branch mappings (Branch Relations column).
+      void qc.invalidateQueries({ queryKey: KEY });
+    },
   });
 }
 
@@ -135,8 +169,10 @@ export function useRemoveProformaRelation(proformaId: string) {
   return useMutation({
     mutationFn: (relationId: string) =>
       request('DELETE', `/proformas/${proformaId}/relations/${relationId}`),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: RELATIONS_KEY(proformaId) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: RELATIONS_KEY(proformaId) });
+      void qc.invalidateQueries({ queryKey: KEY });
+    },
   });
 }
 
