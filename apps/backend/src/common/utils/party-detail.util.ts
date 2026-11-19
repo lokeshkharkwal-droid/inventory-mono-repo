@@ -40,6 +40,11 @@ export async function resolveWarehouseDetail(
   }
 }
 
+/** Largest page kalnostics `GET /users/manage` accepts. */
+const USER_LOOKUP_PAGE_SIZE = 100;
+/** Upper bound on pages scanned per lookup (1,000 staff). */
+const USER_LOOKUP_MAX_PAGES = 10;
+
 /**
  * Best-effort staff-name lookup for a `createdBy` person id (inventory stores the
  * UUID only; names live on the kalnostics auth layer — mirrors the reports
@@ -51,8 +56,22 @@ export async function resolveUserName(
 ): Promise<string | null> {
   if (!personId) return null;
   try {
-    const { data } = await usersClient.getOptions({ limit: 200 });
-    return data.find((u) => u.id === personId)?.name ?? null;
+    // kalnostics caps `limit` at 100 (a larger page is rejected with a 400), so
+    // walk the staff list page by page — bounded, to stay cheap on big tenants.
+    for (let page = 1; page <= USER_LOOKUP_MAX_PAGES; page++) {
+      const { data, total } = await usersClient.getOptions({
+        page,
+        limit: USER_LOOKUP_PAGE_SIZE,
+      });
+      const match = data.find((u) => u.id === personId);
+      if (match) return match.name;
+      if (
+        data.length < USER_LOOKUP_PAGE_SIZE ||
+        page * USER_LOOKUP_PAGE_SIZE >= total
+      )
+        break;
+    }
+    return null;
   } catch {
     return null;
   }

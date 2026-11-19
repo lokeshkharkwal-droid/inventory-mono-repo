@@ -1,0 +1,72 @@
+import DOMPurify from 'dompurify';
+
+/**
+ * Sanitize rich-text HTML (NotesRichTextEditor output, e.g. a proforma Note) for
+ * safe rendering via `dangerouslySetInnerHTML` — strips scripts / event-handler
+ * attributes while keeping formatting markup (bold, lists, checklists, tables,
+ * links, images) intact. Same allow-list as kaltros-fe's `sanitizeRichTextHTML`.
+ * Render the result inside a `.notes-rte-content` container (see `index.css`).
+ */
+export const sanitizeRichTextHTML = (html: string): string =>
+  DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'p',
+      'br',
+      'strong',
+      'em',
+      'u',
+      's',
+      'a',
+      'img',
+      'ul',
+      'ol',
+      'li',
+      'blockquote',
+      'code',
+      'pre',
+      'span',
+      'table',
+      'thead',
+      'tbody',
+      'tr',
+      'th',
+      'td',
+      'div',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'hr',
+      'sub',
+      'sup',
+      'mark',
+      'b',
+      'i',
+      'del',
+      'ins',
+      'strike',
+      'caption',
+      'tfoot',
+      'colgroup',
+      'col',
+    ],
+    ALLOWED_ATTR: [
+      'href',
+      'target',
+      'rel',
+      'src',
+      'alt',
+      'style',
+      'colspan',
+      'rowspan',
+      'class',
+      'data-type',
+      'checked',
+      'width',
+      'height',
+      'title',
+      'start',
+    ],
+  });
