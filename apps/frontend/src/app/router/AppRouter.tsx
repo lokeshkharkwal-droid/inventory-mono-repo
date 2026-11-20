@@ -21,6 +21,7 @@ import { VariantsPage } from '@/pages/masters/VariantsPage';
 import { SuppliersPage } from '@/pages/parties/SuppliersPage';
 import { SupplierFormPage } from '@/pages/parties/SupplierFormPage';
 import { CustomersPage } from '@/pages/parties/CustomersPage';
+import { PatientsPage } from '@/pages/parties/PatientsPage';
 import { CustomerFormPage } from '@/pages/parties/CustomerFormPage';
 import { PatientFormPage } from '@/pages/parties/PatientFormPage';
 import { PurchasesPage } from '@/pages/purchases/PurchasesPage';
@@ -156,7 +157,7 @@ export function AppRouter() {
             <Route path="customers" element={<CustomersPage />} />
             <Route path="customers/add" element={<CustomerFormPage />} />
             <Route path="customers/edit/:id" element={<CustomerFormPage />} />
-            <Route path="patients" element={<CustomersPage patientsOnly />} />
+            <Route path="patients" element={<PatientsPage />} />
             <Route path="patients/add" element={<PatientFormPage />} />
             <Route path="patients/edit/:id" element={<PatientFormPage />} />
             <Route path="purchases" element={<PurchasesPage />} />

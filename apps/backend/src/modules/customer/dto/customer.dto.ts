@@ -13,6 +13,22 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
+import { SORT_DIRS, type SortDir } from '../../../common/utils/party-list.util';
+
+/** Columns the Customers / Patients lists may be sorted by. */
+export const CUSTOMER_SORT_FIELDS = [
+  'name',
+  'companyName',
+  'phone',
+  'email',
+  'loyaltyPoints',
+  'gender',
+  'age',
+  'patientType',
+  'registrationDate',
+  'isActive',
+  'createdAt',
+] as const;
 
 /** Create a customer. */
 export class CreateCustomerDto {
@@ -156,6 +172,22 @@ export class ImportCustomersDto {
 export class CustomerQueryDto extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(255) search?: string;
   @IsOptional() @IsIn(['active', 'inactive']) status?: 'active' | 'inactive';
-  /** When 'true', only customers linked to a kalnostics patient (Patients tab). */
+  /**
+   * 'true' → patients only (linked to a kalnostics patient or registered via Add
+   * Patient); 'false' → plain customers only; omitted → everyone (pickers).
+   */
   @IsOptional() @IsIn(['true', 'false']) patient?: 'true' | 'false';
+
+  // Per-column filters, each ILIKE %v%.
+  @IsOptional() @IsString() @MaxLength(255) name?: string;
+  @IsOptional() @IsString() @MaxLength(255) company?: string;
+  @IsOptional() @IsString() @MaxLength(50) phone?: string;
+  @IsOptional() @IsString() @MaxLength(255) email?: string;
+  @IsOptional() @IsString() @MaxLength(20) gender?: string;
+  @IsOptional() @IsString() @MaxLength(50) patientType?: string;
+
+  @IsOptional()
+  @IsIn(CUSTOMER_SORT_FIELDS)
+  sortBy?: (typeof CUSTOMER_SORT_FIELDS)[number];
+  @IsOptional() @IsIn(SORT_DIRS) sortDir?: SortDir;
 }

@@ -37,14 +37,16 @@ export function SupplierPaymentsDialog({ supplier, onOpenChange }: Props) {
   });
 
   const submit = async () => {
-    if (!supplier || !form.amount) {
-      toast.error('Amount is required.');
+    if (!supplier) return;
+    const amount = Number(form.amount);
+    if (!form.amount || !Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter an amount greater than 0.');
       return;
     }
     try {
       await add.mutateAsync({
         supplierId: supplier.id,
-        amount: Number(form.amount),
+        amount,
         method: form.method,
         reference: form.reference || undefined,
         date: form.date || undefined,
@@ -76,6 +78,7 @@ export function SupplierPaymentsDialog({ supplier, onOpenChange }: Props) {
               <Input
                 type="number"
                 step="any"
+                min="0.01"
                 value={form.amount}
                 onChange={(e) => setForm({ ...form, amount: e.target.value })}
               />
