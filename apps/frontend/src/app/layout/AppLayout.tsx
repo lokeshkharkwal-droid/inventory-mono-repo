@@ -64,6 +64,11 @@ interface NavItem {
   end?: boolean;
   /** Permission key required to see this item (omit = always visible). */
   perm?: string;
+  /**
+   * Extra path prefixes that also mark this item active (e.g. a list item stays
+   * highlighted on its `/x/edit/:id` page, which has no menu entry of its own).
+   */
+  activePrefixes?: string[];
 }
 interface NavGroup {
   title: string;
@@ -151,11 +156,11 @@ const GROUPS: NavGroup[] = [
     icon: Users,
     perm: P.partiesView,
     items: [
-      { to: '/manufacturers', label: 'List Manufacturers', icon: Factory, end: true },
+      { to: '/manufacturers', label: 'List Manufacturers', icon: Factory, end: true, activePrefixes: ['/manufacturers/edit/'] },
       { to: '/manufacturers/add', label: 'Add Manufacturer', icon: Plus },
-      { to: '/suppliers', label: 'List Suppliers', icon: Truck, end: true },
+      { to: '/suppliers', label: 'List Suppliers', icon: Truck, end: true, activePrefixes: ['/suppliers/edit/'] },
       { to: '/suppliers/add', label: 'Add Supplier', icon: Plus },
-      { to: '/patients', label: 'List Patients', icon: HeartPulse, end: true },
+      { to: '/patients', label: 'List Patients', icon: HeartPulse, end: true, activePrefixes: ['/patients/edit/'] },
       { to: '/patients/add', label: 'Add Patient', icon: Plus },
       { to: '/customers', label: 'Customers', icon: Users },
     ],
@@ -319,6 +324,7 @@ const GROUPS: NavGroup[] = [
 const STORAGE_KEY = 'inv_sidebar_open_groups';
 
 function isItemActive(item: NavItem, pathname: string): boolean {
+  if (item.activePrefixes?.some((p) => pathname.startsWith(p))) return true;
   if (item.end) return pathname === item.to;
   return pathname === item.to || pathname.startsWith(`${item.to}/`);
 }
@@ -464,7 +470,7 @@ export function AppLayout() {
 
                 {isOpen && (
                   <div className="mb-1 mt-0.5 space-y-0.5 pl-3">
-                    {group.items.map(({ to, label, icon: Icon, end }) => (
+                    {group.items.map(({ to, label, icon: Icon, end, activePrefixes }) => (
                       <NavLink
                         key={to}
                         to={to}
@@ -472,7 +478,8 @@ export function AppLayout() {
                         className={({ isActive }) =>
                           cn(
                             'flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-150 ease-out active:scale-[0.98]',
-                            isActive
+                            isActive ||
+                              activePrefixes?.some((p) => pathname.startsWith(p))
                               ? 'bg-white/20 text-white shadow-sm'
                               : 'text-blue-100 hover:bg-white/10 hover:text-white',
                           )

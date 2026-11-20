@@ -2,14 +2,32 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { customerHooks } from '@/features/customers/api';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import {
   LocationSelect,
   EMPTY_LOCATION,
   type LocationValue,
 } from '@/components/shared/LocationSelect';
+import {
+  FORM_FIELD,
+  FORM_FIELD_ERROR,
+  FORM_SELECT,
+  PartyField,
+  PartyFormCard,
+} from '@/components/shared/PartyFormCard';
+import { customerHooks } from '@/features/customers/api';
+import {
+  GST_STATES,
+  ageFromDob,
+  locationPayload,
+  missingLocationLevels,
+  splitName,
+  toPartyPayload,
+  type LocationLevel,
+} from '@/features/_shared/party-form';
 import { getApiErrorMessage } from '@/lib/http';
-import '@/styles/ezht-form.css';
+import { cn } from '@/lib/utils';
 
 interface FormShape {
   firstName: string;
@@ -24,7 +42,7 @@ interface FormShape {
   patientType: string;
   address: string;
   address2: string;
-  zip: string;
+  postalCode: string;
   idType: string;
   uid: string;
   gstNo: string;
@@ -32,7 +50,11 @@ interface FormShape {
   gstState: string;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 const EMPTY: FormShape = {
   firstName: '',
@@ -47,7 +69,7 @@ const EMPTY: FormShape = {
   patientType: 'General',
   address: '',
   address2: '',
-  zip: '',
+  postalCode: '',
   idType: '',
   uid: '',
   gstNo: '',
@@ -55,12 +77,20 @@ const EMPTY: FormShape = {
   gstState: '',
 };
 
+/** Country, State and City are mandatory; Locality is optional. */
+const REQUIRED_LOCATION: LocationLevel[] = ['country', 'state', 'city'];
+const REQUIRED_MSG = 'Please enter/select a value';
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[0-9+\-()\s]{6,20}$/;
+
+const day = (s: string | null | undefined) => (s ? s.slice(0, 10) : '');
+
 /**
- * Add / Edit Patient — faithful port of the EZ Health Track "Add Patient" clinical
- * registration: name parts, gender, age/DOB, registration date, patient type, two
- * address lines, Country → State → City → Locality dependent dropdowns, ID type/UID
- * and GST/PAN. (The legacy Height/Eye/Hair/Visible-mark fields are commented out
- * there, so they are omitted here too.) A Patient is stored as a customer record.
+ * Add / Edit Patient — EZ Health Track "Add Patient" clinical registration in
+ * the kaltros form style: name parts, gender, age / date of birth (DOB fills
+ * Age), registration date, patient type, two address lines, Country → State →
+ * City → Locality, ZIP, ID type / number and GST / PAN. A patient is stored as a
+ * customer record; `patientType` marks it as a patient for the Patients list.
  */
 export function PatientFormPage() {
   const navigate = useNavigate();
@@ -71,30 +101,41 @@ export function PatientFormPage() {
   const create = customerHooks.useCreate();
   const update = customerHooks.useUpdate();
 
-  const { register, handleSubmit, reset } = useForm<FormShape>({
-    defaultValues: EMPTY,
-  });
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    formState: { errors, isSubmitted },
+  } = useForm<FormShape>({ defaultValues: EMPTY });
   const [location, setLocation] = useState<LocationValue>(EMPTY_LOCATION);
-
-  const day = (s: string | null | undefined) => (s ? s.slice(0, 10) : '');
 
   useEffect(() => {
     if (!isEdit || !one.data) return;
     const c = one.data;
+    // Legacy / linked records may only carry the full `name` — split it so the
+    // required First Name isn't blank on edit.
+    const parts =
+      c.firstName || c.middleName || c.lastName
+        ? {
+            firstName: c.firstName ?? '',
+            middleName: c.middleName ?? '',
+            lastName: c.lastName ?? '',
+          }
+        : splitName(c.name);
     reset({
-      firstName: c.firstName ?? '',
-      middleName: c.middleName ?? '',
-      lastName: c.lastName ?? '',
+      ...parts,
       gender: c.gender ?? '',
       age: c.age ?? '',
       dob: day(c.dob),
-      registrationDate: day(c.registrationDate) || today(),
+      registrationDate: day(c.registrationDate),
       email: c.email ?? '',
       phone: c.phone ?? '',
       patientType: c.patientType ?? 'General',
       address: c.address ?? '',
       address2: c.address2 ?? '',
-      zip: c.postalCode ?? '',
+      postalCode: c.postalCode ?? '',
       idType: c.idType ?? '',
       uid: c.uid ?? '',
       gstNo: c.gstNo ?? '',
@@ -113,39 +154,20 @@ export function PatientFormPage() {
     });
   }, [isEdit, one.data, reset]);
 
+  const missingLocation = missingLocationLevels(location, REQUIRED_LOCATION);
+  const gstState = watch('gstState');
+  const legacyGstState =
+    gstState && !GST_STATES.some((s) => s.code === gstState) ? gstState : '';
+
   const submit = handleSubmit(async (v) => {
+    if (missingLocation.length) return;
     const name = [v.firstName, v.middleName, v.lastName]
+      .map((p) => p.trim())
       .filter(Boolean)
-      .join(' ')
-      .trim();
+      .join(' ');
     const payload = {
-      name: name || v.firstName,
-      firstName: v.firstName || undefined,
-      middleName: v.middleName || undefined,
-      lastName: v.lastName || undefined,
-      gender: v.gender || undefined,
-      age: v.age || undefined,
-      dob: v.dob || undefined,
-      registrationDate: v.registrationDate || undefined,
-      email: v.email || undefined,
-      phone: v.phone || undefined,
-      patientType: v.patientType || undefined,
-      address: v.address || undefined,
-      address2: v.address2 || undefined,
-      postalCode: v.zip || undefined,
-      idType: v.idType || undefined,
-      uid: v.uid || undefined,
-      gstNo: v.gstNo || undefined,
-      panNo: v.panNo || undefined,
-      gstState: v.gstState || undefined,
-      countryId: location.countryId || undefined,
-      country: location.countryName || undefined,
-      stateId: location.stateId || undefined,
-      state: location.stateName || undefined,
-      cityId: location.cityId || undefined,
-      city: location.cityName || undefined,
-      areaId: location.areaId || undefined,
-      area: location.areaName || undefined,
+      ...toPartyPayload({ ...v, ...locationPayload(location, true) }, isEdit),
+      name,
     };
     try {
       if (isEdit && id) {
@@ -161,118 +183,175 @@ export function PatientFormPage() {
     }
   });
 
-  const saving = create.isPending || update.isPending;
-  if (isEdit && one.isLoading) {
-    return <p className="p-6 text-sm text-muted-foreground">Loading…</p>;
-  }
-
-  const field = (
+  const text = (
     name: keyof FormShape,
     label: string,
-    required = false,
-    type = 'text',
+    opts: {
+      required?: boolean;
+      type?: string;
+      maxLength?: number;
+      pattern?: RegExp;
+      patternMsg?: string;
+    } = {},
   ) => (
-    <div className="ezht-col3">
-      <div className="ezht-form-group">
-        <label className="ezht-label" htmlFor={name}>
-          {label}
-          {required && <span className="ezht-req">*</span>}
-        </label>
-        <input
-          id={name}
-          type={type}
-          className="ezht-control"
-          required={required}
-          {...register(name, { required })}
-        />
-      </div>
-    </div>
+    <PartyField
+      label={label}
+      htmlFor={name}
+      required={opts.required}
+      error={errors[name]?.message}
+    >
+      <Input
+        id={name}
+        type={opts.type ?? 'text'}
+        maxLength={opts.maxLength}
+        className={cn(FORM_FIELD, errors[name] && FORM_FIELD_ERROR)}
+        aria-invalid={errors[name] ? true : undefined}
+        {...register(name, {
+          required: opts.required ? REQUIRED_MSG : false,
+          validate: (val) =>
+            !opts.pattern || !val.trim() || opts.pattern.test(val.trim())
+              ? true
+              : (opts.patternMsg ?? 'Invalid value'),
+        })}
+      />
+    </PartyField>
   );
 
+  const select = (
+    name: keyof FormShape,
+    label: string,
+    options: { value: string; label: string }[],
+    required = false,
+  ) => (
+    <PartyField
+      label={label}
+      htmlFor={name}
+      required={required}
+      error={errors[name]?.message}
+    >
+      <Select
+        id={name}
+        className={cn(FORM_SELECT, errors[name] && FORM_FIELD_ERROR)}
+        aria-invalid={errors[name] ? true : undefined}
+        {...register(name, { required: required ? REQUIRED_MSG : false })}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </Select>
+    </PartyField>
+  );
+
+  const dob = register('dob');
+  const grid3 = 'grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-3';
+
   return (
-    <div className="ezht-form" style={{ maxWidth: 1040 }}>
-      <form onSubmit={submit} className="ezht-modal" aria-label="Patient form">
-        <div className="ezht-modal-header">
-          <h4 className="ezht-modal-title">
-            {isEdit ? 'Edit Patient' : 'Add Patient'}
-          </h4>
+    <PartyFormCard
+      entity="Patient"
+      editing={isEdit}
+      backTo="/patients"
+      loading={isEdit && one.isLoading}
+      notFound={isEdit && one.isError}
+      saving={create.isPending || update.isPending}
+      onSubmit={submit}
+    >
+      <div className="space-y-4">
+        <div className={grid3}>
+          {text('firstName', 'First Name', { required: true })}
+          {text('middleName', 'Middle Name')}
+          {text('lastName', 'Last Name')}
+
+          {select(
+            'gender',
+            'Gender',
+            [
+              { value: '', label: 'Select' },
+              { value: 'Male', label: 'Male' },
+              { value: 'Female', label: 'Female' },
+              { value: 'Other', label: 'Other' },
+            ],
+            true,
+          )}
+          {text('age', 'Age (In Years)', { maxLength: 3, pattern: /^\d{1,3}$/, patternMsg: 'Enter age in whole years' })}
+          <PartyField label="Date of Birth" htmlFor="dob">
+            <Input
+              id="dob"
+              type="date"
+              max={today()}
+              className={FORM_FIELD}
+              {...dob}
+              onChange={(e) => {
+                void dob.onChange(e);
+                const age = ageFromDob(e.target.value);
+                if (age) setValue('age', age, { shouldValidate: isSubmitted });
+              }}
+            />
+          </PartyField>
+
+          {text('registrationDate', 'Registration Date', { type: 'date' })}
+          {text('email', 'Email', {
+            type: 'email',
+            pattern: EMAIL_RE,
+            patternMsg: 'Please enter a valid email address',
+          })}
+          {text('phone', 'Phone', {
+            type: 'tel',
+            pattern: PHONE_RE,
+            patternMsg: 'Please enter a valid phone number',
+          })}
+
+          {select(
+            'patientType',
+            'Patient Type',
+            [
+              { value: 'General', label: 'General' },
+              { value: 'OPD', label: 'OPD' },
+              { value: 'IPD', label: 'IPD' },
+              { value: 'Emergency', label: 'Emergency' },
+            ],
+            true,
+          )}
+          {text('address', 'Address 1', { required: true })}
+          {text('address2', 'Address 2')}
         </div>
 
-        <div className="ezht-modal-body">
-          <div className="ezht-row">
-            {field('firstName', 'First Name', true)}
-            {field('middleName', 'Middle Name')}
-            {field('lastName', 'Last Name')}
-
-            <div className="ezht-col3">
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="gender">
-                  Gender<span className="ezht-req">*</span>
-                </label>
-                <select id="gender" className="ezht-control" required {...register('gender', { required: true })}>
-                  <option value="">Select</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-            </div>
-            {field('age', 'Age (In Years)')}
-            {field('dob', 'Date of Birth', false, 'date')}
-            {field('registrationDate', 'Registration Date', false, 'date')}
-
-            {field('email', 'Email')}
-            {field('phone', 'Phone')}
-            <div className="ezht-col3">
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="patientType">
-                  Patient Type<span className="ezht-req">*</span>
-                </label>
-                <select id="patientType" className="ezht-control" required {...register('patientType', { required: true })}>
-                  <option value="General">General</option>
-                  <option value="OPD">OPD</option>
-                  <option value="IPD">IPD</option>
-                  <option value="Emergency">Emergency</option>
-                </select>
-              </div>
-            </div>
-
-            {field('address', 'Address 1', true)}
-            {field('address2', 'Address 2')}
-          </div>
-
-          <div className="ezht-row">
-            <LocationSelect value={location} onChange={setLocation} required includeArea />
-            {field('zip', 'ZIP code', true)}
-          </div>
-
-          <div className="ezht-row">
-            <div className="ezht-col3">
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="idType">ID Type</label>
-                <select id="idType" className="ezht-control" {...register('idType')}>
-                  <option value="">Select</option>
-                  <option value="PASSPORT">PASSPORT</option>
-                  <option value="UID">AADHAR CARD</option>
-                </select>
-              </div>
-            </div>
-            {field('uid', 'ID Number')}
-            {field('gstNo', 'GST No.')}
-            {field('panNo', 'PAN No.')}
-            {field('gstState', 'GST State')}
-          </div>
+        <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+          <LocationSelect
+            value={location}
+            onChange={setLocation}
+            required={REQUIRED_LOCATION}
+            errors={isSubmitted ? missingLocation : []}
+            includeArea
+          />
         </div>
 
-        <div className="ezht-modal-footer">
-          <button type="button" className="ezht-btn ezht-btn-default" onClick={() => navigate('/patients')}>
-            Cancel
-          </button>
-          <button type="submit" className="ezht-btn ezht-btn-primary" disabled={saving}>
-            {saving ? 'Saving…' : isEdit ? 'Update' : 'Add Patient'}
-          </button>
+        <div className={grid3}>
+          {text('postalCode', 'ZIP code', { required: true, maxLength: 6 })}
+          {select('idType', 'ID Type', [
+            { value: '', label: 'Select' },
+            { value: 'PASSPORT', label: 'PASSPORT' },
+            { value: 'UID', label: 'AADHAR CARD' },
+          ])}
+          {text('uid', 'ID Number')}
+          {text('gstNo', 'GST No.')}
+          {text('panNo', 'PAN No.')}
+          <PartyField label="GST State" htmlFor="gstState">
+            <Select id="gstState" className={FORM_SELECT} {...register('gstState')}>
+              <option value="">Select</option>
+              {legacyGstState && (
+                <option value={legacyGstState}>{legacyGstState}</option>
+              )}
+              {GST_STATES.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </PartyField>
         </div>
-      </form>
-    </div>
+      </div>
+    </PartyFormCard>
   );
 }

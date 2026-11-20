@@ -2,20 +2,36 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { supplierHooks } from '@/features/suppliers/api';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import {
   LocationSelect,
   EMPTY_LOCATION,
   type LocationValue,
 } from '@/components/shared/LocationSelect';
+import {
+  FORM_FIELD,
+  FORM_FIELD_ERROR,
+  FORM_SELECT,
+  PartyField,
+  PartyFormCard,
+} from '@/components/shared/PartyFormCard';
+import { supplierHooks } from '@/features/suppliers/api';
+import {
+  GST_STATES,
+  locationPayload,
+  missingLocationLevels,
+  toPartyPayload,
+  type LocationLevel,
+} from '@/features/_shared/party-form';
 import { getApiErrorMessage } from '@/lib/http';
-import '@/styles/ezht-form.css';
+import { cn } from '@/lib/utils';
 
 interface FormShape {
-  company: string;
+  companyName: string;
   email: string;
   address: string;
-  zip: string;
+  postalCode: string;
   status: string; // '1' active | '0' inactive
   name: string;
   phone: string;
@@ -27,10 +43,10 @@ interface FormShape {
 }
 
 const EMPTY: FormShape = {
-  company: '',
+  companyName: '',
   email: '',
   address: '',
-  zip: '',
+  postalCode: '',
   status: '1',
   name: '',
   phone: '',
@@ -42,10 +58,19 @@ const EMPTY: FormShape = {
 };
 
 /**
- * Add / Edit Supplier — a faithful port of the EZ Health Track "Add Supplier"
- * modal: the same two-column layout, field order, labels, required flags and the
- * Status dropdown, with Country → State → City as dependent dropdowns populated
- * from SiteAdmin location data.
+ * Country, State and City are all mandatory: they are dependent dropdowns (a
+ * City can only be picked after a Country and State), so all three are marked.
+ */
+const REQUIRED_LOCATION: LocationLevel[] = ['country', 'state', 'city'];
+const REQUIRED_MSG = 'Please enter/select a value';
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[0-9+\-()\s]{6,20}$/;
+
+/**
+ * Add / Edit Supplier — EZ Health Track "Add Supplier" parity (field set, order,
+ * labels and required flags) in the kaltros form style. Left column: Company,
+ * Email Address, Address, Country → State → City, Postal Code, Status; right
+ * column: Name, Phone, Drug License, VAT Number, GSTIN, PAN Number, GST State.
  */
 export function SupplierFormPage() {
   const navigate = useNavigate();
@@ -56,9 +81,13 @@ export function SupplierFormPage() {
   const create = supplierHooks.useCreate();
   const update = supplierHooks.useUpdate();
 
-  const { register, handleSubmit, reset } = useForm<FormShape>({
-    defaultValues: EMPTY,
-  });
+  const {
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    formState: { errors, isSubmitted },
+  } = useForm<FormShape>({ defaultValues: EMPTY });
   const [location, setLocation] = useState<LocationValue>(EMPTY_LOCATION);
 
   // Seed the form + location once the edit record arrives.
@@ -66,10 +95,10 @@ export function SupplierFormPage() {
     if (!isEdit || !one.data) return;
     const s = one.data;
     reset({
-      company: s.companyName ?? '',
+      companyName: s.companyName ?? '',
       email: s.email ?? '',
       address: s.address ?? '',
-      zip: s.postalCode ?? '',
+      postalCode: s.postalCode ?? '',
       status: s.isActive ? '1' : '0',
       name: s.name,
       phone: s.phone ?? '',
@@ -89,26 +118,17 @@ export function SupplierFormPage() {
     });
   }, [isEdit, one.data, reset]);
 
-  const submit = handleSubmit(async (v) => {
+  const missingLocation = missingLocationLevels(location, REQUIRED_LOCATION);
+  const gstState = watch('gstState');
+  // Keep a legacy free-text GST state selectable (not one of the 36 codes).
+  const legacyGstState =
+    gstState && !GST_STATES.some((s) => s.code === gstState) ? gstState : '';
+
+  const submit = handleSubmit(async ({ status, ...v }) => {
+    if (missingLocation.length) return;
     const payload = {
-      companyName: v.company || undefined,
-      email: v.email || undefined,
-      address: v.address || undefined,
-      postalCode: v.zip || undefined,
-      isActive: v.status === '1',
-      name: v.name,
-      phone: v.phone || undefined,
-      drugLicense: v.drugLicense || undefined,
-      vatNo: v.vatNo || undefined,
-      gstNo: v.gstNo || undefined,
-      panNo: v.panNo || undefined,
-      gstState: v.gstState || undefined,
-      countryId: location.countryId || undefined,
-      country: location.countryName || undefined,
-      stateId: location.stateId || undefined,
-      state: location.stateName || undefined,
-      cityId: location.cityId || undefined,
-      city: location.cityName || undefined,
+      ...toPartyPayload({ ...v, ...locationPayload(location) }, isEdit),
+      isActive: status === '1',
     };
     try {
       if (isEdit && id) {
@@ -124,179 +144,104 @@ export function SupplierFormPage() {
     }
   });
 
-  const saving = create.isPending || update.isPending;
-
-  if (isEdit && one.isLoading) {
-    return <p className="p-6 text-sm text-muted-foreground">Loading…</p>;
-  }
+  const text = (
+    name: keyof FormShape,
+    label: string,
+    opts: {
+      required?: boolean;
+      type?: string;
+      maxLength?: number;
+      pattern?: RegExp;
+      patternMsg?: string;
+    } = {},
+  ) => (
+    <PartyField
+      label={label}
+      htmlFor={name}
+      required={opts.required}
+      error={errors[name]?.message}
+    >
+      <Input
+        id={name}
+        type={opts.type ?? 'text'}
+        maxLength={opts.maxLength}
+        className={cn(FORM_FIELD, errors[name] && FORM_FIELD_ERROR)}
+        aria-invalid={errors[name] ? true : undefined}
+        {...register(name, {
+          required: opts.required ? REQUIRED_MSG : false,
+          validate: (val) =>
+            !opts.pattern || !val.trim() || opts.pattern.test(val.trim())
+              ? true
+              : (opts.patternMsg ?? 'Invalid value'),
+        })}
+      />
+    </PartyField>
+  );
 
   return (
-    <div className="ezht-form">
-      <form onSubmit={submit} className="ezht-modal" aria-label="Supplier form">
-        <div className="ezht-modal-header">
-          <h4 className="ezht-modal-title">
-            {isEdit ? 'Edit Supplier' : 'Add Supplier'}
-          </h4>
+    <PartyFormCard
+      entity="Supplier"
+      editing={isEdit}
+      backTo="/suppliers"
+      loading={isEdit && one.isLoading}
+      notFound={isEdit && one.isError}
+      saving={create.isPending || update.isPending}
+      onSubmit={submit}
+    >
+      <div className="grid grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2">
+        {/* Left column — mirrors the EZHT order. */}
+        <div className="space-y-4">
+          {text('companyName', 'Company', { required: true })}
+          {text('email', 'Email Address', {
+            required: true,
+            type: 'email',
+            pattern: EMAIL_RE,
+            patternMsg: 'Please enter a valid email address',
+          })}
+          {text('address', 'Address', { required: true })}
+          <LocationSelect
+            value={location}
+            onChange={setLocation}
+            required={REQUIRED_LOCATION}
+            errors={isSubmitted ? missingLocation : []}
+          />
+          {text('postalCode', 'Postal Code', { required: true, maxLength: 6 })}
+          <PartyField label="Status" htmlFor="status" required>
+            <Select id="status" className={FORM_SELECT} {...register('status')}>
+              <option value="1">Active</option>
+              <option value="0">Inactive</option>
+            </Select>
+          </PartyField>
         </div>
 
-        <div className="ezht-modal-body">
-          <div className="ezht-row">
-            {/* Left column — mirrors EZHT order. */}
-            <div className="ezht-col">
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="company">
-                  Company<span className="ezht-req">*</span>
-                </label>
-                <input
-                  id="company"
-                  className="ezht-control"
-                  required
-                  {...register('company', { required: true })}
-                />
-              </div>
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="email">
-                  Email Address<span className="ezht-req">*</span>
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  className="ezht-control"
-                  required
-                  {...register('email', { required: true })}
-                />
-              </div>
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="address">
-                  Address<span className="ezht-req">*</span>
-                </label>
-                <input
-                  id="address"
-                  className="ezht-control"
-                  required
-                  {...register('address', { required: true })}
-                />
-              </div>
-
-              <LocationSelect value={location} onChange={setLocation} required />
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="zip">
-                  Postal Code<span className="ezht-req">*</span>
-                </label>
-                <input
-                  id="zip"
-                  className="ezht-control"
-                  maxLength={6}
-                  required
-                  {...register('zip', { required: true })}
-                />
-              </div>
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="status">
-                  Status<span className="ezht-req">*</span>
-                </label>
-                <select
-                  id="status"
-                  className="ezht-control"
-                  required
-                  {...register('status', { required: true })}
-                >
-                  <option value="1">Active</option>
-                  <option value="0">Inactive</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Right column. */}
-            <div className="ezht-col">
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="name">
-                  Name<span className="ezht-req">*</span>
-                </label>
-                <input
-                  id="name"
-                  className="ezht-control"
-                  required
-                  {...register('name', { required: true })}
-                />
-              </div>
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="phone">
-                  Phone<span className="ezht-req">*</span>
-                </label>
-                <input
-                  id="phone"
-                  type="tel"
-                  className="ezht-control"
-                  required
-                  {...register('phone', { required: true })}
-                />
-              </div>
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="drugLicense">
-                  Drug License
-                </label>
-                <input
-                  id="drugLicense"
-                  className="ezht-control"
-                  {...register('drugLicense')}
-                />
-              </div>
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="vatNo">
-                  VAT No.
-                </label>
-                <input id="vatNo" className="ezht-control" {...register('vatNo')} />
-              </div>
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="gstNo">
-                  GST No.
-                </label>
-                <input id="gstNo" className="ezht-control" {...register('gstNo')} />
-              </div>
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="panNo">
-                  PAN No.
-                </label>
-                <input id="panNo" className="ezht-control" {...register('panNo')} />
-              </div>
-
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="gstState">
-                  GST State
-                </label>
-                <input
-                  id="gstState"
-                  className="ezht-control"
-                  {...register('gstState')}
-                />
-              </div>
-            </div>
-          </div>
+        {/* Right column. */}
+        <div className="space-y-4">
+          {text('name', 'Name', { required: true })}
+          {text('phone', 'Phone', {
+            required: true,
+            type: 'tel',
+            pattern: PHONE_RE,
+            patternMsg: 'Please enter a valid phone number',
+          })}
+          {text('drugLicense', 'Drug License')}
+          {text('vatNo', 'VAT Number')}
+          {text('gstNo', 'GSTIN')}
+          {text('panNo', 'PAN Number')}
+          <PartyField label="GST State" htmlFor="gstState">
+            <Select id="gstState" className={FORM_SELECT} {...register('gstState')}>
+              <option value="">Select</option>
+              {legacyGstState && (
+                <option value={legacyGstState}>{legacyGstState}</option>
+              )}
+              {GST_STATES.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </PartyField>
         </div>
-
-        <div className="ezht-modal-footer">
-          <button
-            type="button"
-            className="ezht-btn ezht-btn-default"
-            onClick={() => navigate('/suppliers')}
-          >
-            Cancel
-          </button>
-          <button type="submit" className="ezht-btn ezht-btn-primary" disabled={saving}>
-            {saving ? 'Saving…' : isEdit ? 'Update' : 'Add Supplier'}
-          </button>
-        </div>
-      </form>
-    </div>
+      </div>
+    </PartyFormCard>
   );
 }

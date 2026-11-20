@@ -17,6 +17,20 @@ import {
   runBulkImport,
   type ImportSummary,
 } from '../../common/utils/bulk-import.util';
+import {
+  columnFilters,
+  ilike,
+  NON_PATIENT_WHERE,
+  PATIENT_WHERE,
+  sortOrder,
+} from '../../common/utils/party-list.util';
+
+/**
+ * DTO date → Prisma value: a value becomes a Date, an explicit `null` clears the
+ * column (edit form emptied the field), and `undefined` leaves it untouched.
+ */
+const toDate = (v: string | null | undefined): Date | null | undefined =>
+  v === null ? null : v ? new Date(v) : undefined;
 
 /** Customers — tenant-scoped, soft-delete aware. May link to a kalnostics patient. */
 @Injectable()
@@ -37,10 +51,8 @@ export class CustomerService {
       lastName: dto.lastName,
       gender: dto.gender,
       age: dto.age,
-      dob: dto.dob ? new Date(dto.dob) : undefined,
-      registrationDate: dto.registrationDate
-        ? new Date(dto.registrationDate)
-        : undefined,
+      dob: toDate(dto.dob),
+      registrationDate: toDate(dto.registrationDate),
       patientType: dto.patientType,
       address2: dto.address2,
       areaId: dto.areaId,
@@ -110,22 +122,38 @@ export class CustomerService {
       tenantId,
       deletedAt: null,
     };
-    if (query.search) {
+    const search = query.search?.trim();
+    if (search) {
       where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { phone: { contains: query.search, mode: 'insensitive' } },
-        { email: { contains: query.search, mode: 'insensitive' } },
-        { companyName: { contains: query.search, mode: 'insensitive' } },
-      ];
+        'name',
+        'code',
+        'companyName',
+        'phone',
+        'email',
+        'firstName',
+        'lastName',
+        'uid',
+      ].map((field) => ({ [field]: ilike(search) }));
     }
     if (query.status === 'active') where.isActive = true;
     if (query.status === 'inactive') where.isActive = false;
-    if (query.patient === 'true') where.patientId = { not: null };
+    const and: Prisma.InventoryCustomerWhereInput[] = columnFilters([
+      ['name', query.name],
+      ['companyName', query.company],
+      ['phone', query.phone],
+      ['email', query.email],
+      ['gender', query.gender],
+      ['patientType', query.patientType],
+    ]);
+    // Patients vs plain customers — one shared definition (see PATIENT_WHERE).
+    if (query.patient === 'true') and.push(PATIENT_WHERE);
+    if (query.patient === 'false') and.push(NON_PATIENT_WHERE);
+    if (and.length) where.AND = and;
 
     const [data, total] = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.inventoryCustomer.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy: sortOrder(query.sortBy, query.sortDir),
         skip: (page - 1) * limit,
         take: limit,
       });

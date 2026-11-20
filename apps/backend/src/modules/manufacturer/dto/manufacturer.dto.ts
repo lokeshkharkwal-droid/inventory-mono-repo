@@ -11,6 +11,20 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
+import { SORT_DIRS, type SortDir } from '../../../common/utils/party-list.util';
+
+/** Columns the Manufacturers list may be sorted by (reference table columns). */
+export const MANUFACTURER_SORT_FIELDS = [
+  'companyName',
+  'name',
+  'vatNo',
+  'phone',
+  'email',
+  'city',
+  'country',
+  'isActive',
+  'createdAt',
+] as const;
 
 /** Create a manufacturer (maker company/party). */
 export class CreateManufacturerDto {
@@ -80,6 +94,20 @@ export class UpdateManufacturerDto {
 export class ManufacturerQueryDto extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(255) search?: string;
   @IsOptional() @IsIn(['active', 'inactive']) status?: 'active' | 'inactive';
+
+  // Per-column filters (EZHT DataTables column-filter row), each ILIKE %v%.
+  @IsOptional() @IsString() @MaxLength(255) company?: string;
+  @IsOptional() @IsString() @MaxLength(255) name?: string;
+  @IsOptional() @IsString() @MaxLength(100) vatNo?: string;
+  @IsOptional() @IsString() @MaxLength(50) phone?: string;
+  @IsOptional() @IsString() @MaxLength(255) email?: string;
+  @IsOptional() @IsString() @MaxLength(100) city?: string;
+  @IsOptional() @IsString() @MaxLength(100) country?: string;
+
+  @IsOptional()
+  @IsIn(MANUFACTURER_SORT_FIELDS)
+  sortBy?: (typeof MANUFACTURER_SORT_FIELDS)[number];
+  @IsOptional() @IsIn(SORT_DIRS) sortDir?: SortDir;
 }
 
 /** Bulk CSV/Excel import of manufacturers (preview with `dryRun`, then commit). */
