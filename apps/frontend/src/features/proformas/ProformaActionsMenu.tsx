@@ -11,6 +11,9 @@ import { ProformaDetailModal } from './ProformaDetailModal';
 
 type ActiveModal = 'details' | 'labTest' | 'branch' | null;
 
+/** Approximate height of the open menu (7 items), used to decide whether to flip it up. */
+const MENU_HEIGHT = 236;
+
 /**
  * The proforma row "Actions" menu — EZ Health Track parity (controller
  * `Proformas::getProformas`). Items + order match the legacy dropdown exactly:
@@ -22,11 +25,19 @@ type ActiveModal = 'details' | 'labTest' | 'branch' | null;
  * The menu renders through a portal pinned to the trigger, so it floats above the
  * table instead of being clipped by the list's `overflow-hidden` wrapper.
  */
-export function ProformaActionsMenu({ proforma }: { proforma: ProformaListRow }) {
+export function ProformaActionsMenu({
+  proforma,
+}: {
+  proforma: ProformaListRow;
+}) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [modal, setModal] = useState<ActiveModal>(null);
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const [pos, setPos] = useState<{
+    top?: number;
+    bottom?: number;
+    right: number;
+  } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const title = proforma.name || proforma.reference;
@@ -35,7 +46,14 @@ export function ProformaActionsMenu({ proforma }: { proforma: ProformaListRow })
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    const right = window.innerWidth - r.right;
+    const below = window.innerHeight - r.bottom;
+    // Open upwards when the menu wouldn't fit below the trigger (and fits better above).
+    if (below < MENU_HEIGHT + 8 && r.top > below) {
+      setPos({ bottom: window.innerHeight - r.top + 4, right });
+    } else {
+      setPos({ top: r.bottom + 4, right });
+    }
   };
 
   const toggle = () => {
@@ -47,10 +65,7 @@ export function ProformaActionsMenu({ proforma }: { proforma: ProformaListRow })
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (
-        !menuRef.current?.contains(t) &&
-        !triggerRef.current?.contains(t)
-      ) {
+      if (!menuRef.current?.contains(t) && !triggerRef.current?.contains(t)) {
         setOpen(false);
       }
     };
@@ -76,7 +91,9 @@ export function ProformaActionsMenu({ proforma }: { proforma: ProformaListRow })
         ref={triggerRef}
         variant="outline"
         size="sm"
-        className="h-8 gap-1"
+        className="h-7 gap-1 rounded-lg border-slate-200 px-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={toggle}
       >
         Actions <ChevronDown className="h-3.5 w-3.5" />
@@ -87,8 +104,15 @@ export function ProformaActionsMenu({ proforma }: { proforma: ProformaListRow })
         createPortal(
           <div
             ref={menuRef}
-            style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 1000 }}
-            className="w-56 rounded-md border border-border bg-background py-1 text-left text-sm shadow-lg"
+            style={{
+              position: 'fixed',
+              top: pos.top,
+              bottom: pos.bottom,
+              right: pos.right,
+              zIndex: 1000,
+            }}
+            role="menu"
+            className="w-56 rounded-xl border border-slate-200 bg-white py-1 text-left text-xs shadow-lg"
           >
             <MenuItem onClick={() => openModal('details')}>
               Proforma Details
@@ -155,10 +179,11 @@ function MenuItem({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      role="menuitem"
       className={cn(
-        'block w-full px-3 py-1.5 text-left hover:bg-accent',
+        'block w-full px-3 py-2 text-left text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-700',
         disabled &&
-          'cursor-not-allowed text-muted-foreground/50 hover:bg-transparent',
+          'cursor-not-allowed text-slate-300 hover:bg-transparent hover:text-slate-300',
       )}
     >
       {children}

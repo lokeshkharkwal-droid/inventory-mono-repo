@@ -46,9 +46,10 @@ export class ProformaController {
     return this.proformaService.findAll(tenantId, query);
   }
 
+  /** One proforma + created-by / customer names (details modal, edit prefill). */
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.proformaService.findById(id, tenantId);
+    return this.proformaService.getDetail(id, tenantId);
   }
 
   @Patch(':id/status')

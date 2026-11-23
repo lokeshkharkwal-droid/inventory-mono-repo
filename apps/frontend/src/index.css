@@ -109,3 +109,34 @@
     scrollbar-color: rgb(255 255 255 / 0.35) transparent;
   }
 }
+
+/* Rich-text notes content — read-only renders of NotesRichTextEditor HTML
+   (e.g. the proforma details Note), sanitized by `lib/rich-text.ts`. Mirrors
+   kaltros-fe's `.notes-rte-content`; scoped to this class only (not a global
+   `prose` reset), so it can't affect any other screen. */
+.notes-rte-content { min-height: 1.5em; overflow-wrap: break-word; }
+.notes-rte-content p { margin: 0 0 0.5em; }
+.notes-rte-content p:last-child { margin-bottom: 0; }
+.notes-rte-content h1 { font-size: 1.5em; font-weight: 700; margin: 0 0 0.5em; }
+.notes-rte-content h2 { font-size: 1.3em; font-weight: 700; margin: 0 0 0.5em; }
+.notes-rte-content h3 { font-size: 1.15em; font-weight: 600; margin: 0 0 0.5em; }
+.notes-rte-content ul, .notes-rte-content ol { margin: 0 0 0.5em; padding-left: 1.5em; }
+.notes-rte-content ul { list-style: disc; }
+.notes-rte-content ol { list-style: decimal; }
+.notes-rte-content blockquote { margin: 0 0 0.5em; padding-left: 0.75em; border-left: 3px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); }
+.notes-rte-content pre, .notes-rte-content code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+.notes-rte-content pre { margin: 0 0 0.5em; padding: 0.5em 0.75em; border-radius: 6px; background: #f8fafc; white-space: pre-wrap; }
+.notes-rte-content hr { margin: 0.75em 0; border-top: 1px solid hsl(var(--border)); }
+/* Task lists (stored as `ul[data-type=taskList] > li[data-checked]`; the
+   sanitizer drops the inline checkbox input, so the box is drawn here). */
+.notes-rte-content ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+.notes-rte-content ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5em; }
+.notes-rte-content ul[data-type="taskList"] li::before { content: '\2610'; line-height: 1.4; }
+.notes-rte-content ul[data-type="taskList"] li[data-checked="true"]::before { content: '\2611'; color: hsl(var(--primary)); }
+.notes-rte-content ul[data-type="taskList"] li > div { flex: 1; }
+.notes-rte-content a { color: hsl(var(--primary)); text-decoration: underline; }
+.notes-rte-content img { max-width: 100%; border-radius: 4px; }
+/* A wide table scrolls on its own axis instead of escaping the container. */
+.notes-rte-content table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0.5em 0; }
+.notes-rte-content th, .notes-rte-content td { border: 1px solid hsl(var(--border)); padding: 4px 8px; text-align: left; white-space: nowrap; }
+.notes-rte-content th { background: #f9fafb; font-weight: 600; }

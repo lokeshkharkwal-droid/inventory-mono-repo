@@ -14,6 +14,20 @@ import {
   runBulkImport,
   type ImportSummary,
 } from '../../common/utils/bulk-import.util';
+import {
+  columnFilters,
+  ilike,
+  sortOrder,
+} from '../../common/utils/party-list.util';
+
+/** The parts of the reference list's composite "Address" column. */
+const ADDRESS_FIELDS = [
+  'address',
+  'city',
+  'state',
+  'country',
+  'postalCode',
+] as const;
 
 /** Suppliers / vendors — tenant-scoped, soft-delete aware. */
 @Injectable()
@@ -88,21 +102,39 @@ export class SupplierService {
       tenantId,
       deletedAt: null,
     };
-    if (query.search) {
+    const search = query.search?.trim();
+    if (search) {
+      // Global search spans every column of the reference list table
+      // (the Address column is address + city + state + country + postal code).
       where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { phone: { contains: query.search, mode: 'insensitive' } },
-        { email: { contains: query.search, mode: 'insensitive' } },
-        { companyName: { contains: query.search, mode: 'insensitive' } },
-      ];
+        'name',
+        'code',
+        'companyName',
+        'phone',
+        'email',
+        'gstNo',
+        ...ADDRESS_FIELDS,
+      ].map((field) => ({ [field]: ilike(search) }));
     }
     if (query.status === 'active') where.isActive = true;
     if (query.status === 'inactive') where.isActive = false;
+    const and: Prisma.InventorySupplierWhereInput[] = columnFilters([
+      ['companyName', query.company],
+      ['name', query.name],
+      ['email', query.email],
+      ['phone', query.phone],
+      ['gstNo', query.gstNo],
+    ]);
+    const address = query.address?.trim();
+    if (address) {
+      and.push({ OR: ADDRESS_FIELDS.map((f) => ({ [f]: ilike(address) })) });
+    }
+    if (and.length) where.AND = and;
 
     const [data, total] = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.inventorySupplier.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy: sortOrder(query.sortBy, query.sortDir),
         skip: (page - 1) * limit,
         take: limit,
       });

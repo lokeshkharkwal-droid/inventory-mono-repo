@@ -7,11 +7,25 @@ import {
   IsIn,
   IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
+import { SORT_DIRS, type SortDir } from '../../../common/utils/party-list.util';
+
+/** Columns the Suppliers list may be sorted by (reference table columns). */
+export const SUPPLIER_SORT_FIELDS = [
+  'companyName',
+  'name',
+  'email',
+  'phone',
+  'address',
+  'gstNo',
+  'isActive',
+  'createdAt',
+] as const;
 
 /** Create a supplier. */
 export class CreateSupplierDto {
@@ -98,7 +112,7 @@ export class UpdateSupplierDto {
 
 /** Record a supplier-level payment (not tied to a specific purchase). */
 export class CreateSupplierPaymentDto {
-  @Type(() => Number) @IsNumber() amount: number;
+  @Type(() => Number) @IsNumber() @IsPositive() amount: number;
   @IsOptional() @IsString() @MaxLength(50) method?: string;
   @IsOptional() @IsString() @MaxLength(100) reference?: string;
   @IsOptional() @IsString() date?: string;
@@ -120,4 +134,18 @@ export class ImportSuppliersDto {
 export class SupplierQueryDto extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(255) search?: string;
   @IsOptional() @IsIn(['active', 'inactive']) status?: 'active' | 'inactive';
+
+  // Per-column filters (EZHT DataTables column-filter row), each ILIKE %v%.
+  @IsOptional() @IsString() @MaxLength(255) company?: string;
+  @IsOptional() @IsString() @MaxLength(255) name?: string;
+  @IsOptional() @IsString() @MaxLength(255) email?: string;
+  @IsOptional() @IsString() @MaxLength(50) phone?: string;
+  /** Matches the composite Address column (address, city, state, country, postal code). */
+  @IsOptional() @IsString() @MaxLength(255) address?: string;
+  @IsOptional() @IsString() @MaxLength(100) gstNo?: string;
+
+  @IsOptional()
+  @IsIn(SUPPLIER_SORT_FIELDS)
+  sortBy?: (typeof SUPPLIER_SORT_FIELDS)[number];
+  @IsOptional() @IsIn(SORT_DIRS) sortDir?: SortDir;
 }

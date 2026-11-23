@@ -1,26 +1,44 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { manufacturerHooks } from '@/features/manufacturers/api';
+import { ImageUp, Loader2, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import {
   LocationSelect,
   EMPTY_LOCATION,
   type LocationValue,
 } from '@/components/shared/LocationSelect';
-import { getApiErrorMessage } from '@/lib/http';
+import {
+  FORM_FIELD,
+  FORM_FIELD_ERROR,
+  FORM_SELECT,
+  FORM_TEXTAREA,
+  PartyField,
+  PartyFormCard,
+} from '@/components/shared/PartyFormCard';
+import { manufacturerHooks } from '@/features/manufacturers/api';
+import {
+  locationPayload,
+  missingLocationLevels,
+  toPartyPayload,
+  type LocationLevel,
+} from '@/features/_shared/party-form';
+import { getApiErrorMessage, uploadInventoryDocument } from '@/lib/http';
 import { applyApiFieldErrors } from '@/lib/form-errors';
-import '@/styles/ezht-form.css';
+import { cn } from '@/lib/utils';
 
 interface FormShape {
-  company: string;
+  imageUrl: string;
+  companyName: string;
   name: string;
   vatNo: string;
   email: string;
   phone: string;
   address: string;
   status: string;
-  imageUrl: string;
   postalCode: string;
   cf1: string;
   cf2: string;
@@ -32,14 +50,14 @@ interface FormShape {
 }
 
 const EMPTY: FormShape = {
-  company: '',
+  imageUrl: '',
+  companyName: '',
   name: '',
   vatNo: '',
   email: '',
   phone: '',
   address: '',
   status: '1',
-  imageUrl: '',
   postalCode: '',
   cf1: '',
   cf2: '',
@@ -51,10 +69,21 @@ const EMPTY: FormShape = {
 };
 
 /**
- * Add / Edit Manufacturer — faithful port of the EZ Health Track "Add
- * Manufacturer" modal: logo + two-column body + full-width invoice footer, the
- * Status dropdown, and Country → State → City dependent dropdowns from SiteAdmin
- * location data (replacing the legacy free-text city/state/country inputs).
+ * Country, State and City are all mandatory: they are dependent dropdowns (a
+ * City can only be picked after a Country and State), so all three are marked.
+ */
+const REQUIRED_LOCATION: LocationLevel[] = ['country', 'state', 'city'];
+const CUSTOM_FIELDS = ['cf1', 'cf2', 'cf3', 'cf4', 'cf5', 'cf6'] as const;
+const REQUIRED_MSG = 'Please enter/select a value';
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[0-9+\-()\s]{6,20}$/;
+
+/**
+ * Add / Edit Manufacturer — EZ Health Track "Add Manufacturer" parity (field
+ * set, order, labels and required flags), in the kaltros form style: Logo upload;
+ * left column Company, Name, VAT Number, Email, Phone, Address, Country → State →
+ * City, Status; right column Postal Code and Manufacturer Custom Fields 1–6; a
+ * full-width Invoice Footer.
  */
 export function ManufacturerFormPage() {
   const navigate = useNavigate();
@@ -70,7 +99,9 @@ export function ManufacturerFormPage() {
     handleSubmit,
     reset,
     setError,
-    formState: { errors },
+    setValue,
+    watch,
+    formState: { errors, isSubmitted },
   } = useForm<FormShape>({
     defaultValues: EMPTY,
     mode: 'onTouched',
@@ -81,14 +112,14 @@ export function ManufacturerFormPage() {
     if (!isEdit || !one.data) return;
     const m = one.data;
     reset({
-      company: m.companyName ?? '',
+      imageUrl: m.imageUrl ?? '',
+      companyName: m.companyName ?? '',
       name: m.name,
       vatNo: m.vatNo ?? '',
       email: m.email ?? '',
       phone: m.phone ?? '',
       address: m.address ?? '',
       status: m.isActive ? '1' : '0',
-      imageUrl: m.imageUrl ?? '',
       postalCode: m.postalCode ?? '',
       cf1: m.cf1 ?? '',
       cf2: m.cf2 ?? '',
@@ -108,30 +139,13 @@ export function ManufacturerFormPage() {
     });
   }, [isEdit, one.data, reset]);
 
-  const submit = handleSubmit(async (v) => {
+  const missingLocation = missingLocationLevels(location, REQUIRED_LOCATION);
+
+  const submit = handleSubmit(async ({ status, ...v }) => {
+    if (missingLocation.length) return;
     const payload = {
-      companyName: v.company || undefined,
-      name: v.name,
-      vatNo: v.vatNo || undefined,
-      email: v.email || undefined,
-      phone: v.phone || undefined,
-      address: v.address || undefined,
-      isActive: v.status === '1',
-      imageUrl: v.imageUrl || undefined,
-      postalCode: v.postalCode || undefined,
-      cf1: v.cf1 || undefined,
-      cf2: v.cf2 || undefined,
-      cf3: v.cf3 || undefined,
-      cf4: v.cf4 || undefined,
-      cf5: v.cf5 || undefined,
-      cf6: v.cf6 || undefined,
-      invoiceFooter: v.invoiceFooter || undefined,
-      countryId: location.countryId || undefined,
-      country: location.countryName || undefined,
-      stateId: location.stateId || undefined,
-      state: location.stateName || undefined,
-      cityId: location.cityId || undefined,
-      city: location.cityName || undefined,
+      ...toPartyPayload({ ...v, ...locationPayload(location) }, isEdit),
+      isActive: status === '1',
     };
     try {
       if (isEdit && id) {
@@ -167,111 +181,185 @@ export function ManufacturerFormPage() {
     }
   });
 
-  const saving = create.isPending || update.isPending;
-
-  if (isEdit && one.isLoading) {
-    return <p className="p-6 text-sm text-muted-foreground">Loading…</p>;
-  }
-
-  // A plain render function (not a nested component) so inputs keep focus.
-  const field = (
+  const text = (
     name: keyof FormShape,
     label: string,
-    required = false,
-    type = 'text',
+    opts: { required?: boolean; type?: string; pattern?: RegExp; patternMsg?: string } = {},
   ) => (
-    <div className="ezht-form-group">
-      <label className="ezht-label" htmlFor={name}>
-        {label}
-        {required && <span className="ezht-req">*</span>}
-      </label>
-      <input
+    <PartyField
+      label={label}
+      htmlFor={name}
+      required={opts.required}
+      error={errors[name]?.message}
+    >
+      <Input
         id={name}
-        type={type}
-        className="ezht-control"
-        aria-invalid={!!errors[name]}
-        {...register(name, required ? { required: `${label} is required` } : {})}
+        type={opts.type ?? 'text'}
+        className={cn(FORM_FIELD, errors[name] && FORM_FIELD_ERROR)}
+        aria-invalid={errors[name] ? true : undefined}
+        {...register(name, {
+          required: opts.required ? REQUIRED_MSG : false,
+          validate: (val) =>
+            !opts.pattern || !val.trim() || opts.pattern.test(val.trim())
+              ? true
+              : (opts.patternMsg ?? 'Invalid value'),
+        })}
       />
-      {errors[name] && <p className="ezht-error">{errors[name]?.message as string}</p>}
-    </div>
+    </PartyField>
   );
 
   return (
-    <div className="ezht-form">
-      <form onSubmit={submit} className="ezht-modal" aria-label="Manufacturer form">
-        <div className="ezht-modal-header">
-          <h4 className="ezht-modal-title">
-            {isEdit ? 'Edit Manufacturer' : 'Add Manufacturer'}
-          </h4>
-        </div>
+    <PartyFormCard
+      entity="Manufacturer"
+      editing={isEdit}
+      backTo="/manufacturers"
+      loading={isEdit && one.isLoading}
+      notFound={isEdit && one.isError}
+      saving={create.isPending || update.isPending}
+      onSubmit={submit}
+    >
+      <div className="space-y-4">
+        <PartyField label="Logo" htmlFor="logo">
+          <LogoUpload
+            value={watch('imageUrl')}
+            onChange={(url) => setValue('imageUrl', url, { shouldDirty: true })}
+          />
+        </PartyField>
 
-        <div className="ezht-modal-body">
-          <div className="ezht-row">
-            <div className="ezht-col">
-              {field('company', 'Company', true)}
-              {field('name', 'Name', true)}
-              {field('vatNo', 'VAT No.')}
-              {field('email', 'Email Address', true, 'email')}
-              {field('phone', 'Phone', true, 'tel')}
-              {field('address', 'Address', true)}
-              <LocationSelect value={location} onChange={setLocation} required />
-              <div className="ezht-form-group">
-                <label className="ezht-label" htmlFor="status">
-                  Status<span className="ezht-req">*</span>
-                </label>
-                <select
-                  id="status"
-                  className="ezht-control"
-                  aria-invalid={!!errors.status}
-                  {...register('status', { required: 'Status is required' })}
-                >
-                  <option value="1">Active</option>
-                  <option value="0">Inactive</option>
-                </select>
-                {errors.status && (
-                  <p className="ezht-error">{errors.status?.message as string}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="ezht-col">
-              {field('imageUrl', 'Logo')}
-              {field('postalCode', 'Postal Code')}
-              {field('cf1', 'Custom field 1')}
-              {field('cf2', 'Custom field 2')}
-              {field('cf3', 'Custom field 3')}
-              {field('cf4', 'Custom field 4')}
-              {field('cf5', 'Custom field 5')}
-              {field('cf6', 'Custom field 6')}
-            </div>
-          </div>
-
-          <div className="ezht-form-group">
-            <label className="ezht-label" htmlFor="invoiceFooter">
-              Invoice Footer
-            </label>
-            <textarea
-              id="invoiceFooter"
-              className="ezht-control"
-              style={{ height: 100 }}
-              {...register('invoiceFooter')}
+        <div className="grid grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2">
+          <div className="space-y-4">
+            {text('companyName', 'Company', { required: true })}
+            {text('name', 'Name', { required: true })}
+            {text('vatNo', 'VAT Number')}
+            {text('email', 'Email Address', {
+              required: true,
+              type: 'email',
+              pattern: EMAIL_RE,
+              patternMsg: 'Please enter a valid email address',
+            })}
+            {text('phone', 'Phone', {
+              required: true,
+              type: 'tel',
+              pattern: PHONE_RE,
+              patternMsg: 'Please enter a valid phone number',
+            })}
+            {text('address', 'Address', { required: true })}
+            <LocationSelect
+              value={location}
+              onChange={setLocation}
+              required={REQUIRED_LOCATION}
+              errors={isSubmitted ? missingLocation : []}
             />
+            <PartyField label="Status" htmlFor="status" required>
+              <Select id="status" className={FORM_SELECT} {...register('status')}>
+                <option value="1">Active</option>
+                <option value="0">Inactive</option>
+              </Select>
+            </PartyField>
+          </div>
+
+          <div className="space-y-4">
+            {text('postalCode', 'Postal Code')}
+            {CUSTOM_FIELDS.map((cf, i) =>
+              <div key={cf}>{text(cf, `Manufacturer Custom Field ${i + 1}`)}</div>,
+            )}
           </div>
         </div>
 
-        <div className="ezht-modal-footer">
-          <button
-            type="button"
-            className="ezht-btn ezht-btn-default"
-            onClick={() => navigate('/manufacturers')}
-          >
-            Cancel
-          </button>
-          <button type="submit" className="ezht-btn ezht-btn-primary" disabled={saving}>
-            {saving ? 'Saving…' : isEdit ? 'Update' : 'Add Manufacturer'}
-          </button>
-        </div>
-      </form>
+        <PartyField label="Invoice Footer" htmlFor="invoiceFooter">
+          <textarea
+            id="invoiceFooter"
+            className={FORM_TEXTAREA}
+            maxLength={1000}
+            {...register('invoiceFooter')}
+          />
+        </PartyField>
+      </div>
+    </PartyFormCard>
+  );
+}
+
+/**
+ * Logo picker — uploads an image through the shared `/uploads/attachment`
+ * endpoint and stores its public URL, with a thumbnail preview and a remove
+ * action (replaces the legacy free-text "Logo" box).
+ */
+function LogoUpload({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [broken, setBroken] = useState(false);
+
+  useEffect(() => setBroken(false), [value]);
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image file.');
+      return;
+    }
+    setUploading(true);
+    try {
+      onChange(await uploadInventoryDocument(file));
+      toast.success('Logo uploaded');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Could not upload the logo'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <input
+        ref={inputRef}
+        id="logo"
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+        className="hidden"
+        onChange={onFile}
+      />
+      <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-200 bg-gray-50">
+        {value && !broken ? (
+          <img
+            src={value}
+            alt="Manufacturer logo"
+            className="h-full w-full object-contain"
+            onError={() => setBroken(true)}
+          />
+        ) : (
+          <ImageUp className="h-5 w-5 text-gray-300" aria-hidden="true" />
+        )}
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="rounded-md border-gray-200 text-gray-700"
+        disabled={uploading}
+        onClick={() => inputRef.current?.click()}
+      >
+        {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageUp className="h-4 w-4" />}
+        {uploading ? 'Uploading…' : value ? 'Change logo' : 'Upload logo'}
+      </Button>
+      {value && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="rounded-md text-red-600 hover:bg-red-50 hover:text-red-700"
+          onClick={() => onChange('')}
+        >
+          <X className="h-4 w-4" /> Remove
+        </Button>
+      )}
     </div>
   );
 }

@@ -3,6 +3,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { D, dateFilter } from './report-utils';
 import { ReportQueryDto } from './dto/reports-query.dto';
+import {
+  NON_PATIENT_WHERE,
+  PATIENT_WHERE,
+} from '../../common/utils/party-list.util';
 
 /**
  * Party / people reports migrated from the legacy EZHealthTrack Reports.php:
@@ -63,8 +67,8 @@ export class ReportsPartiesService {
         tenantId,
         deletedAt: null,
         id: { in: ids },
-        // Walk-in customers = not linked to a kalnostics patient.
-        patientId: null,
+        // Walk-in customers = not patients (shared Patients/Customers split).
+        ...NON_PATIENT_WHERE,
         ...(q.search
           ? {
               OR: [
@@ -158,8 +162,8 @@ export class ReportsPartiesService {
         tenantId,
         deletedAt: null,
         id: { in: ids },
-        // Patients = customers linked to a kalnostics patient record.
-        patientId: { not: null },
+        // Patients = linked to a kalnostics patient or registered via Add Patient.
+        AND: [PATIENT_WHERE],
         ...(q.search
           ? {
               OR: [

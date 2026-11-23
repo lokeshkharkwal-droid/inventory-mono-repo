@@ -4,6 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PaginatedResult } from '../../common/dto/response.dto';
 import { KaltrosException } from '../../common/exceptions/kaltros.exception';
 import { generateReference } from '../../common/utils/reference.util';
+import { resolveUserName } from '../../common/utils/party-detail.util';
+import { KalnosticsUsersClient } from '../../integration/clients/kalnostics-users.client';
 import { CustomerService } from '../customer/customer.service';
 import { ProductService } from '../product/product.service';
 import {
@@ -71,6 +73,7 @@ export class ProformaService {
     private readonly prisma: PrismaService,
     private readonly customerService: CustomerService,
     private readonly productService: ProductService,
+    private readonly usersClient: KalnosticsUsersClient,
   ) {}
 
   async create(
@@ -243,8 +246,17 @@ export class ProformaService {
       deletedAt: null,
     };
     if (query.search)
-      where.reference = { contains: query.search, mode: 'insensitive' };
+      where.OR = [
+        { reference: { contains: query.search, mode: 'insensitive' } },
+        { name: { contains: query.search, mode: 'insensitive' } },
+      ];
+    if (query.name) where.name = { contains: query.name, mode: 'insensitive' };
     if (query.status) where.status = query.status;
+    if (query.dateFrom || query.dateTo)
+      where.date = {
+        ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+        ...(query.dateTo ? { lt: new Date(query.dateTo) } : {}),
+      };
 
     const [rows, total] = await this.prisma.$transaction(async (tx) => {
       const list = await tx.inventoryProforma.findMany({
@@ -252,6 +264,14 @@ export class ProformaService {
         orderBy: { date: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
+        // Branch mappings for the list's "Branch Relations" column.
+        include: {
+          relations: {
+            where: { entityType: 'branch', deletedAt: null },
+            select: { id: true, label: true },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
       });
       const count = await tx.inventoryProforma.count({ where });
       return [list, count] as const;
@@ -295,6 +315,27 @@ export class ProformaService {
     });
     if (!proforma) throw new ProformaNotFoundException(id);
     return proforma;
+  }
+
+  /**
+   * Fetch one proforma enriched for the details modal (legacy
+   * `proformas/modal_view`): the created-by staff name (resolved via the
+   * kalnostics integration) and the customer's name. Kept separate from
+   * {@link findById} — which the write paths reuse — so those stay fast; both
+   * lookups are best-effort and degrade to `null`.
+   */
+  async getDetail(id: string, tenantId: string) {
+    const proforma = await this.findById(id, tenantId);
+    const [createdByName, customerName] = await Promise.all([
+      resolveUserName(this.usersClient, proforma.createdBy),
+      proforma.customerId
+        ? this.customerService
+            .findById(proforma.customerId, tenantId)
+            .then((c) => c.name)
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    return { ...proforma, createdByName, customerName };
   }
 
   async updateStatus(

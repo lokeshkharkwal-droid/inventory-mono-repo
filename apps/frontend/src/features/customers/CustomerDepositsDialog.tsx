@@ -37,14 +37,26 @@ export function CustomerDepositsDialog({ customer, onOpenChange }: Props) {
   });
 
   const submit = async () => {
-    if (!customer || !form.amount) {
-      toast.error('Amount is required.');
+    if (!customer) return;
+    const amount = Number(form.amount);
+    // Deposits / withdrawals are positive; only an adjustment may be signed.
+    if (
+      !form.amount ||
+      !Number.isFinite(amount) ||
+      amount === 0 ||
+      (form.type !== 'ADJUSTMENT' && amount < 0)
+    ) {
+      toast.error(
+        form.type === 'ADJUSTMENT'
+          ? 'Enter a non-zero amount.'
+          : 'Enter an amount greater than 0.',
+      );
       return;
     }
     try {
       await add.mutateAsync({
         customerId: customer.id,
-        amount: Number(form.amount),
+        amount,
         type: form.type,
         note: form.note || undefined,
         date: form.date || undefined,

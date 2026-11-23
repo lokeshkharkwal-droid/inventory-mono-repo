@@ -7,6 +7,11 @@ import {
   type ImportSummary,
 } from '../../common/utils/bulk-import.util';
 import {
+  columnFilters,
+  ilike,
+  sortOrder,
+} from '../../common/utils/party-list.util';
+import {
   CreateManufacturerDto,
   UpdateManufacturerDto,
   ManufacturerQueryDto,
@@ -123,21 +128,39 @@ export class ManufacturerService {
       tenantId,
       deletedAt: null,
     };
-    if (query.search) {
+    const search = query.search?.trim();
+    if (search) {
+      // Global search spans every column of the reference list table.
       where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { code: { contains: query.search, mode: 'insensitive' } },
-        { companyName: { contains: query.search, mode: 'insensitive' } },
-      ];
+        'name',
+        'code',
+        'companyName',
+        'vatNo',
+        'phone',
+        'email',
+        'city',
+        'state',
+        'country',
+      ].map((field) => ({ [field]: ilike(search) }));
     }
     if (query.status === 'active') where.isActive = true;
     if (query.status === 'inactive') where.isActive = false;
+    const filters = columnFilters([
+      ['companyName', query.company],
+      ['name', query.name],
+      ['vatNo', query.vatNo],
+      ['phone', query.phone],
+      ['email', query.email],
+      ['city', query.city],
+      ['country', query.country],
+    ]);
+    if (filters.length) where.AND = filters;
 
     const [data, total] = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.inventoryManufacturer.findMany({
         where,
         select: SELECT,
-        orderBy: { name: 'asc' },
+        orderBy: sortOrder(query.sortBy, query.sortDir),
         skip: (page - 1) * limit,
         take: limit,
       });
