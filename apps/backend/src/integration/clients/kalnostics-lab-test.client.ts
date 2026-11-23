@@ -9,9 +9,12 @@ export interface LabTestOption {
 
 /**
  * Typed client for kalnostics-new lab-test endpoints. Proforma lab-test mapping
- * targets the tenant's **master** lab tests (`LabTest.id`), which is also the id a
- * branch lab test records as its `sourceLabTestId` — so a mapping made here matches
- * an order item at consumption time (CLAUDE.md §4.5; "master lab tests" decision).
+ * targets the tenant's **canonical master** lab tests — the one row per logical
+ * test that `GET /lab-tests/options` returns (the `sourceMasterLabTestId IS NULL`
+ * originals; per-branch synced copies are collapsed out). At order time kalnostics
+ * resolves each ordered branch lab test to that same canonical id, so a mapping
+ * made here matches an order item at consumption time regardless of which branch
+ * it ran at (CLAUDE.md §4.5; "master lab tests" decision).
  */
 @Injectable()
 export class KalnosticsLabTestClient {

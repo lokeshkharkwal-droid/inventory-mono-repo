@@ -21,6 +21,8 @@ interface Props {
   proformaName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Called after a branch is assigned or removed, so the opener can refresh the list on close. */
+  onChanged?: () => void;
 }
 
 /**
@@ -36,6 +38,7 @@ export function BranchMappingModal({
   proformaName,
   open,
   onOpenChange,
+  onChanged,
 }: Props) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const branches = useBranchOptions();
@@ -56,6 +59,7 @@ export function BranchMappingModal({
         entityId: branch.id,
         label: branch.name,
       });
+      onChanged?.();
       toast.success(`${branch.name} assigned`);
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Could not assign branch'));
@@ -67,6 +71,7 @@ export function BranchMappingModal({
   const onRemove = async (relationId: string) => {
     try {
       await removeRel.mutateAsync(relationId);
+      onChanged?.();
       toast.success('Branch removed');
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Could not remove branch'));

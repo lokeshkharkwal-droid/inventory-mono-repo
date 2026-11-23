@@ -45,6 +45,21 @@ export function useInfiniteProformas(
   return useInfiniteList<ProformaListRow>(KEY, '/proformas', params);
 }
 
+/**
+ * Returns a function that refreshes the proformas list (every page / filter
+ * variant of {@link useInfiniteProformas} and the single-proforma queries).
+ *
+ * The action modals opened from a row (Lab Test / Branch mapping, …) call this
+ * when they close so any change made inside — a mapped lab test, an assigned
+ * branch, etc. — shows on the list immediately, without a manual refresh.
+ */
+export function useInvalidateProformas() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: KEY });
+  };
+}
+
 export function useCreateProforma() {
   const qc = useQueryClient();
   return useMutation({
@@ -158,9 +173,9 @@ export function useAddProformaRelation(proformaId: string) {
       label?: string;
     }) => request('POST', `/proformas/${proformaId}/relations`, { body }),
     onSuccess: () => {
+      // Refresh the modal's own panes immediately. The list (Branch Relations
+      // column) is refreshed when the modal closes — see useInvalidateProformas.
       void qc.invalidateQueries({ queryKey: RELATIONS_KEY(proformaId) });
-      // The list shows branch mappings (Branch Relations column).
-      void qc.invalidateQueries({ queryKey: KEY });
     },
   });
 }
@@ -172,8 +187,9 @@ export function useRemoveProformaRelation(proformaId: string) {
     mutationFn: (relationId: string) =>
       request('DELETE', `/proformas/${proformaId}/relations/${relationId}`),
     onSuccess: () => {
+      // Refresh the modal's own panes immediately. The list is refreshed when
+      // the modal closes — see useInvalidateProformas.
       void qc.invalidateQueries({ queryKey: RELATIONS_KEY(proformaId) });
-      void qc.invalidateQueries({ queryKey: KEY });
     },
   });
 }

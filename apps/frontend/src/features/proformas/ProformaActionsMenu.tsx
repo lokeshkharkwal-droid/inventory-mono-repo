@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { ProformaListRow } from './api';
+import { useInvalidateProformas, type ProformaListRow } from './api';
 import { LabTestMappingModal } from './LabTestMappingModal';
 import { BranchMappingModal } from './BranchMappingModal';
 import { ProformaDetailModal } from './ProformaDetailModal';
@@ -31,8 +31,11 @@ export function ProformaActionsMenu({
   proforma: ProformaListRow;
 }) {
   const navigate = useNavigate();
+  const refreshProformas = useInvalidateProformas();
   const [open, setOpen] = useState(false);
   const [modal, setModal] = useState<ActiveModal>(null);
+  /** Set while a modal is open if it changed data (a mapping added / removed). */
+  const changedRef = useRef(false);
   const [pos, setPos] = useState<{
     top?: number;
     bottom?: number;
@@ -81,8 +84,26 @@ export function ProformaActionsMenu({
   }, [open]);
 
   const openModal = (m: Exclude<ActiveModal, null>) => {
+    changedRef.current = false;
     setModal(m);
     setOpen(false);
+  };
+
+  /**
+   * Close the active modal. If an action inside it changed data (a lab test or
+   * branch mapping added / removed), refresh the proformas list so the row's
+   * Branch Relations / totals reflect it without a manual reload.
+   */
+  const closeModal = () => {
+    setModal(null);
+    if (changedRef.current) {
+      changedRef.current = false;
+      refreshProformas();
+    }
+  };
+
+  const markChanged = () => {
+    changedRef.current = true;
   };
 
   return (
@@ -144,19 +165,21 @@ export function ProformaActionsMenu({
         proformaId={proforma.id}
         proformaName={title}
         open={modal === 'labTest'}
-        onOpenChange={(o) => !o && setModal(null)}
+        onOpenChange={(o) => !o && closeModal()}
+        onChanged={markChanged}
       />
       <BranchMappingModal
         proformaId={proforma.id}
         proformaName={title}
         open={modal === 'branch'}
-        onOpenChange={(o) => !o && setModal(null)}
+        onOpenChange={(o) => !o && closeModal()}
+        onChanged={markChanged}
       />
       <ProformaDetailModal
         proformaId={proforma.id}
         proformaName={title}
         open={modal === 'details'}
-        onOpenChange={(o) => !o && setModal(null)}
+        onOpenChange={(o) => !o && closeModal()}
       />
     </>
   );

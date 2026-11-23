@@ -352,7 +352,16 @@ function ProformaRow({
   onOpen: () => void;
   onDelete: () => void;
 }) {
-  const branches = (row.relations ?? []).filter((b) => b.label);
+  // Branch mappings for the "Branch Relations" column. Prefer the richer
+  // `relations` payload (stable ids) and fall back to `branchNames`, so the
+  // column still renders — and reflects a just-assigned branch on refetch — even
+  // when the list endpoint sends only the names.
+  const relationChips = (row.relations ?? [])
+    .filter((b): b is { id: string; label: string } => Boolean(b.label))
+    .map((b) => ({ key: b.id, label: b.label }));
+  const branches = relationChips.length
+    ? relationChips
+    : (row.branchNames ?? []).map((label, i) => ({ key: `bn-${i}`, label }));
 
   const onClick = (e: MouseEvent<HTMLTableRowElement>) => {
     const target = e.target as Element;
@@ -394,7 +403,7 @@ function ProformaRow({
           <div className="flex max-w-[260px] flex-wrap gap-1">
             {branches.map((b) => (
               <span
-                key={b.id}
+                key={b.key}
                 className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
               >
                 {b.label}

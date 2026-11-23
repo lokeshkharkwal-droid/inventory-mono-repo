@@ -22,6 +22,8 @@ interface Props {
   proformaName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Called after a mapping is added or removed, so the opener can refresh the list on close. */
+  onChanged?: () => void;
 }
 
 interface LabTestOption {
@@ -34,14 +36,17 @@ interface LabTestOption {
  * a `modal-lg` dialog). A clean two-pane layout — searchable catalogue on the left
  * (click a row to map it), current mappings on the right — instead of a floating
  * combobox, so the list never overlaps or clips inside the dialog. The catalogue is
- * the kalnostics lab-test list proxied through `/integration/lab-tests`, so the ids
- * stored here match a branch lab test's `sourceLabTestId` at order time.
+ * the kalnostics lab-test list proxied through `/integration/lab-tests`, which
+ * returns one **canonical** row per logical test (per-branch synced copies are
+ * collapsed out), so the id stored here matches an ordered test's resolved source
+ * id at order time.
  */
 export function LabTestMappingModal({
   proformaId,
   proformaName,
   open,
   onOpenChange,
+  onChanged,
 }: Props) {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -75,6 +80,7 @@ export function LabTestMappingModal({
         entityId: opt.id,
         label: opt.name,
       });
+      onChanged?.();
       toast.success(`${opt.name} mapped`);
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Could not map lab test'));
@@ -86,6 +92,7 @@ export function LabTestMappingModal({
   const onRemove = async (relationId: string) => {
     try {
       await removeRel.mutateAsync(relationId);
+      onChanged?.();
       toast.success('Mapping removed');
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Could not remove mapping'));
