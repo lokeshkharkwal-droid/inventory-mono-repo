@@ -20,6 +20,16 @@ export interface Column<T> {
   className?: string;
 }
 
+/** Row-selection driver (adds a leading checkbox column when provided). */
+export interface SelectionConfig {
+  /** Currently-selected row ids. */
+  selectedIds: Set<string>;
+  /** Toggle one row id. */
+  onToggle: (id: string) => void;
+  /** Toggle all currently-loaded row ids (header checkbox). */
+  onToggleAll: (ids: string[], allSelected: boolean) => void;
+}
+
 /** Infinite-scroll driver for the table (replaces offset pagination). */
 export interface InfiniteConfig {
   /** More records exist on the server. */
@@ -50,6 +60,8 @@ interface DataTableProps<T> {
    */
   busy?: boolean;
   emptyMessage?: string;
+  /** When set, a leading checkbox column is rendered for bulk selection. */
+  selection?: SelectionConfig;
   /**
    * Infinite scrolling (preferred). When set, the table auto-loads the next
    * batch as the user nears the bottom and shows a loading row — no pager.
@@ -126,6 +138,7 @@ export function DataTable<T>({
   loadingVariant = 'lottie',
   busy = false,
   emptyMessage = 'No records found.',
+  selection,
   infinite,
   page,
   totalPages,
@@ -138,11 +151,27 @@ export function DataTable<T>({
     totalPages != null &&
     onPageChange != null;
 
+  const selCol = selection ? 1 : 0;
+  const colSpan = columns.length + selCol;
+  const loadedIds = rows.map(rowKey);
+  const allSelected =
+    !!selection && loadedIds.length > 0 && loadedIds.every((id) => selection.selectedIds.has(id));
+
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
       <Table>
         <TableHeader>
           <TableRow>
+            {selection && (
+              <TableHead className="w-8">
+                <input
+                  type="checkbox"
+                  aria-label="Select all"
+                  checked={allSelected}
+                  onChange={() => selection.onToggleAll(loadedIds, allSelected)}
+                />
+              </TableHead>
+            )}
             {columns.map((col) => (
               <TableHead key={col.key} className={col.className}>
                 {col.header}
@@ -154,7 +183,7 @@ export function DataTable<T>({
           {isLoading ? (
             <TableRow>
               <TableCell
-                colSpan={columns.length}
+                colSpan={colSpan}
                 className="text-center text-muted-foreground"
               >
                 {loadingVariant === 'lottie' ? (
@@ -169,7 +198,7 @@ export function DataTable<T>({
           ) : rows.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={columns.length}
+                colSpan={colSpan}
                 className="py-8 text-center text-muted-foreground"
               >
                 {emptyMessage}
@@ -177,19 +206,32 @@ export function DataTable<T>({
             </TableRow>
           ) : (
             <>
-              {rows.map((row) => (
-                <TableRow key={rowKey(row)}>
-                  {columns.map((col) => (
-                    <TableCell key={col.key} className={col.className}>
-                      {col.render
-                        ? col.render(row)
-                        : String((row as Record<string, unknown>)[col.key] ?? '')}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+              {rows.map((row) => {
+                const id = rowKey(row);
+                return (
+                  <TableRow key={id}>
+                    {selection && (
+                      <TableCell className="w-8">
+                        <input
+                          type="checkbox"
+                          aria-label="Select row"
+                          checked={selection.selectedIds.has(id)}
+                          onChange={() => selection.onToggle(id)}
+                        />
+                      </TableCell>
+                    )}
+                    {columns.map((col) => (
+                      <TableCell key={col.key} className={col.className}>
+                        {col.render
+                          ? col.render(row)
+                          : String((row as Record<string, unknown>)[col.key] ?? '')}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })}
               {infinite && (
-                <InfiniteSentinel colSpan={columns.length} infinite={infinite} />
+                <InfiniteSentinel colSpan={colSpan} infinite={infinite} />
               )}
             </>
           )}

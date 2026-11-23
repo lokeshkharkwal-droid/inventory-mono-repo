@@ -61,6 +61,16 @@ function env(name: string): string {
   return v;
 }
 
+/**
+ * Assert a lookup / array value exists. Seed call sites guarantee existence
+ * (every use is guarded above it); this narrows `T | undefined` to `T` for the
+ * compiler under `noUncheckedIndexedAccess`.
+ */
+function must<T>(v: T | undefined | null, what = 'value'): T {
+  if (v === undefined || v === null) throw new Error(`seed: missing ${what}`);
+  return v;
+}
+
 const T = env('SEED_TENANT_ID');
 const BR = env('SEED_BRANCH_ID');
 const ACTOR = env('SEED_ACTOR_ID');
@@ -107,7 +117,7 @@ async function main() {
   await requestTokenContext.run({ bearerToken: TOKEN }, () =>
     prisma.runWithTenant(T, async () => {
       // ── Settings ──
-      await g(SettingsService).update(T, { defaultCurrencyCode: 'INR' });
+      await g(SettingsService).update(T, null, { defaultCurrencyCode: 'INR' });
 
       // ── Master data ──
       console.log('Master data…');
@@ -153,12 +163,14 @@ async function main() {
         );
 
       const cats: Record<string, string> = {};
-      for (const [i, c] of [
-        ['MED', 'Medicines'],
-        ['LAB', 'Lab Consumables'],
-        ['SURG', 'Surgical Supplies'],
-        ['OTC', 'OTC & Wellness'],
-      ].entries()) {
+      for (const [i, c] of (
+        [
+          ['MED', 'Medicines'],
+          ['LAB', 'Lab Consumables'],
+          ['SURG', 'Surgical Supplies'],
+          ['OTC', 'OTC & Wellness'],
+        ] as const
+      ).entries()) {
         const r = await step('category', c[0], () =>
           g(CategoryService).create(T, {
             code: c[0],
@@ -177,11 +189,11 @@ async function main() {
         ['LAB', 'LAB-COL', 'Sample Collection'],
         ['SURG', 'SURG-PPE', 'PPE'],
         ['OTC', 'OTC-VIT', 'Vitamins & Supplements'],
-      ]) {
+      ] as const) {
         if (!cats[cat]) continue;
         const r = await step('subCategory', code, () =>
           g(SubCategoryService).create(T, {
-            categoryId: cats[cat],
+            categoryId: must(cats[cat], cat),
             code,
             name,
           }),
@@ -196,7 +208,7 @@ async function main() {
         ['GSK', 'GSK'],
         ['BD', 'BD (Becton Dickinson)'],
         ['ROCHE', 'Roche Diagnostics'],
-      ]) {
+      ] as const) {
         const r = await step('brand', code, () =>
           g(BrandService).create(T, { code, name }),
         );
@@ -269,7 +281,7 @@ async function main() {
         ['UTIL', 'Electricity & Utilities'],
         ['SAL', 'Staff Salaries'],
         ['MAINT', 'Equipment Maintenance'],
-      ]) {
+      ] as const) {
         const r = await step('expenseCategory', code, () =>
           g(ExpenseCategoryService).create(T, { code, name }),
         );
@@ -280,7 +292,7 @@ async function main() {
         ['CONSULT', 'Consultation Fees'],
         ['HOMECOL', 'Home Collection Charges'],
         ['MISC', 'Miscellaneous Income'],
-      ]) {
+      ] as const) {
         const r = await step('incomeCategory', code, () =>
           g(IncomeCategoryService).create(T, { code, name }),
         );
@@ -315,7 +327,7 @@ async function main() {
         const r = await step('product', d.code, () =>
           g(ProductService).create(T, {
             ...dto,
-            categoryId: cats[_cat],
+            categoryId: must(cats[_cat], _cat),
             subCategoryId: _sub ? subs[_sub] : undefined,
             brandId: _brand ? brands[_brand] : undefined,
             taxRateId: taxes[_tax],
@@ -324,9 +336,11 @@ async function main() {
           }),
         );
         if (r)
-          prod[d.code] = { id: idOf(r), cost: d.cost ?? 0, price: d.price ?? 0, tax: taxPct[_tax] };
+          prod[d.code] = { id: idOf(r), cost: d.cost ?? 0, price: d.price ?? 0, tax: taxPct[_tax] ?? 0 };
       }
-      const P = (code: string) => prod[code];
+      // Seed data is always populated at the call site (guarded by `has(...)` /
+      // truthiness checks above each use); `must` asserts that for the compiler.
+      const P = (code: string) => must(prod[code], `product ${code}`);
       const has = (...codes: string[]) => codes.every((c) => prod[c]);
 
       // NOTE: SaleService deducts stock even for isStockTracked=false (SERVICE)
@@ -340,14 +354,14 @@ async function main() {
         'P-ORS': 100, 'P-BPMON': 5,
       };
       for (const [code, qty] of Object.entries(opening)) {
-        if (!P(code)) continue;
+        if (!prod[code]) continue;
         await step('stockAdjustment', code, () =>
           g(ProductStockService).recordAdjustment(T, BR, P(code).id, {
             quantity: qty, cost: P(code).cost, reason: 'Opening stock', note: NOTE,
           }, ACTOR),
         );
       }
-      if (P('P-MASK'))
+      if (prod['P-MASK'])
         await step('stockAdjustment', 'damaged masks', () =>
           g(ProductStockService).recordAdjustment(T, BR, P('P-MASK').id, {
             quantity: -10, reason: 'Damaged', note: `${NOTE} — water damage`,
@@ -355,9 +369,9 @@ async function main() {
         );
       const racks: Record<string, string> = { 'P-AMOX500': 'A1', 'P-AZI500': 'A1', 'P-PCM650': 'A2', 'P-IBU400': 'A2', 'P-MET500': 'A3', 'P-CBC-REA': 'COLD-1', 'P-EDTA': 'LAB-2' };
       for (const [code, rack] of Object.entries(racks))
-        if (P(code))
+        if (prod[code])
           await step('rack', code, () => g(ProductService).setRack(P(code).id, T, BR, rack));
-      if (P('P-BPMON'))
+      if (prod['P-BPMON'])
         await step('serials', 'P-BPMON', () =>
           g(ProductService).addSerials(P('P-BPMON').id, T, BR, [
             'BPM-24A-0001', 'BPM-24A-0002', 'BPM-24A-0003', 'BPM-24A-0004', 'BPM-24A-0005',
@@ -374,52 +388,55 @@ async function main() {
       if (suppliers[0] && has('P-AMOX500', 'P-PCM650', 'P-MET500'))
         purchases.push(await step('purchase', 'PO1', () =>
           g(PurchaseService).create(T, BR, {
-            supplierId: suppliers[0], reference: 'SAMPLE-PO-0001', date: daysAgo(28), status: 'RECEIVED', shipping: 150, note: NOTE,
+            supplierId: must(suppliers[0]), reference: 'SAMPLE-PO-0001', date: daysAgo(28), status: 'RECEIVED', shipping: 150, note: NOTE,
             items: [pItem('P-AMOX500', 50, 'AMX24B01', 540), pItem('P-PCM650', 100, 'PCM24C11', 720), pItem('P-MET500', 60, 'MET24A07', 25)],
           }, ACTOR)));
       if (suppliers[2] && has('P-CBC-REA', 'P-EDTA', 'P-GLU-STRIP'))
         purchases.push(await step('purchase', 'PO2', () =>
           g(PurchaseService).create(T, BR, {
-            supplierId: suppliers[2], reference: 'SAMPLE-PO-0002', date: daysAgo(20), status: 'RECEIVED', orderDiscount: 200, note: NOTE,
+            supplierId: must(suppliers[2]), reference: 'SAMPLE-PO-0002', date: daysAgo(20), status: 'RECEIVED', orderDiscount: '200', note: NOTE,
             items: [pItem('P-CBC-REA', 3, 'CBC-R-2411', 180), pItem('P-EDTA', 10, 'EDTA-2409', 900), pItem('P-GLU-STRIP', 10, 'GS-2410', 365)],
           }, ACTOR)));
       if (suppliers[1] && has('P-VITD3', 'P-AZI500', 'P-IBU400'))
         purchases.push(await step('purchase', 'PO3', () =>
           g(PurchaseService).create(T, BR, {
-            supplierId: suppliers[1], reference: 'SAMPLE-PO-0003', date: daysAgo(12), status: 'RECEIVED', note: NOTE,
+            supplierId: must(suppliers[1]), reference: 'SAMPLE-PO-0003', date: daysAgo(12), status: 'RECEIVED', note: NOTE,
             items: [pItem('P-VITD3', 20, 'VD3-2412', 600), pItem('P-AZI500', 30, 'AZI24D02', 500), pItem('P-IBU400', 40, 'IBU24E05', 20)],
           }, ACTOR)));
       if (suppliers[0] && has('P-GLOVE', 'P-SYR5'))
         purchases.push(await step('purchase', 'PO4 (ordered)', () =>
           g(PurchaseService).create(T, BR, {
-            supplierId: suppliers[0], reference: 'SAMPLE-PO-0004', date: daysAgo(2), status: 'ORDERED', note: `${NOTE} — awaiting delivery`,
+            supplierId: must(suppliers[0]), reference: 'SAMPLE-PO-0004', date: daysAgo(2), status: 'ORDERED', note: `${NOTE} — awaiting delivery`,
             items: [pItem('P-GLOVE', 20), pItem('P-SYR5', 10)],
           }, ACTOR)));
       const po = purchases.filter(Boolean) as Array<{ id: string; grandTotal?: unknown }>;
-      if (po[0]) {
-        const total = Number((po[0] as { grandTotal?: unknown }).grandTotal ?? 0);
+      const po0 = po[0];
+      if (po0) {
+        const total = Number((po0 as { grandTotal?: unknown }).grandTotal ?? 0);
         await step('purchasePayment', 'PO1 full', () =>
-          g(PurchaseService).addPayment(po[0].id, T, { amount: total || 9000, method: 'BANK_TRANSFER', reference: 'SAMPLE-NEFT-1001', date: daysAgo(26), note: NOTE }, ACTOR));
+          g(PurchaseService).addPayment(po0.id, T, { amount: total || 9000, method: 'BANK_TRANSFER', reference: 'SAMPLE-NEFT-1001', date: daysAgo(26), note: NOTE }, ACTOR));
         await step('purchaseExpense', 'PO1 freight', () =>
-          g(PurchaseService).addExpense(po[0].id, T, { amount: 150, category: 'Freight', reference: 'SAMPLE-FRT-01', date: daysAgo(28), note: NOTE }, ACTOR));
+          g(PurchaseService).addExpense(po0.id, T, { amount: 150, category: 'Freight', reference: 'SAMPLE-FRT-01', date: daysAgo(28), note: NOTE }, ACTOR));
       }
-      if (po[1])
+      const po1 = po[1];
+      if (po1)
         await step('purchasePayment', 'PO2 partial', () =>
-          g(PurchaseService).addPayment(po[1].id, T, { amount: 10000, method: 'UPI', reference: 'SAMPLE-UPI-2001', date: daysAgo(18), note: `${NOTE} — partial` }, ACTOR));
-      if (po[2] && P('P-IBU400'))
+          g(PurchaseService).addPayment(po1.id, T, { amount: 10000, method: 'UPI', reference: 'SAMPLE-UPI-2001', date: daysAgo(18), note: `${NOTE} — partial` }, ACTOR));
+      const po2 = po[2];
+      if (po2 && prod['P-IBU400'])
         await step('purchaseReturn', 'PO3 ibuprofen', () =>
           g(PurchaseReturnService).create(T, {
-            purchaseId: po[2].id, reference: 'SAMPLE-PR-0001', date: daysAgo(10), note: `${NOTE} — damaged strips`,
+            purchaseId: po2.id, reference: 'SAMPLE-PR-0001', date: daysAgo(10), note: `${NOTE} — damaged strips`,
             items: [{ productId: P('P-IBU400').id, quantity: 5, cost: P('P-IBU400').cost }],
           }, ACTOR));
       if (suppliers[1])
         await step('supplierPayment', 'opening balance', () =>
-          g(SupplierService).addPayment(suppliers[1], T, { amount: 5000, method: 'CHEQUE', reference: 'SAMPLE-CHQ-3001', date: daysAgo(15), note: NOTE }, ACTOR));
+          g(SupplierService).addPayment(must(suppliers[1]), T, { amount: 5000, method: 'CHEQUE', reference: 'SAMPLE-CHQ-3001', date: daysAgo(15), note: NOTE }, ACTOR));
 
       // ── Sales (+ payments, delivery, return) ──
       console.log('Sales…');
-      const sItem = (code: string, qty: number, discount = 0) => ({
-        productId: P(code).id, quantity: qty, price: P(code).price, taxRate: P(code).tax, discount,
+      const sItem = (code: string, qty: number, discount: string | number = 0) => ({
+        productId: P(code).id, quantity: qty, price: P(code).price, taxRate: P(code).tax, discount: String(discount),
       });
       const sales: Record<string, { id: string; grandTotal?: unknown }> = {};
       const saleDefs = [
@@ -436,7 +453,7 @@ async function main() {
         if (!customers[s.c] || !has(...s.items.map((i) => i[0]))) continue;
         const r = await step('sale', s.ref, () =>
           g(SaleService).create(T, BR, {
-            customerId: customers[s.c], billerName: 'New Branch Pharmacy Counter', reference: s.ref,
+            customerId: must(customers[s.c]), billerName: 'New Branch Pharmacy Counter', reference: s.ref,
             date: daysAgo(s.d), status: 'COMPLETED', note: NOTE,
             items: s.items.map(([code, q]) => sItem(code, q)),
           }, ACTOR));
@@ -453,48 +470,49 @@ async function main() {
       if (sales['SAMPLE-SALE-0004'])
         await step('delivery', 'SALE-0004', () =>
           g(DeliveryService).create(T, BR, {
-            saleId: sales['SAMPLE-SALE-0004'].id, reference: 'SAMPLE-DLV-0001', status: 'DELIVERED', trackingNo: 'DLV-BLR-88213',
+            saleId: must(sales['SAMPLE-SALE-0004']).id, reference: 'SAMPLE-DLV-0001', status: 'DELIVERED', trackingNo: 'DLV-BLR-88213',
             deliveredTo: 'Sunrise Clinic front desk', address: 'HSR Layout, Bengaluru', date: daysAgo(13), note: NOTE,
           }, ACTOR));
       if (sales['SAMPLE-SALE-0008'])
         await step('delivery', 'SALE-0008', () =>
           g(DeliveryService).create(T, BR, {
-            saleId: sales['SAMPLE-SALE-0008'].id, reference: 'SAMPLE-DLV-0002', status: 'DISPATCHED', trackingNo: 'DLV-BLR-88290',
+            saleId: must(sales['SAMPLE-SALE-0008']).id, reference: 'SAMPLE-DLV-0002', status: 'DISPATCHED', trackingNo: 'DLV-BLR-88290',
             deliveredTo: 'Sunrise Clinic lab', address: 'HSR Layout, Bengaluru', date: daysAgo(1), note: NOTE,
           }, ACTOR));
-      if (sales['SAMPLE-SALE-0002'] && P('P-VITD3'))
+      if (sales['SAMPLE-SALE-0002'] && prod['P-VITD3'])
         await step('saleReturn', 'SALE-0002', () =>
           g(SaleReturnService).create(T, {
-            saleId: sales['SAMPLE-SALE-0002'].id, reference: 'SAMPLE-SR-0001', date: daysAgo(19), refundAmount: Math.round(P('P-VITD3').price * 1.12),
+            saleId: must(sales['SAMPLE-SALE-0002']).id, reference: 'SAMPLE-SR-0001', date: daysAgo(19), refundAmount: Math.round(P('P-VITD3').price * 1.12),
             note: `${NOTE} — customer returned unopened`, items: [{ productId: P('P-VITD3').id, quantity: 1, price: P('P-VITD3').price }],
           }, ACTOR));
       if (customers[4])
         await step('customerDeposit', 'Sunrise advance', () =>
-          g(CustomerService).addDeposit(customers[4], T, { amount: 10000, type: 'DEPOSIT', note: `${NOTE} — advance`, date: daysAgo(7) }, ACTOR));
+          g(CustomerService).addDeposit(must(customers[4]), T, { amount: 10000, type: 'DEPOSIT', note: `${NOTE} — advance`, date: daysAgo(7) }, ACTOR));
 
       // ── Quotes & proformas ──
       console.log('Quotes / proformas…');
       const qItem = (code: string, qty: number) => ({ productId: P(code).id, quantity: qty, unitPrice: P(code).price, taxRate: P(code).tax });
       if (customers[4] && has('P-GLOVE', 'P-SYR5', 'P-MASK')) {
         const q = await step('quote', 'sale quote approved', () =>
-          g(QuoteService).create(T, BR, { type: 'SALE', customerId: customers[4], reference: 'SAMPLE-QT-0001', date: daysAgo(5), note: NOTE,
+          g(QuoteService).create(T, BR, { type: 'SALE', customerId: must(customers[4]), reference: 'SAMPLE-QT-0001', date: daysAgo(5), note: NOTE,
             items: [qItem('P-GLOVE', 5), qItem('P-SYR5', 3), qItem('P-MASK', 100)] }, ACTOR));
         if (q) await step('', 'approve quote', () => g(QuoteService).updateStatus(idOf(q), T, { status: 'APPROVED' }));
       }
       if (customers[1] && has('P-BPMON', 'P-GLU-STRIP')) {
         const q = await step('quote', 'sale quote sent', () =>
-          g(QuoteService).create(T, BR, { type: 'SALE', customerId: customers[1], reference: 'SAMPLE-QT-0002', date: daysAgo(2), note: NOTE,
+          g(QuoteService).create(T, BR, { type: 'SALE', customerId: must(customers[1]), reference: 'SAMPLE-QT-0002', date: daysAgo(2), note: NOTE,
             items: [qItem('P-BPMON', 1), qItem('P-GLU-STRIP', 2)] }, ACTOR));
         if (q) await step('', 'send quote', () => g(QuoteService).updateStatus(idOf(q), T, { status: 'SENT' }));
       }
       if (suppliers[2] && has('P-CBC-REA', 'P-EDTA'))
         await step('quote', 'purchase quote draft', () =>
-          g(QuoteService).create(T, BR, { type: 'PURCHASE', supplierId: suppliers[2], reference: 'SAMPLE-QT-0003', date: daysAgo(1), note: NOTE,
+          g(QuoteService).create(T, BR, { type: 'PURCHASE', supplierId: must(suppliers[2]), reference: 'SAMPLE-QT-0003', date: daysAgo(1), note: NOTE,
             items: [{ ...qItem('P-CBC-REA', 2), unitPrice: P('P-CBC-REA').cost }, { ...qItem('P-EDTA', 5), unitPrice: P('P-EDTA').cost }] }, ACTOR));
       if (customers[4] && has('P-EDTA')) {
         const pf = await step('proforma', 'PF1', () =>
           g(ProformaService).create(T, BR, {
-            customerId: customers[4], reference: 'SAMPLE-PF-0001', date: daysAgo(4), note: NOTE,
+            name: '[SAMPLE] Diagnostic Package — CBC + HbA1c + X-Ray',
+            customerId: must(customers[4]), reference: 'SAMPLE-PF-0001', date: daysAgo(4), note: NOTE,
             labTests: [{ name: 'Complete Blood Count (CBC)', price: 350, type: 'LAB_TEST' }, { name: 'HbA1c', price: 450, type: 'LAB_TEST' }, { name: 'Chest X-Ray PA View', price: 600, type: 'RADIOLOGY' }],
             items: [qItem('P-EDTA', 1)],
           }, ACTOR));
@@ -502,7 +520,7 @@ async function main() {
       }
       if (customers[2] && has('P-MET500'))
         await step('proforma', 'PF2', () =>
-          g(ProformaService).create(T, BR, { customerId: customers[2], reference: 'SAMPLE-PF-0002', date: daysAgo(1), note: NOTE,
+          g(ProformaService).create(T, BR, { name: '[SAMPLE] Lipid Profile', customerId: must(customers[2]), reference: 'SAMPLE-PF-0002', date: daysAgo(1), note: NOTE,
             labTests: [{ name: 'Lipid Profile', price: 550, type: 'LAB_TEST' }], items: [qItem('P-MET500', 3)] }, ACTOR));
 
       // ── Transfers & requisitions (to/from the user's other branch) ──
@@ -562,9 +580,9 @@ async function main() {
             const lines = items.map(([c, q]) => ({ productId: P(c).id, quantity: q, price: P(c).price, taxRate: P(c).tax }));
             const amt = lines.reduce((s, l) => s + l.quantity * l.price * (1 + (l.taxRate ?? 0) / 100), 0);
             await step('posCheckout', `#${i}`, () =>
-              g(PosService).checkout(T, BR, { customerId: customers[0], sessionId: idOf(sess), note: NOTE, items: lines, payments: [{ amount: Math.round(amt * 100) / 100, method }] }, ACTOR));
+              g(PosService).checkout(T, BR, { customerId: must(customers[0]), sessionId: idOf(sess), note: NOTE, items: lines, payments: [{ amount: Math.round(amt * 100) / 100, method }] }, ACTOR));
           }
-          await step('posHeldBill', 'held', () => g(PosService).holdBill(T, BR, { label: 'Priya – ORS x3 (held)', cart: { customerId: customers[2], items: [{ productId: P('P-ORS').id, quantity: 3, price: P('P-ORS').price }], note: NOTE } }, ACTOR));
+          await step('posHeldBill', 'held', () => g(PosService).holdBill(T, BR, { label: 'Priya – ORS x3 (held)', cart: { customerId: must(customers[2]), items: [{ productId: P('P-ORS').id, quantity: 3, price: P('P-ORS').price }], note: NOTE } }, ACTOR));
         }
       }
 
@@ -605,7 +623,7 @@ async function main() {
       for (const [i, bg, comp, d, bag] of [[0, 'O+', 'WHOLE_BLOOD', 30, 'SAMPLE-BAG-0001'], [1, 'A+', 'RBC', 20, 'SAMPLE-BAG-0002'], [2, 'B-', 'PLASMA', 10, 'SAMPLE-BAG-0003']] as const) {
         if (!donors[i]) continue;
         const r = await step('bloodDonation', bag, () =>
-          g(BloodBankService).createDonation(T, BR, { donorId: donors[i], bloodGroup: bg, component: comp, volumeMl: 450, bagNumber: bag, collectedAt: daysAgo(d), expiryDate: daysAhead(42 - d), note: NOTE }));
+          g(BloodBankService).createDonation(T, BR, { donorId: must(donors[i]), bloodGroup: bg, component: comp, volumeMl: 450, bagNumber: bag, collectedAt: daysAgo(d), expiryDate: daysAhead(42 - d), note: NOTE }));
         if (r) donations.push(idOf(r));
       }
       for (const id of donations.slice(0, 2))
@@ -613,7 +631,7 @@ async function main() {
       const req = await step('bloodRequest', 'O+', () => g(BloodBankService).createRequest(T, BR, { bloodGroup: 'O+', component: 'WHOLE_BLOOD', units: 1, patientName: 'Suresh Patil', note: `${NOTE} — scheduled surgery` }));
       await step('bloodRequest', 'A+', () => g(BloodBankService).createRequest(T, BR, { bloodGroup: 'A+', component: 'RBC', units: 2, patientName: 'Lakshmi Iyer', note: NOTE }));
       if (req && donations[0])
-        await step('crossMatch', 'O+', () => g(BloodBankService).createCrossMatch(T, BR, { requestId: idOf(req), donationId: donations[0], result: 'COMPATIBLE', note: NOTE }, ACTOR));
+        await step('crossMatch', 'O+', () => g(BloodBankService).createCrossMatch(T, BR, { requestId: idOf(req), donationId: must(donations[0]), result: 'COMPATIBLE', note: NOTE }, ACTOR));
 
       // ── IPD ──
       console.log('IPD…');

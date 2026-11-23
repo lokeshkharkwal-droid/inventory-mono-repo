@@ -1,0 +1,40 @@
+meta {
+  name: 10 Create product - Reagent
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{inventoryBaseUrl}}/products
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "code": "BRU-REA-{{runSfx}}",
+    "name": "Bruno Reagent {{runSfx}}",
+    "categoryId": "{{categoryId}}",
+    "cost": 10,
+    "price": 20,
+    "alertQuantity": 3
+  }
+}
+
+script:post-response {
+  if (res.body.data) bru.setEnvVar("reagentId", res.body.data.id);
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.id: isString
+}
+
+docs {
+  Tenant-level product (available in every branch). No opening stock is created at
+  product creation — branch stock is seeded via adjustments below.
+}

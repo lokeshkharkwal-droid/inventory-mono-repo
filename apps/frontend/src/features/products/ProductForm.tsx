@@ -5,8 +5,10 @@ import { Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { FieldError } from '@/components/ui/field-error';
 import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage, uploadAttachment } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
 import { useBranchOptions } from '@/features/_shared/branches';
 import { useCreateProduct, useUpdateProduct, type ProductDetail } from './api';
 import {
@@ -210,9 +212,9 @@ interface Props {
 }
 
 const selectCls =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
+  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm aria-[invalid=true]:border-destructive';
 const textareaCls =
-  'flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
+  'flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm aria-[invalid=true]:border-destructive';
 
 /** Render a flat `<option>` list (with a leading blank). */
 function renderOptions(options: Option[]) {
@@ -250,16 +252,20 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
   const [showAttributes, setShowAttributes] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
-  // Opening per-branch stock (create only): branchId -> { quantity, rack }.
-  const [openingStock, setOpeningStock] = useState<
-    Record<string, { quantity: string; rack: string }>
-  >({});
 
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
-  const { register, handleSubmit, reset, control, watch, setValue } =
-    useForm<FormValues>({ defaultValues: EMPTY });
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    watch,
+    setValue,
+    setError,
+    formState: { errors },
+  } = useForm<FormValues>({ defaultValues: EMPTY, mode: 'onTouched' });
   const {
     fields: attrFields,
     append: appendAttr,
@@ -359,7 +365,6 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       setShowPrescription(false);
       setShowCustom(false);
       setShowAttributes(false);
-      setOpeningStock({});
       reset(EMPTY);
     }
   }, [product, reset]);
@@ -405,12 +410,6 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     );
   };
 
-  const setOpening = (branchId: string, patch: { quantity?: string; rack?: string }) =>
-    setOpeningStock((prev) => ({
-      ...prev,
-      [branchId]: { quantity: '', rack: '', ...prev[branchId], ...patch },
-    }));
-
   const submit = handleSubmit(async (v) => {
     const payload: Record<string, unknown> = {
       // General — enums sent verbatim.
@@ -423,7 +422,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       alertQuantity: Number(v.alertQuantity || 0),
       isStockTracked: v.isStockTracked,
 
-      // Pricing — numbers.
+      // Pricing — EZHT parity: all four are independent, user-entered values.
       packCost: Number(v.packCost || 0),
       cost: Number(v.cost || 0),
       packMrp: Number(v.packMrp || 0),
@@ -463,18 +462,6 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
         })),
     };
 
-    // Opening per-branch stock (create only).
-    if (!isEdit) {
-      const stocks = Object.entries(openingStock)
-        .filter(([, s]) => (s.quantity && Number(s.quantity) !== 0) || s.rack)
-        .map(([branchId, s]) => ({
-          branchId,
-          quantity: Number(s.quantity || 0),
-          rack: s.rack || undefined,
-        }));
-      if (stocks.length) payload.warehouseStocks = stocks;
-    }
-
     // Optional reference ids — omit empties.
     const optionalRefs: (keyof FormValues)[] = [
       'subCategoryId',
@@ -511,7 +498,18 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       }
       onSaved();
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save product'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        codeMap: {
+          PRODUCT_CODE_CONFLICT: {
+            field: 'code',
+            message: 'A product with this code already exists',
+          },
+        },
+        fields: ['name', 'code', 'packCost', 'packMrp', 'alertQuantity'],
+      });
+      if (!mapped) {
+        toast.error(getApiErrorMessage(err, 'Could not save product'));
+      }
     }
   });
 
@@ -547,18 +545,28 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="name">Name</Label>
-            <Input id="name" {...register('name', { required: true })} />
+            <Input
+              id="name"
+              aria-invalid={!!errors.name}
+              {...register('name', { required: 'Name is required' })}
+            />
+            <FieldError message={errors.name?.message} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="code">Code</Label>
-            <Input id="code" {...register('code', { required: true })} />
+            <Input
+              id="code"
+              aria-invalid={!!errors.code}
+              {...register('code', { required: 'Code is required' })}
+            />
+            <FieldError message={errors.code?.message} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="categoryId">Category</Label>
             <Controller
               control={control}
               name="categoryId"
-              rules={{ required: true }}
+              rules={{ required: 'Category is required' }}
               render={({ field }) => (
                 <InfiniteSelect
                   id="categoryId"
@@ -576,6 +584,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
                 />
               )}
             />
+            <FieldError message={errors.categoryId?.message} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="subCategoryId">Sub-category</Label>
@@ -641,8 +650,12 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
               id="alertQuantity"
               type="number"
               step="any"
-              {...register('alertQuantity')}
+              aria-invalid={!!errors.alertQuantity}
+              {...register('alertQuantity', {
+                min: { value: 0, message: 'Cannot be negative' },
+              })}
             />
+            <FieldError message={errors.alertQuantity?.message} />
           </div>
         </div>
         <label className="flex items-center gap-2 text-sm">
@@ -751,19 +764,55 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label htmlFor="packCost">Pack cost</Label>
-            <Input id="packCost" type="number" step="any" {...register('packCost')} />
+            <Input
+              id="packCost"
+              type="number"
+              step="any"
+              aria-invalid={!!errors.packCost}
+              {...register('packCost', {
+                min: { value: 0, message: 'Cannot be negative' },
+              })}
+            />
+            <FieldError message={errors.packCost?.message} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="cost">Unit cost</Label>
-            <Input id="cost" type="number" step="any" {...register('cost')} />
+            <Input
+              id="cost"
+              type="number"
+              step="any"
+              aria-invalid={!!errors.cost}
+              {...register('cost', {
+                min: { value: 0, message: 'Cannot be negative' },
+              })}
+            />
+            <FieldError message={errors.cost?.message} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="packMrp">Pack MRP</Label>
-            <Input id="packMrp" type="number" step="any" {...register('packMrp')} />
+            <Input
+              id="packMrp"
+              type="number"
+              step="any"
+              aria-invalid={!!errors.packMrp}
+              {...register('packMrp', {
+                min: { value: 0, message: 'Cannot be negative' },
+              })}
+            />
+            <FieldError message={errors.packMrp?.message} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="price">Unit MRP</Label>
-            <Input id="price" type="number" step="any" {...register('price')} />
+            <Input
+              id="price"
+              type="number"
+              step="any"
+              aria-invalid={!!errors.price}
+              {...register('price', {
+                min: { value: 0, message: 'Cannot be negative' },
+              })}
+            />
+            <FieldError message={errors.price?.message} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="taxRateId">Product tax</Label>
@@ -906,7 +955,10 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
             checked={showAttributes}
             onChange={(e) => setShowAttributes(e.target.checked)}
           />
-          Product Has Attributes
+          This product has multiple variants
+          <span className="font-normal text-muted-foreground">
+            (e.g. sizes, colors)
+          </span>
         </label>
         {showAttributes && (
           <div className="space-y-2">
@@ -987,36 +1039,8 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
         )}
       </section>
 
-      {/* ── Opening stock (create only; per warehouse) ── */}
-      {!isEdit && (branches?.length ?? 0) > 0 && (
-        <section className="space-y-3">
-          <h3 className="text-sm font-semibold text-foreground">
-            Warehouse quantities
-          </h3>
-          <div className="space-y-2">
-            {(branches ?? []).map((b) => (
-              <div
-                key={b.id}
-                className="grid grid-cols-[1fr_1fr_1fr] items-center gap-2"
-              >
-                <span className="text-sm">{b.name}</span>
-                <Input
-                  placeholder="Quantity"
-                  type="number"
-                  step="any"
-                  value={openingStock[b.id]?.quantity ?? ''}
-                  onChange={(e) => setOpening(b.id, { quantity: e.target.value })}
-                />
-                <Input
-                  placeholder="Rack"
-                  value={openingStock[b.id]?.rack ?? ''}
-                  onChange={(e) => setOpening(b.id, { rack: e.target.value })}
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* Warehouse (branch) stock is NOT seeded here — a product is tenant-level
+          and branch quantities are managed per branch via Adjust Quantities. */}
 
       {/* ── Prescription Fields (gated) ── */}
       <section className="space-y-3">

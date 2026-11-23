@@ -1,0 +1,33 @@
+meta {
+  name: 13 Seed Bandage stock at branch A (+100)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{inventoryBaseUrl}}/products/{{bandageId}}/adjustments
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "quantity": 100,
+    "cost": 8,
+    "reason": "bruno e2e seed"
+  }
+}
+
+assert {
+  res.status: eq 201
+}
+
+tests {
+  test("on-hand is 100 at branch A", function () {
+    expect(Number(res.body.data.quantity)).to.equal(100);
+  });
+}

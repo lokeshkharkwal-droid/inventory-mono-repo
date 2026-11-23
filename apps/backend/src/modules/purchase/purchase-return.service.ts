@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PaginatedResult } from '../../common/dto/response.dto';
 import { KaltrosException } from '../../common/exceptions/kaltros.exception';
 import { generateReference } from '../../common/utils/reference.util';
+import { computeOrderTotals } from '../../common/utils/order-totals.util';
 import { ProductService } from '../product/product.service';
 import { ProductStockService } from '../product/product-stock.service';
 import {
@@ -45,30 +46,76 @@ export class PurchaseReturnService {
   ) {
     const purchase = await this.prisma.inventoryPurchase.findFirst({
       where: { id: dto.purchaseId, tenantId, deletedAt: null },
-      select: { id: true, branchId: true },
+      select: {
+        id: true,
+        branchId: true,
+        supplierId: true,
+        status: true,
+        gstNumber: true,
+        gstState: true,
+      },
     });
     if (!purchase) throw new PurchaseNotFoundException(dto.purchaseId);
+    // EZHT: only goods actually received can be returned.
+    if (purchase.status !== 'RECEIVED') {
+      throw new KaltrosException(
+        'PURCHASE_NOT_RETURNABLE',
+        'Only a received purchase can be returned.',
+        { id: purchase.id, status: purchase.status },
+        HttpStatus.CONFLICT,
+      );
+    }
 
-    const lines = await Promise.all(
-      dto.items.map(async (item) => {
-        const product = await this.productService.findById(
-          item.productId,
-          tenantId,
-        );
-        const qty = D(item.quantity);
-        const cost = D(item.cost);
-        return {
-          tenantId,
-          productId: product.id,
-          productName: product.name,
-          productCode: product.code,
-          quantity: qty,
-          cost,
-          subtotal: qty.mul(cost),
-        };
-      }),
+    const resolved = await Promise.all(
+      dto.items.map(async (item) => ({
+        item,
+        product: await this.productService.findById(item.productId, tenantId),
+      })),
     );
-    const total = lines.reduce((s, l) => s.add(l.subtotal), D(0));
+
+    // Compute the refund money the same way a purchase is costed (tax incl/excl,
+    // GST split) so returns mirror the original lines (EZHT calculatePurchaseTotals).
+    const totals = computeOrderTotals({
+      lines: resolved.map(({ item }) => ({
+        quantity: item.quantity,
+        unitPrice: item.cost,
+        discount: item.discount,
+        taxRatePercent: item.taxRate ?? 0,
+        taxInclusive: false,
+      })),
+      interState: dto.interState ?? false,
+    });
+
+    const lines = resolved.map(({ item, product }, i) => {
+      const c = totals.lines[i]!;
+      return {
+        tenantId,
+        productId: product.id,
+        productName: product.name,
+        productCode: product.code,
+        purchaseItemId: item.purchaseItemId,
+        quantity: c.quantity,
+        cost: D(item.cost),
+        netUnitCost: c.netUnitPrice,
+        taxRate: D(item.taxRate ?? 0),
+        taxAmount: c.taxAmount,
+        discount: c.discount,
+        discountSpec: item.discount,
+        mrp: item.mrp != null ? D(item.mrp) : null,
+        batchNo: item.batchNo,
+        expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+        packSize: item.packSize != null ? D(item.packSize) : null,
+        hsnCode: item.hsnCode,
+        subtotal: c.subtotal,
+        igst: c.igst,
+        cgst: c.cgst,
+        sgst: c.sgst,
+      };
+    });
+
+    const surcharge = D(dto.surcharge ?? 0);
+    // Refund = goods value + tax − surcharge (EZHT: surcharge reduces the refund).
+    const grandTotal = totals.subtotal.add(totals.productTax).sub(surcharge);
 
     return this.prisma.withTenant(tenantId, async (tx) => {
       const ret = await tx.inventoryPurchaseReturn.create({
@@ -76,21 +123,36 @@ export class PurchaseReturnService {
           tenantId,
           branchId: purchase.branchId,
           purchaseId: purchase.id,
+          supplierId: purchase.supplierId,
           reference: dto.reference ?? generateReference('PRET'),
           date: dto.date ? new Date(dto.date) : new Date(),
-          total,
+          total: totals.subtotal,
+          productTax: totals.productTax,
+          totalTax: totals.totalTax,
+          surcharge,
+          grandTotal,
+          igst: totals.igst,
+          cgst: totals.cgst,
+          sgst: totals.sgst,
+          taxMethod: dto.interState ? 'igst' : 'cgst+sgst',
+          gstNumber: purchase.gstNumber,
+          gstState: purchase.gstState,
           note: dto.note,
+          attachmentUrl: dto.attachmentUrl,
           createdBy: actorId,
           items: { create: lines },
         },
         include: { items: true },
       });
+      // Reverse the inbound stock at the original branch (outbound move). Allow
+      // negative — a reversal must never be blocked by stock already consumed.
       for (const l of lines) {
         await this.stockService.applyDelta(tx, {
           tenantId,
           branchId: purchase.branchId,
           productId: l.productId,
           delta: l.quantity.negated(),
+          allowNegative: true,
         });
       }
       return ret;
@@ -107,16 +169,43 @@ export class PurchaseReturnService {
       tenantId,
       deletedAt: null,
       ...(query.purchaseId ? { purchaseId: query.purchaseId } : {}),
+      ...(query.search
+        ? { reference: { contains: query.search, mode: 'insensitive' } }
+        : {}),
     };
-    const [data, total] = await this.prisma.$transaction(async (tx) => {
+    if (query.startDate || query.endDate) {
+      where.date = {};
+      if (query.startDate) where.date.gte = new Date(query.startDate);
+      if (query.endDate) where.date.lte = new Date(query.endDate);
+    }
+
+    const [rows, total, pmap] = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.inventoryPurchaseReturn.findMany({
         where,
         orderBy: { date: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       });
-      return [rows, await tx.inventoryPurchaseReturn.count({ where })] as const;
+      const count = await tx.inventoryPurchaseReturn.count({ where });
+      // Resolve each return's original purchase reference + supplier name.
+      const ids = [...new Set(rows.map((r) => r.purchaseId))];
+      const purchases = ids.length
+        ? await tx.inventoryPurchase.findMany({
+            where: { id: { in: ids }, tenantId },
+            select: {
+              id: true,
+              reference: true,
+              supplier: { select: { name: true } },
+            },
+          })
+        : [];
+      return [rows, count, new Map(purchases.map((p) => [p.id, p]))] as const;
     });
+    const data = rows.map((r) => ({
+      ...r,
+      purchaseReference: pmap.get(r.purchaseId)?.reference ?? null,
+      supplierName: pmap.get(r.purchaseId)?.supplier?.name ?? null,
+    }));
     return { data, total, page, limit };
   }
 

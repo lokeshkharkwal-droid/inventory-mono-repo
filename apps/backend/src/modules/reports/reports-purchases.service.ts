@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
+import { resolveWarehouseNameMap } from '../../common/utils/party-detail.util';
 import { D, dateFilter } from './report-utils';
 import { ReportQueryDto } from './dto/reports-query.dto';
 
@@ -24,7 +26,10 @@ import { ReportQueryDto } from './dto/reports-query.dto';
  */
 @Injectable()
 export class ReportsPurchasesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branchClient: KalnosticsBranchClient,
+  ) {}
 
   /**
    * Local Purchases — requisitions fulfilled as a local purchase (the legacy
@@ -282,8 +287,8 @@ export class ReportsPurchasesService {
    * @param tenantId tenant from the JWT.
    * @param q reads `from`/`to`, `supplierId`, `warehouseId`/`branchId`, `createdBy`,
    *   `productId`, `reference` (partial), `status`, `page`, `limit`.
-   * @returns `{ rows, totals, page, limit, total }`. `warehouseName` is null
-   *   (resolved from the Branch API, not stored on the model).
+   * @returns `{ rows, totals, page, limit, total }`. `warehouseName` is resolved
+   *   from the kalnostics Branch API (best-effort; null if unreachable/unknown).
    */
   async purchases(tenantId: string, q: ReportQueryDto) {
     const date = dateFilter(q.from, q.to);
@@ -323,12 +328,17 @@ export class ReportsPurchasesService {
       }),
     ]);
 
+    const branchMap = await resolveWarehouseNameMap(
+      this.branchClient,
+      purchases.map((p) => p.branchId),
+    );
+
     const rows = purchases.map((p) => ({
       id: p.id,
       date: p.date,
       reference: p.reference,
       branchId: p.branchId,
-      warehouseName: null as string | null,
+      warehouseName: p.branchId ? (branchMap.get(p.branchId) ?? null) : null,
       supplierId: p.supplierId,
       supplierName: p.supplier?.name ?? '—',
       items: p.items.map((i) => ({

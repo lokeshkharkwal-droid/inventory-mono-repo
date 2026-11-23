@@ -31,27 +31,38 @@ function makePrisma(fx: {
 }) {
   return {
     inventoryProformaRelation: {
-      findMany: jest.fn(({ where }: { where: { entityType: string; entityId?: { in: string[] }; proformaId?: { in: string[] } } }) => {
-        if (where.entityType === 'lab_test') {
-          const ids = where.entityId?.in ?? [];
+      findMany: jest.fn(
+        ({
+          where,
+        }: {
+          where: {
+            entityType: string;
+            // lab_test lookups pass `{ in: [...] }`; branch lookups pass a plain id.
+            entityId?: string | { in: string[] };
+            proformaId?: { in: string[] };
+          };
+        }) => {
+          if (where.entityType === 'lab_test') {
+            const ids =
+              typeof where.entityId === 'object' ? where.entityId.in : [];
+            return Promise.resolve(
+              fx.labRelations
+                .filter((r) => ids.includes(r.entityId))
+                .map((r) => ({ proformaId: r.proformaId })),
+            );
+          }
+          // branch
+          const cand = where.proformaId?.in ?? [];
           return Promise.resolve(
-            fx.labRelations
-              .filter((r) => ids.includes(r.entityId))
+            fx.branchRelations
+              .filter(
+                (r) =>
+                  r.entityId === where.entityId && cand.includes(r.proformaId),
+              )
               .map((r) => ({ proformaId: r.proformaId })),
           );
-        }
-        // branch
-        const cand = where.proformaId?.in ?? [];
-        return Promise.resolve(
-          fx.branchRelations
-            .filter(
-              (r) =>
-                r.entityId === where.entityId &&
-                cand.includes(r.proformaId),
-            )
-            .map((r) => ({ proformaId: r.proformaId })),
-        );
-      }),
+        },
+      ),
     },
     inventoryProforma: {
       findMany: jest.fn(({ where }: { where: { id: { in: string[] } } }) =>
@@ -71,12 +82,13 @@ function makePrisma(fx: {
       ),
     },
     inventoryWarehouseProduct: {
-      findMany: jest.fn(({ where }: { where: { productId: { in: string[] } } }) =>
-        Promise.resolve(
-          where.productId.in
-            .filter((id) => id in fx.stock)
-            .map((id) => ({ productId: id, quantity: D(fx.stock[id]!) })),
-        ),
+      findMany: jest.fn(
+        ({ where }: { where: { productId: { in: string[] } } }) =>
+          Promise.resolve(
+            where.productId.in
+              .filter((id) => id in fx.stock)
+              .map((id) => ({ productId: id, quantity: D(fx.stock[id]!) })),
+          ),
       ),
     },
     inventoryProduct: {
@@ -100,7 +112,14 @@ describe('ProformaConsumptionService.validate (matching + stock)', () => {
     name: 'X-Ray Kit',
     reference: 'PF-001',
     items: [
-      { productId: 'prodA', productName: 'Film', productCode: 'F1', quantity: 2, unitPrice: 10, taxRate: 0 },
+      {
+        productId: 'prodA',
+        productName: 'Film',
+        productCode: 'F1',
+        quantity: 2,
+        unitPrice: 10,
+        taxRate: 0,
+      },
     ],
   };
 
@@ -113,7 +132,10 @@ describe('ProformaConsumptionService.validate (matching + stock)', () => {
       alerts: {},
     });
     const svc = new ProformaConsumptionService(prisma, stockStub);
-    const res = await svc.validate('t1', { branchId: 'b1', labTestSourceIds: ['lt1'] });
+    const res = await svc.validate('t1', {
+      branchId: 'b1',
+      labTestSourceIds: ['lt1'],
+    });
     expect(res.hasMapping).toBe(false);
     expect(res.ok).toBe(true);
     expect(res.products).toHaveLength(0);
@@ -128,7 +150,10 @@ describe('ProformaConsumptionService.validate (matching + stock)', () => {
       alerts: { prodA: 5 },
     });
     const svc = new ProformaConsumptionService(prisma, stockStub);
-    const res = await svc.validate('t1', { branchId: 'b1', labTestSourceIds: ['lt1'] });
+    const res = await svc.validate('t1', {
+      branchId: 'b1',
+      labTestSourceIds: ['lt1'],
+    });
     expect(res.hasMapping).toBe(false);
   });
 
@@ -141,7 +166,10 @@ describe('ProformaConsumptionService.validate (matching + stock)', () => {
       alerts: { prodA: 5 },
     });
     const svc = new ProformaConsumptionService(prisma, stockStub);
-    const res = await svc.validate('t1', { branchId: 'b1', labTestSourceIds: ['lt1'] });
+    const res = await svc.validate('t1', {
+      branchId: 'b1',
+      labTestSourceIds: ['lt1'],
+    });
     expect(res.hasMapping).toBe(true);
     expect(res.ok).toBe(true);
     expect(res.products[0]).toMatchObject({
@@ -162,10 +190,17 @@ describe('ProformaConsumptionService.validate (matching + stock)', () => {
       alerts: { prodA: 5 },
     });
     const svc = new ProformaConsumptionService(prisma, stockStub);
-    const res = await svc.validate('t1', { branchId: 'b1', labTestSourceIds: ['lt1'] });
+    const res = await svc.validate('t1', {
+      branchId: 'b1',
+      labTestSourceIds: ['lt1'],
+    });
     expect(res.ok).toBe(false);
     expect(res.shortages).toHaveLength(1);
-    expect(res.shortages[0]).toMatchObject({ productId: 'prodA', requiredQty: 2, availableQty: 1 });
+    expect(res.shortages[0]).toMatchObject({
+      productId: 'prodA',
+      requiredQty: 2,
+      availableQty: 1,
+    });
   });
 
   it('sums required quantities across multiple matched proformas for the same product', async () => {
@@ -185,7 +220,14 @@ describe('ProformaConsumptionService.validate (matching + stock)', () => {
           name: 'Second',
           reference: 'PF-002',
           items: [
-            { productId: 'prodA', productName: 'Film', productCode: 'F1', quantity: 3, unitPrice: 10, taxRate: 0 },
+            {
+              productId: 'prodA',
+              productName: 'Film',
+              productCode: 'F1',
+              quantity: 3,
+              unitPrice: 10,
+              taxRate: 0,
+            },
           ],
         },
       ],
@@ -227,7 +269,14 @@ describe('ProformaConsumptionService.info (tooltip)', () => {
           name: 'X-Ray Kit',
           reference: 'PF-001',
           items: [
-            { productId: 'prodA', productName: 'Film', productCode: 'F1', quantity: 2, unitPrice: 10, taxRate: 0 },
+            {
+              productId: 'prodA',
+              productName: 'Film',
+              productCode: 'F1',
+              quantity: 2,
+              unitPrice: 10,
+              taxRate: 0,
+            },
           ],
         },
       ],

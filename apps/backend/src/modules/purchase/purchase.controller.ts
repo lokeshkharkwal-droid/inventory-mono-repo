@@ -18,6 +18,7 @@ import {
   SupplierBulkPaymentDto,
 } from './dto/payment.dto';
 import { ImportPurchasesDto } from './dto/import-purchases.dto';
+import { ImportPurchaseDocumentDto } from './dto/import-purchase-document.dto';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CurrentProfile } from '../auth/decorators/current-profile.decorator';
@@ -58,6 +59,25 @@ export class PurchaseController {
     );
   }
 
+  /**
+   * EZHT single-document CSV import: one header + a CSV of line items → one
+   * purchase (missing products auto-created). Supports `dryRun` preview.
+   */
+  @Post('import-document')
+  importDocument(
+    @CurrentTenant() tenantId: string,
+    @CurrentProfile() profile: ActiveProfile,
+    @CurrentUser('person_id') personId: string,
+    @Body() dto: ImportPurchaseDocumentDto,
+  ) {
+    return this.purchaseService.importDocument(
+      tenantId,
+      profile.branchId,
+      dto,
+      personId,
+    );
+  }
+
   @Get()
   findAll(@CurrentTenant() tenantId: string, @Query() query: PurchaseQueryDto) {
     return this.purchaseService.findAll(tenantId, query);
@@ -70,6 +90,19 @@ export class PurchaseController {
     @CurrentTenant() tenantId: string,
   ) {
     return this.purchaseService.supplierOutstanding(supplierId, tenantId);
+  }
+
+  /**
+   * Supplier-payments screen listing (EZHT `getSupplierPayments`): a paginated,
+   * filterable list of purchases with grand total / paid / balance / status.
+   * Declared before `@Get(':id')` so the literal path isn't captured as an id.
+   */
+  @Get('supplier-payments')
+  supplierPaymentsList(
+    @CurrentTenant() tenantId: string,
+    @Query() query: PurchaseQueryDto,
+  ) {
+    return this.purchaseService.supplierPaymentsList(tenantId, query);
   }
 
   /** Record a bulk payment allocated across a supplier's open purchases. */

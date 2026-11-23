@@ -159,7 +159,7 @@ export class ProformaService {
     id: string,
     tenantId: string,
     dto: CreateProformaDto,
-    actorId?: string,
+    _actorId?: string,
   ) {
     await this.findById(id, tenantId);
     if (dto.customerId) {
@@ -246,16 +246,45 @@ export class ProformaService {
       where.reference = { contains: query.search, mode: 'insensitive' };
     if (query.status) where.status = query.status;
 
-    const [data, total] = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.inventoryProforma.findMany({
+    const [rows, total] = await this.prisma.$transaction(async (tx) => {
+      const list = await tx.inventoryProforma.findMany({
         where,
         orderBy: { date: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       });
       const count = await tx.inventoryProforma.count({ where });
-      return [rows, count] as const;
+      return [list, count] as const;
     });
+
+    // EZHT listing parity: show each proforma's assigned branches
+    // (comma-separated), mirroring `ez_proforma_relation` entity_type='branch'.
+    // Branch names come from the relation `label` stored on assignment. Batched
+    // into one query (no N+1) and mapped back by proforma id.
+    const ids = rows.map((r) => r.id);
+    const branchMap = new Map<string, string[]>();
+    if (ids.length) {
+      const relations = await this.prisma.inventoryProformaRelation.findMany({
+        where: {
+          proformaId: { in: ids },
+          tenantId,
+          entityType: 'branch',
+          deletedAt: null,
+        },
+        select: { proformaId: true, label: true, entityId: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      for (const rel of relations) {
+        const names = branchMap.get(rel.proformaId) ?? [];
+        names.push(rel.label ?? rel.entityId);
+        branchMap.set(rel.proformaId, names);
+      }
+    }
+
+    const data = rows.map((r) => ({
+      ...r,
+      branchNames: branchMap.get(r.id) ?? [],
+    }));
     return { data, total, page, limit };
   }
 

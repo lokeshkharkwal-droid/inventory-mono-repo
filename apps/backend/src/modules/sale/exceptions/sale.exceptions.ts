@@ -19,3 +19,18 @@ export class SalePaymentExceedsBalanceException extends KaltrosException {
     );
   }
 }
+
+/**
+ * 409 — a fully-paid sale return cannot take another payment (EZHT: when
+ * `paid == grand_total` the "Payment was returned" guard blocks add_payment).
+ */
+export class SaleReturnPaymentBlockedException extends KaltrosException {
+  constructor(id: string) {
+    super(
+      'SALE_RETURN_PAYMENT_BLOCKED',
+      'This return is fully settled — no further payment can be added.',
+      { id },
+      HttpStatus.CONFLICT,
+    );
+  }
+}

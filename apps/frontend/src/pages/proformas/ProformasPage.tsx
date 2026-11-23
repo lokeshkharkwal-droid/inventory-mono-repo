@@ -34,8 +34,18 @@ export function ProformasPage() {
   };
 
   const columns: Column<ProformaListRow>[] = [
+    { key: 'name', header: 'Name', render: (r) => r.name || '—' },
     { key: 'reference', header: 'Reference' },
-    { key: 'date', header: 'Date', render: (r) => new Date(r.date).toLocaleDateString() },
+    {
+      key: 'branchNames',
+      header: 'Branch selection',
+      render: (r) => (r.branchNames.length ? r.branchNames.join(', ') : '—'),
+    },
+    {
+      key: 'date',
+      header: 'Date & time',
+      render: (r) => new Date(r.date).toLocaleString(),
+    },
     { key: 'status', header: 'Status' },
     { key: 'grandTotal', header: 'Total', render: (r) => r.grandTotal.toFixed(2) },
     {

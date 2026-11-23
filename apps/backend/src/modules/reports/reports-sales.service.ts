@@ -151,6 +151,124 @@ export class ReportsSalesService {
   }
 
   /**
+   * Product Chart — the legacy `products/view` sales & purchases trend for one
+   * product (`Products_model::getSoldQty` / `getPurchasedQty`). Rolling 6-month
+   * series; per month returns:
+   *   - salesQty      = Σ sale_item.quantity   for this product
+   *   - salesAmount   = Σ sale_item.subtotal
+   *   - purchaseQty   = Σ purchase_item.quantity
+   *   - purchaseAmount= Σ purchase_item.subtotal
+   * Tenant-scoped; the parent document's date buckets each line. The FE renders
+   * a grouped bar chart (sales vs purchases).
+   * @param tenantId tenant from the JWT (never the body).
+   * @param productId the product whose history is charted.
+   * @returns { months: [{ label, salesQty, salesAmount, purchaseQty, purchaseAmount }], totals }.
+   */
+  async productChart(tenantId: string, productId: string) {
+    const now = new Date();
+    const MONTHS = 6;
+    const buckets = Array.from({ length: MONTHS }, (_, i) => {
+      const d = new Date(
+        now.getFullYear(),
+        now.getMonth() - (MONTHS - 1 - i),
+        1,
+      );
+      return {
+        key: `${d.getFullYear()}-${d.getMonth()}`,
+        label: `${MONTH_ABBR[d.getMonth()]}-${d.getFullYear()}`,
+        salesQty: D(0),
+        salesAmount: D(0),
+        purchaseQty: D(0),
+        purchaseAmount: D(0),
+      };
+    });
+    const index = new Map(buckets.map((b, i) => [b.key, i]));
+    const windowStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - (MONTHS - 1),
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+    const windowEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+
+    const [saleItems, purchaseItems] = await Promise.all([
+      this.prisma.inventorySaleItem.findMany({
+        where: {
+          productId,
+          sale: {
+            tenantId,
+            deletedAt: null,
+            date: { gte: windowStart, lte: windowEnd },
+          },
+        },
+        select: {
+          quantity: true,
+          subtotal: true,
+          sale: { select: { date: true } },
+        },
+      }),
+      this.prisma.inventoryPurchaseItem.findMany({
+        where: {
+          productId,
+          purchase: {
+            tenantId,
+            deletedAt: null,
+            date: { gte: windowStart, lte: windowEnd },
+          },
+        },
+        select: {
+          quantity: true,
+          subtotal: true,
+          purchase: { select: { date: true } },
+        },
+      }),
+    ]);
+
+    for (const it of saleItems) {
+      const d = it.sale.date;
+      const b = buckets[index.get(`${d.getFullYear()}-${d.getMonth()}`) ?? -1];
+      if (!b) continue;
+      b.salesQty = b.salesQty.add(it.quantity);
+      b.salesAmount = b.salesAmount.add(it.subtotal);
+    }
+    for (const it of purchaseItems) {
+      const d = it.purchase.date;
+      const b = buckets[index.get(`${d.getFullYear()}-${d.getMonth()}`) ?? -1];
+      if (!b) continue;
+      b.purchaseQty = b.purchaseQty.add(it.quantity);
+      b.purchaseAmount = b.purchaseAmount.add(it.subtotal);
+    }
+
+    const totals = buckets.reduce(
+      (t, b) => ({
+        salesQty: t.salesQty.add(b.salesQty),
+        salesAmount: t.salesAmount.add(b.salesAmount),
+        purchaseQty: t.purchaseQty.add(b.purchaseQty),
+        purchaseAmount: t.purchaseAmount.add(b.purchaseAmount),
+      }),
+      {
+        salesQty: D(0),
+        salesAmount: D(0),
+        purchaseQty: D(0),
+        purchaseAmount: D(0),
+      },
+    );
+
+    return { months: buckets.map(({ key: _key, ...b }) => b), totals };
+  }
+
+  /**
    * Daily Sales — a per-day roll-up for one month (calendar grid). For each day
    * of the requested year-month aggregates discount, shipping, order tax, grand
    * total and a reconstructed product tax (Σ sale-line taxAmount, since the sale

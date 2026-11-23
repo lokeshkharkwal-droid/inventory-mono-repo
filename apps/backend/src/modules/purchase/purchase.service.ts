@@ -1,14 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, HttpStatus } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { KaltrosException } from '../../common/exceptions/kaltros.exception';
 import { PaginatedResult } from '../../common/dto/response.dto';
 import { SupplierService } from '../supplier/supplier.service';
 import { ProductService } from '../product/product.service';
 import { ProductStockService } from '../product/product-stock.service';
+import { ProductBatchService } from '../product/product-batch.service';
 import { NumberingService } from '../settings/numbering.service';
 import { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
 import { KalnosticsUsersClient } from '../../integration/clients/kalnostics-users.client';
-import { BranchRequiredException } from '../product/exceptions/product.exceptions';
+import {
+  BranchRequiredException,
+  VariantNotFoundException,
+} from '../product/exceptions/product.exceptions';
 import {
   CreatePurchaseDto,
   PurchasePaymentInputDto,
@@ -22,7 +27,12 @@ import {
 } from './dto/payment.dto';
 import { ImportPurchasesDto } from './dto/import-purchases.dto';
 import {
+  ImportPurchaseDocumentDto,
+  PurchaseImportRowDto,
+} from './dto/import-purchase-document.dto';
+import {
   PaymentExceedsBalanceException,
+  PurchaseLockedException,
   PurchaseNotFoundException,
 } from './exceptions/purchase.exceptions';
 import {
@@ -45,10 +55,16 @@ type PersistedPurchaseLine =
   Prisma.InventoryPurchaseItemCreateWithoutPurchaseInput & {
     productId: string;
     quantity: Prisma.Decimal;
+    /** Free (non-chargeable) units received — added to stock, excluded from totals. */
+    freeQuantity: Prisma.Decimal;
     cost: Prisma.Decimal;
     batchNo?: string | null;
     expiryDate?: Date | null;
   };
+
+/** Stock received for a line = chargeable quantity + free (bonus) units (EZHT). */
+const receivedQty = (l: PersistedPurchaseLine): Prisma.Decimal =>
+  l.quantity.add(l.freeQuantity ?? 0);
 
 /**
  * Purchases — goods receipts from suppliers (CLAUDE.md §4.7). Creating a
@@ -63,6 +79,7 @@ export class PurchaseService {
     private readonly supplierService: SupplierService,
     private readonly productService: ProductService,
     private readonly stockService: ProductStockService,
+    private readonly batchService: ProductBatchService,
     private readonly numbering: NumberingService,
     private readonly branchClient: KalnosticsBranchClient,
     private readonly usersClient: KalnosticsUsersClient,
@@ -85,12 +102,26 @@ export class PurchaseService {
   private async buildPurchaseLines(
     tenantId: string,
     dto: CreatePurchaseDto,
-  ): Promise<{ lines: PersistedPurchaseLine[]; totals: ComputedOrder }> {
+  ): Promise<{
+    lines: PersistedPurchaseLine[];
+    totals: ComputedOrder;
+    stockTracked: boolean[];
+  }> {
     const resolved = await Promise.all(
-      dto.items.map(async (item) => ({
-        item,
-        product: await this.productService.findById(item.productId, tenantId),
-      })),
+      dto.items.map(async (item) => {
+        const product = await this.productService.findById(
+          item.productId,
+          tenantId,
+        );
+        // A line may target a specific variant (EZHT option) — validate ownership.
+        if (
+          item.optionId &&
+          !product.variants.some((v) => v.id === item.optionId)
+        ) {
+          throw new VariantNotFoundException(item.optionId, product.id);
+        }
+        return { item, product };
+      }),
     );
 
     const totals = computeOrderTotals({
@@ -110,6 +141,12 @@ export class PurchaseService {
     const lines: PersistedPurchaseLine[] = resolved.map(
       ({ item, product }, i) => {
         const c = totals.lines[i]!;
+        // Free units = free packs × pack size (EZHT `free_quantity`); bonus stock
+        // that is received but never charged (excluded from totals/subtotal).
+        const freeQuantity =
+          item.freePackQuantity != null && item.packSize != null
+            ? D(item.freePackQuantity).mul(item.packSize)
+            : D(0);
         return {
           tenantId,
           productId: product.id,
@@ -117,6 +154,7 @@ export class PurchaseService {
           productCode: product.code,
           optionId: item.optionId,
           quantity: c.quantity,
+          freeQuantity,
           cost: D(item.cost),
           realUnitCost: c.realUnitPrice,
           netUnitCost: c.netUnitPrice,
@@ -142,7 +180,8 @@ export class PurchaseService {
       },
     );
 
-    return { lines, totals };
+    const stockTracked = resolved.map(({ product }) => product.isStockTracked);
+    return { lines, totals, stockTracked };
   }
 
   /** Header money/meta columns shared by create + update. */
@@ -193,11 +232,15 @@ export class PurchaseService {
     const warehouse = await this.resolveWarehouse(branchId, dto.warehouseId);
     await this.supplierService.findById(dto.supplierId, tenantId);
 
-    const { lines, totals } = await this.buildPurchaseLines(tenantId, dto);
+    const { lines, totals, stockTracked } = await this.buildPurchaseLines(
+      tenantId,
+      dto,
+    );
     const status = dto.status ?? 'RECEIVED';
     const date = dto.date ? new Date(dto.date) : new Date();
     const reference =
-      dto.reference ?? (await this.numbering.next(tenantId, 'purchase'));
+      dto.reference ??
+      (await this.numbering.next(tenantId, 'purchase', warehouse));
     const { paid, paymentStatus } = this.resolvePaymentPlan(
       dto.payment,
       totals.grandTotal,
@@ -233,27 +276,40 @@ export class PurchaseService {
         });
       }
 
-      // Apply inbound stock only when the goods are received.
+      // Apply inbound stock only when the goods are received. Stock-tracked
+      // products get both an aggregate inbound AND a batch row (always — batchNo/
+      // expiry may be null) so the batch ledger always backs the on-hand quantity.
       if (status === 'RECEIVED') {
-        for (const l of lines) {
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i]!;
+          if (!stockTracked[i]) continue;
+          const inbound = receivedQty(l);
           await this.stockService.applyDelta(tx, {
             tenantId,
             branchId: warehouse,
             productId: l.productId,
-            delta: l.quantity,
+            delta: inbound,
             cost: l.cost,
           });
-          if (l.batchNo || l.expiryDate) {
-            await tx.inventoryProductBatch.create({
-              data: {
-                tenantId,
-                branchId: warehouse,
-                productId: l.productId,
-                batchNo: l.batchNo,
-                expiryDate: l.expiryDate,
-                quantity: l.quantity,
-                cost: l.cost,
-              },
+          await this.batchService.createBatch(tx, {
+            tenantId,
+            branchId: warehouse,
+            productId: l.productId,
+            batchNo: l.batchNo,
+            expiryDate: l.expiryDate,
+            quantity: inbound,
+            cost: l.cost,
+            sourcePurchaseId: purchase.id,
+          });
+          // Increment the specific variant's branch stock when the line targets one
+          // (EZHT `warehouses_products_variants`), kept in lock-step with the total.
+          if (l.optionId) {
+            await this.stockService.applyVariantDelta(tx, {
+              tenantId,
+              branchId: warehouse,
+              variantId: l.optionId,
+              delta: inbound,
+              cost: l.cost,
             });
           }
         }
@@ -320,6 +376,228 @@ export class PurchaseService {
     });
   }
 
+  /**
+   * EZHT single-document purchase import (`Purchases::purchase_import`): one header
+   * form + a CSV of line items → one purchase. Per row: resolve the product by
+   * code → name (creating it when missing, user-confirmed "full auto-create"),
+   * derive the unit cost/mrp/quantity from the pack columns, and the line tax from
+   * CGST+SGST. Validation errors are reported with the CSV line number. `dryRun`
+   * validates + previews (new-product count) without persisting anything.
+   */
+  async importDocument(
+    tenantId: string,
+    branchId: string | null,
+    dto: ImportPurchaseDocumentDto,
+    actorId?: string,
+  ) {
+    await this.supplierService.findById(dto.supplierId, tenantId);
+    const errors: string[] = [];
+    const items: CreatePurchaseDto['items'] = [];
+    let newProducts = 0;
+
+    for (let idx = 0; idx < dto.rows.length; idx++) {
+      const row = dto.rows[idx]!;
+      const line = idx + 2; // row 1 is the CSV header
+      const code = row.code?.trim();
+      const name = row.name?.trim();
+      if (!code && !name) {
+        errors.push(`Product code or name is required. Line No. ${line}`);
+        continue;
+      }
+      const expiry = this.parseImportExpiry(row.expiry);
+      if (!expiry) {
+        errors.push(`A valid expiry date is required. Line No. ${line}`);
+        continue;
+      }
+      if (!row.serial?.trim()) {
+        errors.push(`Batch No. should not be empty. Line No. ${line}`);
+        continue;
+      }
+      const packSize = Number(row.packSize) || 0;
+      if (packSize <= 0) {
+        errors.push(`Pack size should not be empty. Line No. ${line}`);
+        continue;
+      }
+      if (row.packCost == null || row.packCost.trim() === '') {
+        errors.push(`Pack cost should not be empty. Line No. ${line}`);
+        continue;
+      }
+      const packCost = Number(row.packCost);
+      if (!Number.isFinite(packCost) || packCost < 0) {
+        errors.push(`Pack cost is invalid. Line No. ${line}`);
+        continue;
+      }
+      const packQuantity =
+        Number(row.packQuantity) || Number(row.quantity) || 0;
+      if (packQuantity <= 0) {
+        errors.push(`Pack quantity should not be empty. Line No. ${line}`);
+        continue;
+      }
+      const freePackQuantity = Number(row.freePackQuantity) || 0;
+
+      const resolved = await this.resolveImportProduct(
+        tenantId,
+        row,
+        !dto.dryRun,
+      );
+      if (resolved.created) newProducts++;
+
+      const netUnitCost = packCost / packSize;
+      const mrp = row.packMrp ? Number(row.packMrp) / packSize : undefined;
+      const taxRate = (Number(row.cgst) || 0) + (Number(row.sgst) || 0);
+
+      if (resolved.id) {
+        items.push({
+          productId: resolved.id,
+          quantity: packQuantity * packSize,
+          cost: netUnitCost,
+          discount: row.discount || undefined,
+          taxRate,
+          batchNo: row.serial.trim(),
+          expiryDate: expiry.toISOString(),
+          mrp,
+          packSize,
+          packQuantity,
+          freePackQuantity,
+          hsnCode: row.hsnCode,
+        });
+      }
+    }
+
+    if (errors.length) {
+      throw new KaltrosException(
+        'PURCHASE_IMPORT_FAILED',
+        errors[0]!,
+        { errors },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (dto.dryRun) {
+      return {
+        dryRun: true as const,
+        rows: dto.rows.length,
+        newProducts,
+        items: items.length,
+      };
+    }
+
+    const createDto: CreatePurchaseDto = {
+      supplierId: dto.supplierId,
+      warehouseId: dto.warehouseId,
+      reference: dto.reference,
+      date: dto.date,
+      status: dto.status as CreatePurchaseDto['status'],
+      orderTax: dto.orderTax,
+      orderDiscount: dto.orderDiscount,
+      shipping: dto.shipping,
+      interState: dto.interState,
+      note: dto.note,
+      attachmentUrl: dto.attachmentUrl,
+      items,
+    };
+    return this.create(tenantId, branchId, createDto, actorId);
+  }
+
+  /** Parse an EZHT expiry cell (MM-YYYY → end of month, or any parseable date). */
+  private parseImportExpiry(raw?: string): Date | null {
+    const s = raw?.trim();
+    if (!s) return null;
+    const mm = /^(\d{1,2})[-/](\d{4})$/.exec(s);
+    if (mm) {
+      const month = Number(mm[1]);
+      const year = Number(mm[2]);
+      if (month >= 1 && month <= 12) return new Date(year, month, 0); // last day
+    }
+    const dt = new Date(s);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  /**
+   * Resolve an import row to a product id: match by code → name, else (on commit)
+   * create a tenant product (default category, manufacturer auto-created, pack
+   * cost/mrp seeded). In dry-run (`commit=false`) a would-be-new product returns a
+   * null id and is only counted.
+   */
+  private async resolveImportProduct(
+    tenantId: string,
+    row: PurchaseImportRowDto,
+    commit: boolean,
+  ): Promise<{ id: string | null; created: boolean }> {
+    const code = row.code?.trim();
+    const name = row.name?.trim();
+    if (code) {
+      const byCode = await this.prisma.inventoryProduct.findFirst({
+        where: { tenantId, code, deletedAt: null },
+        select: { id: true },
+      });
+      if (byCode) return { id: byCode.id, created: false };
+    }
+    if (name) {
+      const byName = await this.prisma.inventoryProduct.findFirst({
+        where: { tenantId, name, deletedAt: null },
+        select: { id: true },
+      });
+      if (byName) return { id: byName.id, created: false };
+    }
+    if (!commit) return { id: null, created: true };
+
+    const categoryId = await this.resolveImportCategory(tenantId);
+    const manufacturerId = row.manufacturer?.trim()
+      ? await this.resolveImportManufacturer(tenantId, row.manufacturer.trim())
+      : undefined;
+    const packSize = row.packSize ? Number(row.packSize) : undefined;
+    const theCode = code ?? name!;
+    const created = await this.productService.create(tenantId, {
+      code: theCode,
+      name: name ?? theCode,
+      categoryId,
+      manufacturerId,
+      type: 'standard',
+      packSize: row.packSize || undefined,
+      packCost: row.packCost ? Number(row.packCost) : undefined,
+      packMrp: row.packMrp ? Number(row.packMrp) : undefined,
+      cost:
+        packSize && row.packCost ? Number(row.packCost) / packSize : undefined,
+      price:
+        packSize && row.packMrp ? Number(row.packMrp) / packSize : undefined,
+      hsnCode: row.hsnCode,
+      unitType: row.packUnit,
+    });
+    return { id: created.id, created: true };
+  }
+
+  /** Find-or-create the catch-all "Imported" category for auto-created products. */
+  private async resolveImportCategory(tenantId: string): Promise<string> {
+    const existing = await this.prisma.inventoryCategory.findFirst({
+      where: { tenantId, code: 'IMPORTED', deletedAt: null },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+    const created = await this.prisma.inventoryCategory.create({
+      data: { tenantId, code: 'IMPORTED', name: 'Imported' },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  /** Find-or-create a manufacturer by name (EZHT auto-creates on import). */
+  private async resolveImportManufacturer(
+    tenantId: string,
+    name: string,
+  ): Promise<string> {
+    const existing = await this.prisma.inventoryManufacturer.findFirst({
+      where: { tenantId, name, deletedAt: null },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+    const created = await this.prisma.inventoryManufacturer.create({
+      data: { tenantId, name },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
   /** Paginated, filterable purchase list. */
   async findAll(
     tenantId: string,
@@ -343,17 +621,34 @@ export class PurchaseService {
       if (query.endDate) where.date.lte = new Date(query.endDate);
     }
 
-    const [data, total] = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.inventoryPurchase.findMany({
-        where,
-        include: { supplier: { select: { id: true, name: true } } },
-        orderBy: { date: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      });
-      const count = await tx.inventoryPurchase.count({ where });
-      return [rows, count] as const;
-    });
+    const [rows, total, returnedSet] = await this.prisma.$transaction(
+      async (tx) => {
+        const rows = await tx.inventoryPurchase.findMany({
+          where,
+          include: { supplier: { select: { id: true, name: true } } },
+          orderBy: { date: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        });
+        const count = await tx.inventoryPurchase.count({ where });
+        // Which of this page's purchases already have a return (EZHT edit/delete lock).
+        const ids = rows.map((r) => r.id);
+        const rets = ids.length
+          ? await tx.inventoryPurchaseReturn.findMany({
+              where: { purchaseId: { in: ids }, tenantId, deletedAt: null },
+              select: { purchaseId: true },
+              distinct: ['purchaseId'],
+            })
+          : [];
+        return [rows, count, new Set(rets.map((r) => r.purchaseId))] as const;
+      },
+    );
+    // Surface edit/delete eligibility so the UI can disable the actions.
+    const data = rows.map((r) => ({
+      ...r,
+      hasReturn: returnedSet.has(r.id),
+      hasPayment: D(r.paid).gt(0),
+    }));
     return { data, total, page, limit };
   }
 
@@ -381,17 +676,31 @@ export class PurchaseService {
    */
   async getDetail(id: string, tenantId: string) {
     const purchase = await this.findById(id, tenantId);
-    const [supplier, warehouse, createdByName] = await Promise.all([
-      this.supplierService.findById(purchase.supplierId, tenantId).catch(() => null),
-      resolveWarehouseDetail(this.branchClient, purchase.branchId),
-      resolveUserName(this.usersClient, purchase.createdBy),
-    ]);
+    const [supplier, warehouse, createdByName, returnCount] = await Promise.all(
+      [
+        this.supplierService
+          .findById(purchase.supplierId, tenantId)
+          .catch(() => null),
+        resolveWarehouseDetail(this.branchClient, purchase.branchId),
+        resolveUserName(this.usersClient, purchase.createdBy),
+        this.countReturns(id, tenantId),
+      ],
+    );
     return {
       ...purchase,
       supplier: supplier ?? purchase.supplier,
       warehouse,
       createdByName,
+      hasReturn: returnCount > 0,
+      hasPayment: D(purchase.paid).gt(0),
     };
+  }
+
+  /** Count non-deleted returns referencing a purchase (EZHT edit/delete lock). */
+  private countReturns(purchaseId: string, tenantId: string): Promise<number> {
+    return this.prisma.inventoryPurchaseReturn.count({
+      where: { purchaseId, tenantId, deletedAt: null },
+    });
   }
 
   /**
@@ -406,41 +715,92 @@ export class PurchaseService {
     dto: CreatePurchaseDto,
   ) {
     const existing = await this.findById(id, tenantId);
+    // EZHT: a purchase that has been (partly) returned is locked against editing.
+    if ((await this.countReturns(id, tenantId)) > 0) {
+      throw new PurchaseLockedException(
+        'This purchase has a return and can no longer be edited.',
+        { id },
+      );
+    }
     const warehouse = await this.resolveWarehouse(
       branchId,
       dto.warehouseId ?? existing.branchId,
     );
     await this.supplierService.findById(dto.supplierId, tenantId);
 
-    const { lines, totals } = await this.buildPurchaseLines(tenantId, dto);
+    const { lines, totals, stockTracked } = await this.buildPurchaseLines(
+      tenantId,
+      dto,
+    );
     const newStatus =
       dto.status ?? (existing.status as 'RECEIVED' | 'ORDERED' | 'PENDING');
     const date = dto.date ? new Date(dto.date) : existing.date;
 
     return this.prisma.withTenant(tenantId, async (tx) => {
-      // 1. Reverse previous inbound if the purchase had added stock.
+      // 1. Reverse previous inbound if the purchase had added stock. Also retire the
+      //    batches this purchase created (consistent with the aggregate reversal).
       if (existing.status === 'RECEIVED') {
         for (const l of existing.items) {
+          // Reverse the full inbound (chargeable + free units).
+          const prevInbound = D(l.quantity).add(l.freeQuantity ?? 0);
           await this.stockService.applyDelta(tx, {
             tenantId,
             branchId: existing.branchId,
             productId: l.productId,
-            delta: D(l.quantity).negated(),
+            delta: prevInbound.negated(),
+            allowNegative: true,
           });
+          // Reverse the variant's branch stock too (allow negative — a reversal
+          // must never be blocked).
+          if (l.optionId) {
+            await this.stockService.applyVariantDelta(tx, {
+              tenantId,
+              branchId: existing.branchId,
+              variantId: l.optionId,
+              delta: prevInbound.negated(),
+              allowNegative: true,
+            });
+          }
         }
+        await tx.inventoryProductBatch.updateMany({
+          where: { sourcePurchaseId: id, tenantId, deletedAt: null },
+          data: { deletedAt: new Date() },
+        });
       }
       // 2. Replace line items.
       await tx.inventoryPurchaseItem.deleteMany({ where: { purchaseId: id } });
-      // 3. Apply new inbound if the edited purchase is RECEIVED.
+      // 3. Apply new inbound if the edited purchase is RECEIVED (batch per line).
       if (newStatus === 'RECEIVED') {
-        for (const l of lines) {
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i]!;
+          if (!stockTracked[i]) continue;
+          const inbound = receivedQty(l);
           await this.stockService.applyDelta(tx, {
             tenantId,
             branchId: warehouse,
             productId: l.productId,
-            delta: l.quantity,
+            delta: inbound,
             cost: l.cost,
           });
+          await this.batchService.createBatch(tx, {
+            tenantId,
+            branchId: warehouse,
+            productId: l.productId,
+            batchNo: l.batchNo,
+            expiryDate: l.expiryDate,
+            quantity: inbound,
+            cost: l.cost,
+            sourcePurchaseId: id,
+          });
+          if (l.optionId) {
+            await this.stockService.applyVariantDelta(tx, {
+              tenantId,
+              branchId: warehouse,
+              variantId: l.optionId,
+              delta: inbound,
+              cost: l.cost,
+            });
+          }
         }
       }
       const paid = D(existing.paid);
@@ -498,6 +858,7 @@ export class PurchaseService {
           ccType: dto.ccType,
           ccMonth: dto.ccMonth,
           ccYear: dto.ccYear,
+          attachmentUrl: dto.attachmentUrl,
           createdBy: actorId,
         },
       });
@@ -539,6 +900,7 @@ export class PurchaseService {
           ccType: dto.ccType,
           ccMonth: dto.ccMonth,
           ccYear: dto.ccYear,
+          attachmentUrl: dto.attachmentUrl,
         },
       });
       return this.recomputePaid(tx, id);
@@ -584,6 +946,55 @@ export class PurchaseService {
   }
 
   // ── Supplier payments (legacy Purchases::supplier_payments) ───────────────────
+
+  /**
+   * Supplier-payments screen listing (EZHT `getSupplierPayments`): a paginated,
+   * filterable list of purchases (any supplier) with grand total / paid / balance /
+   * payment status. Filters: supplier, reference, date range. Returns one row per
+   * purchase so the UI can multi-select a supplier's rows and allocate a payment.
+   */
+  async supplierPaymentsList(
+    tenantId: string,
+    query: PurchaseQueryDto,
+  ): Promise<PaginatedResult<unknown>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const where: Prisma.InventoryPurchaseWhereInput = {
+      tenantId,
+      deletedAt: null,
+    };
+    if (query.search)
+      where.reference = { contains: query.search, mode: 'insensitive' };
+    if (query.supplierId) where.supplierId = query.supplierId;
+    if (query.startDate || query.endDate) {
+      where.date = {};
+      if (query.startDate) where.date.gte = new Date(query.startDate);
+      if (query.endDate) where.date.lte = new Date(query.endDate);
+    }
+
+    const [rows, total] = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.inventoryPurchase.findMany({
+        where,
+        include: { supplier: { select: { id: true, name: true } } },
+        orderBy: { date: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      });
+      return [rows, await tx.inventoryPurchase.count({ where })] as const;
+    });
+    const data = rows.map((r) => ({
+      id: r.id,
+      reference: r.reference,
+      date: r.date,
+      status: r.status,
+      grandTotal: r.grandTotal,
+      paid: r.paid,
+      balance: D(r.grandTotal).sub(r.paid),
+      paymentStatus: r.paymentStatus,
+      supplier: r.supplier,
+    }));
+    return { data, total, page, limit };
+  }
 
   /** List a supplier's purchases that still have an outstanding balance. */
   async supplierOutstanding(supplierId: string, tenantId: string) {
@@ -723,13 +1134,58 @@ export class PurchaseService {
     return { expenses, total };
   }
 
-  /** Soft-delete a purchase (does not reverse stock — a return does that). */
+  /**
+   * Soft-delete a purchase (EZHT `Purchases::delete`). Blocked when the purchase
+   * has recorded payments or a return. When it had added stock (RECEIVED), the
+   * inbound is reversed (aggregate + variant) and this purchase's batches retired,
+   * mirroring the edit-reversal path.
+   */
   async remove(id: string, tenantId: string) {
-    await this.findById(id, tenantId);
-    return this.prisma.inventoryPurchase.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-      select: { id: true, deletedAt: true },
+    const existing = await this.findById(id, tenantId);
+    if (D(existing.paid).gt(0)) {
+      throw new PurchaseLockedException(
+        'This purchase has payments and cannot be deleted. Remove the payments first.',
+        { id },
+      );
+    }
+    if ((await this.countReturns(id, tenantId)) > 0) {
+      throw new PurchaseLockedException(
+        'This purchase has a return and cannot be deleted.',
+        { id },
+      );
+    }
+
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      if (existing.status === 'RECEIVED') {
+        for (const l of existing.items) {
+          const prevInbound = D(l.quantity).add(l.freeQuantity ?? 0);
+          await this.stockService.applyDelta(tx, {
+            tenantId,
+            branchId: existing.branchId,
+            productId: l.productId,
+            delta: prevInbound.negated(),
+            allowNegative: true,
+          });
+          if (l.optionId) {
+            await this.stockService.applyVariantDelta(tx, {
+              tenantId,
+              branchId: existing.branchId,
+              variantId: l.optionId,
+              delta: prevInbound.negated(),
+              allowNegative: true,
+            });
+          }
+        }
+        await tx.inventoryProductBatch.updateMany({
+          where: { sourcePurchaseId: id, tenantId, deletedAt: null },
+          data: { deletedAt: new Date() },
+        });
+      }
+      return tx.inventoryPurchase.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+        select: { id: true, deletedAt: true },
+      });
     });
   }
 }

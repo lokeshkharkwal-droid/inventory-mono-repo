@@ -16,6 +16,9 @@ export interface PurchaseListRow {
   paid: number;
   paymentStatus: string;
   supplier: { id: string; name: string } | null;
+  /** EZHT edit/delete locks: a return exists / payments recorded. */
+  hasReturn?: boolean;
+  hasPayment?: boolean;
 }
 
 export interface PurchaseItem {
@@ -55,6 +58,10 @@ export interface PurchasePayment {
   reference: string | null;
   note: string | null;
   chequeNo: string | null;
+  ccNo: string | null;
+  ccHolder: string | null;
+  ccType: string | null;
+  attachmentUrl: string | null;
 }
 
 /** The purchase "Supplier" party, with the contact + GST fields the detail view needs. */
@@ -106,6 +113,9 @@ export interface PurchaseDetail extends PurchaseListRow {
   isEdited: boolean;
   isBloodDonation: boolean;
   donorName: string | null;
+  /** EZHT edit/delete locks resolved server-side. */
+  hasReturn: boolean;
+  hasPayment: boolean;
   items: PurchaseItem[];
   payments: PurchasePayment[];
 }
@@ -177,6 +187,49 @@ export interface SupplierOutstandingRow {
   balance: number;
 }
 
+/** A row in the supplier-payments screen listing (EZHT getSupplierPayments). */
+export interface SupplierPaymentListRow {
+  id: string;
+  reference: string;
+  date: string;
+  status: string;
+  grandTotal: number;
+  paid: number;
+  balance: number;
+  paymentStatus: string;
+  supplier: { id: string; name: string } | null;
+}
+
+/** Paginated, filterable list of purchases for the supplier-payments screen. */
+export function useSupplierPaymentsList(params: {
+  page: number;
+  limit: number;
+  supplierId?: string;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
+  return useQuery({
+    queryKey: [...KEY, 'supplier-payments-list', params],
+    queryFn: () =>
+      requestPaged<SupplierPaymentListRow>(
+        'GET',
+        '/purchases/supplier-payments',
+        {
+          query: {
+            page: params.page,
+            limit: params.limit,
+            supplierId: params.supplierId || undefined,
+            search: params.search || undefined,
+            startDate: params.startDate || undefined,
+            endDate: params.endDate || undefined,
+          },
+        },
+      ),
+    placeholderData: (prev) => prev,
+  });
+}
+
 /** A supplier's purchases that still carry an outstanding balance. */
 export function useSupplierOutstanding(supplierId: string | null) {
   return useQuery({
@@ -236,6 +289,22 @@ export function usePurchaseExpenses(purchaseId: string | null) {
         `/purchases/${purchaseId}/expenses`,
       ),
     enabled: !!purchaseId,
+  });
+}
+
+/**
+ * EZHT single-document purchase import: one header + CSV line items → one
+ * purchase (missing products auto-created). Pass `dryRun: true` to preview.
+ */
+export function useImportPurchaseDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Record<string, unknown>) =>
+      request('POST', '/purchases/import-document', { body: input }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ['products'] });
+    },
   });
 }
 

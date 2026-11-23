@@ -9,6 +9,7 @@ import {
   type LocationValue,
 } from '@/components/shared/LocationSelect';
 import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
 import '@/styles/ezht-form.css';
 
 interface FormShape {
@@ -56,8 +57,15 @@ export function SupplierFormPage() {
   const create = supplierHooks.useCreate();
   const update = supplierHooks.useUpdate();
 
-  const { register, handleSubmit, reset } = useForm<FormShape>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<FormShape>({
     defaultValues: EMPTY,
+    mode: 'onTouched',
   });
   const [location, setLocation] = useState<LocationValue>(EMPTY_LOCATION);
 
@@ -120,7 +128,23 @@ export function SupplierFormPage() {
       }
       navigate('/suppliers');
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save supplier'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: [
+          'company',
+          'email',
+          'address',
+          'zip',
+          'status',
+          'name',
+          'phone',
+          'drugLicense',
+          'vatNo',
+          'gstNo',
+          'panNo',
+          'gstState',
+        ],
+      });
+      if (!mapped) toast.error(getApiErrorMessage(err, 'Could not save supplier'));
     }
   });
 
@@ -150,9 +174,12 @@ export function SupplierFormPage() {
                 <input
                   id="company"
                   className="ezht-control"
-                  required
-                  {...register('company', { required: true })}
+                  aria-invalid={!!errors.company}
+                  {...register('company', { required: 'Company is required' })}
                 />
+                {errors.company && (
+                  <p className="ezht-error">{errors.company?.message as string}</p>
+                )}
               </div>
 
               <div className="ezht-form-group">
@@ -163,9 +190,12 @@ export function SupplierFormPage() {
                   id="email"
                   type="email"
                   className="ezht-control"
-                  required
-                  {...register('email', { required: true })}
+                  aria-invalid={!!errors.email}
+                  {...register('email', { required: 'Email Address is required' })}
                 />
+                {errors.email && (
+                  <p className="ezht-error">{errors.email?.message as string}</p>
+                )}
               </div>
 
               <div className="ezht-form-group">
@@ -175,9 +205,12 @@ export function SupplierFormPage() {
                 <input
                   id="address"
                   className="ezht-control"
-                  required
-                  {...register('address', { required: true })}
+                  aria-invalid={!!errors.address}
+                  {...register('address', { required: 'Address is required' })}
                 />
+                {errors.address && (
+                  <p className="ezht-error">{errors.address?.message as string}</p>
+                )}
               </div>
 
               <LocationSelect value={location} onChange={setLocation} required />
@@ -190,9 +223,12 @@ export function SupplierFormPage() {
                   id="zip"
                   className="ezht-control"
                   maxLength={6}
-                  required
-                  {...register('zip', { required: true })}
+                  aria-invalid={!!errors.zip}
+                  {...register('zip', { required: 'Postal Code is required' })}
                 />
+                {errors.zip && (
+                  <p className="ezht-error">{errors.zip?.message as string}</p>
+                )}
               </div>
 
               <div className="ezht-form-group">
@@ -202,12 +238,15 @@ export function SupplierFormPage() {
                 <select
                   id="status"
                   className="ezht-control"
-                  required
-                  {...register('status', { required: true })}
+                  aria-invalid={!!errors.status}
+                  {...register('status', { required: 'Status is required' })}
                 >
                   <option value="1">Active</option>
                   <option value="0">Inactive</option>
                 </select>
+                {errors.status && (
+                  <p className="ezht-error">{errors.status?.message as string}</p>
+                )}
               </div>
             </div>
 
@@ -220,9 +259,12 @@ export function SupplierFormPage() {
                 <input
                   id="name"
                   className="ezht-control"
-                  required
-                  {...register('name', { required: true })}
+                  aria-invalid={!!errors.name}
+                  {...register('name', { required: 'Name is required' })}
                 />
+                {errors.name && (
+                  <p className="ezht-error">{errors.name?.message as string}</p>
+                )}
               </div>
 
               <div className="ezht-form-group">
@@ -233,9 +275,12 @@ export function SupplierFormPage() {
                   id="phone"
                   type="tel"
                   className="ezht-control"
-                  required
-                  {...register('phone', { required: true })}
+                  aria-invalid={!!errors.phone}
+                  {...register('phone', { required: 'Phone is required' })}
                 />
+                {errors.phone && (
+                  <p className="ezht-error">{errors.phone?.message as string}</p>
+                )}
               </div>
 
               <div className="ezht-form-group">

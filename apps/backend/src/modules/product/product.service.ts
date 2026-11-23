@@ -14,7 +14,6 @@ import {
   CreateProductDto,
   ProductSupplierInputDto,
   ProductVariantInputDto,
-  ProductWarehouseStockInputDto,
 } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
@@ -60,7 +59,8 @@ const PRODUCT_INCLUDE = {
     },
   },
   drugs: {
-    select: { id: true, name: true, unitValue: true, unit: true },
+    where: { deletedAt: null },
+    select: { id: true, drugId: true, name: true, unitValue: true, unit: true },
   },
 } satisfies Prisma.InventoryProductInclude;
 
@@ -158,25 +158,6 @@ function buildSupplierCreate(
   };
 }
 
-/** Build the nested initial per-branch stock create payload. */
-function buildWarehouseStockCreate(
-  tenantId: string,
-  stocks: ProductWarehouseStockInputDto[] | undefined,
-):
-  | Prisma.InventoryWarehouseProductCreateNestedManyWithoutProductInput
-  | undefined {
-  if (!stocks?.length) return undefined;
-  return {
-    create: stocks.map((w) => ({
-      tenantId,
-      branchId: w.branchId,
-      quantity: w.quantity ?? 0,
-      avgCost: w.cost ?? 0,
-      rack: w.rack,
-    })),
-  };
-}
-
 /**
  * Products — tenant-level catalogue (CLAUDE.md §4.7). References (category/
  * sub-category/unit/brand/tax) are validated via injected master-data services
@@ -233,20 +214,71 @@ export class ProductService {
           sourceMasterProductId: dto.sourceMasterProductId,
           variants: buildVariantCreate(tenantId, dto.variants),
           suppliers: buildSupplierCreate(tenantId, dto.suppliers),
-          warehouseStocks: buildWarehouseStockCreate(
-            tenantId,
-            dto.warehouseStocks,
-          ),
+          // No base opening warehouse stock on create — products are tenant-level and
+          // branch stock is seeded lazily via quantity adjustments (Adjust Quantities).
+          // Variant opening stock (below) is the one exception, mirroring EZHT.
         },
         include: PRODUCT_INCLUDE,
       });
+
+      // Variant opening stock (EZHT "attributes" with a warehouse qty) seeds BOTH the
+      // per-variant ledger (created above) AND the aggregate product warehouse row, so
+      // the product total stays in lock-step with its variant breakdown — exactly as a
+      // variant sale/purchase/adjustment later moves both.
+      await this.seedVariantBaseStock(tx, tenantId, product.id, dto.variants);
+
       return product;
     });
   }
 
-  /** Paginated, filterable product list with a computed total on-hand quantity. */
+  /**
+   * Increment the aggregate (branch, product) warehouse stock by each variant's
+   * opening quantity, so the product total reflects its variants from creation.
+   * Quantities are summed per branch. No-op when no variant carries opening stock.
+   */
+  private async seedVariantBaseStock(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    productId: string,
+    variants: ProductVariantInputDto[] | undefined,
+  ): Promise<void> {
+    if (!variants?.length) return;
+    const perBranch = new Map<string, { qty: Prisma.Decimal; cost?: number }>();
+    for (const v of variants) {
+      if (!v.branchId || v.quantity == null) continue;
+      const cur = perBranch.get(v.branchId) ?? { qty: new Prisma.Decimal(0) };
+      cur.qty = cur.qty.add(new Prisma.Decimal(v.quantity));
+      if (v.cost != null) cur.cost = v.cost;
+      perBranch.set(v.branchId, cur);
+    }
+    for (const [branchId, { qty, cost }] of perBranch) {
+      if (qty.lte(0)) continue;
+      await tx.inventoryWarehouseProduct.upsert({
+        where: { productId_branchId: { productId, branchId } },
+        update: { quantity: { increment: qty } },
+        create: {
+          tenantId,
+          branchId,
+          productId,
+          quantity: qty,
+          avgCost:
+            cost != null ? new Prisma.Decimal(cost) : new Prisma.Decimal(0),
+        },
+      });
+    }
+  }
+
+  /**
+   * Paginated, filterable product list. Products are tenant-level (every product
+   * is listed for the tenant), but quantity/pricing/batch values are scoped to the
+   * caller's **active branch** (`branchId`): we read only that branch's warehouse
+   * row and fall back to the product's tenant-level defaults when the branch has no
+   * stock yet. Cross-branch quantities are never summed. A null `branchId` (a
+   * tenant-level profile with no active branch) yields zero/empty branch inventory.
+   */
   async findAll(
     tenantId: string,
+    branchId: string | null,
     query: ProductQueryDto,
   ): Promise<PaginatedResult<unknown>> {
     const page = query.page ?? 1;
@@ -278,16 +310,35 @@ export class ProductService {
           price: true,
           packCost: true,
           packMrp: true,
+          packSize: true,
           alertQuantity: true,
           imageUrl: true,
           isActive: true,
+          // Product default tax (EZHT purchase/sale auto-fill: the line's tax rate +
+          // inclusive/exclusive method come from the product, not a per-row picker).
+          taxRateId: true,
+          taxMethodPurchase: true,
+          taxRate: { select: { rate: true } },
           category: { select: { id: true, name: true } },
           subCategory: { select: { id: true, name: true } },
           brand: { select: { id: true, name: true } },
           unit: { select: { id: true, name: true } },
+          // Only the active branch's stock row (never a cross-branch set). A null
+          // branch matches nothing, leaving the product with empty branch inventory.
           warehouseStocks: {
-            where: { deletedAt: null },
-            select: { quantity: true, rack: true },
+            where: { deletedAt: null, branchId: branchId ?? '__none__' },
+            select: {
+              quantity: true,
+              rack: true,
+              avgCost: true,
+              unitMrp: true,
+              packMrp: true,
+              packSize: true,
+              packQuantity: true,
+              batchNo: true,
+              expiryDate: true,
+            },
+            take: 1,
           },
         },
         orderBy: { name: 'asc' },
@@ -298,16 +349,29 @@ export class ProductService {
       return [items, count] as const;
     });
 
-    // Flatten per-branch stock into a single total for the list row; surface the
-    // first non-empty rack (EZHT only shows rack in a warehouse-specific view).
-    const data = rows.map(({ warehouseStocks, ...p }) => ({
-      ...p,
-      totalQuantity: warehouseStocks.reduce(
-        (sum, s) => sum.add(s.quantity),
-        new Prisma.Decimal(0),
-      ),
-      rack: warehouseStocks.find((s) => s.rack)?.rack ?? null,
-    }));
+    // EZHT parity: the four money columns (Unit Cost, Unit MRP, Product Cost,
+    // Product MRP) always show the product-level values (`cost`/`price`/`packCost`/
+    // `packMrp`) — EZHT's listing joins the warehouse only for quantity/rack, never for
+    // pricing. Quantity/rack/batch remain scoped to the caller's active branch.
+    const data = rows.map(({ warehouseStocks, taxRate, ...p }) => {
+      const stock = warehouseStocks[0] ?? null;
+      return {
+        ...p,
+        quantity: stock?.quantity ?? new Prisma.Decimal(0),
+        rack: stock?.rack ?? null,
+        cost: p.cost,
+        price: p.price,
+        packMrp: p.packMrp,
+        // Prefer the product-level pack size (EZHT auto-fill source); fall back to
+        // the active-branch stock row when the product has none.
+        packSize: p.packSize ?? stock?.packSize ?? null,
+        packQuantity: stock?.packQuantity ?? null,
+        // Default tax rate (%) for auto-fill on line add; 0 when the product has none.
+        taxRatePercent: taxRate ? taxRate.rate : new Prisma.Decimal(0),
+        batchNo: stock?.batchNo ?? null,
+        expiryDate: stock?.expiryDate ?? null,
+      };
+    });
 
     return { data, total, page, limit };
   }
@@ -593,6 +657,7 @@ export class ProductService {
             ? {
                 create: source.drugs.map((d) => ({
                   tenantId,
+                  drugId: d.drugId,
                   name: d.name,
                   unitValue: d.unitValue,
                   unit: d.unit,
@@ -615,42 +680,83 @@ export class ProductService {
   }
 
   // ── Drug composition (EZHT "Drugs" modal) ───────────────────────────────────
-  /** List a product's drug-composition rows. */
+  /** List a product's active drug-composition rows. */
   async listDrugs(id: string, tenantId: string) {
     await this.findById(id, tenantId);
     return this.prisma.inventoryProductDrug.findMany({
-      where: { productId: id, tenantId },
+      where: { productId: id, tenantId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  /** Add a drug-composition row to a product. */
+  /**
+   * Add a drug-composition row to a product (EZHT `add_drug`). When `drugId` is a
+   * master drug, its name is snapshotted; otherwise a free-text `name` is used. If
+   * a (soft-deleted or active) row already links the same master drug, it is
+   * re-activated/updated instead of duplicated (EZHT `activateProductRelation`).
+   */
   async addDrug(
     id: string,
     tenantId: string,
-    data: { name: string; unitValue?: string; unit?: string },
+    data: { drugId?: string; name?: string; unitValue?: string; unit?: string },
   ) {
     await this.findById(id, tenantId);
+
+    // Resolve the drug name — from the master when a drugId is supplied.
+    let name = data.name?.trim();
+    if (data.drugId) {
+      const master = await this.prisma.inventoryDrug.findFirst({
+        where: { id: data.drugId, tenantId, deletedAt: null },
+        select: { name: true },
+      });
+      if (!master) throw new ProductNotFoundException(data.drugId);
+      name = master.name;
+    }
+    if (!name) throw new ProductNotFoundException('drug');
+
+    // Re-activate parity: reuse an existing link to the same master drug.
+    if (data.drugId) {
+      const existing = await this.prisma.inventoryProductDrug.findFirst({
+        where: { productId: id, tenantId, drugId: data.drugId },
+        select: { id: true },
+      });
+      if (existing) {
+        return this.prisma.inventoryProductDrug.update({
+          where: { id: existing.id },
+          data: {
+            name,
+            unitValue: data.unitValue,
+            unit: data.unit,
+            deletedAt: null,
+          },
+        });
+      }
+    }
+
     return this.prisma.inventoryProductDrug.create({
       data: {
         tenantId,
         productId: id,
-        name: data.name,
+        drugId: data.drugId,
+        name,
         unitValue: data.unitValue,
         unit: data.unit,
       },
     });
   }
 
-  /** Delete a single drug-composition row from a product. */
+  /** Soft-delete a single drug-composition row from a product. */
   async removeDrug(id: string, tenantId: string, drugId: string) {
     await this.findById(id, tenantId);
     const row = await this.prisma.inventoryProductDrug.findFirst({
-      where: { id: drugId, productId: id, tenantId },
+      where: { id: drugId, productId: id, tenantId, deletedAt: null },
       select: { id: true },
     });
     if (!row) throw new ProductNotFoundException(drugId);
-    await this.prisma.inventoryProductDrug.delete({ where: { id: drugId } });
+    await this.prisma.inventoryProductDrug.update({
+      where: { id: drugId },
+      data: { deletedAt: new Date() },
+    });
     return { id: drugId };
   }
 

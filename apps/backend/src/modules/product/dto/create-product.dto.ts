@@ -266,11 +266,4 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => ProductSupplierInputDto)
   suppliers?: ProductSupplierInputDto[];
-
-  /** Initial per-branch stock (legacy warehouse quantities section). */
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => ProductWarehouseStockInputDto)
-  warehouseStocks?: ProductWarehouseStockInputDto[];
 }

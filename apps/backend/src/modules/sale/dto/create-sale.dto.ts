@@ -69,6 +69,14 @@ export class SaleItemDto {
   @MaxLength(50)
   hsnCode?: string;
 
+  /**
+   * The batch this line draws stock from (from `GET /products/:id/batches`). The
+   * server decrements exactly this batch. Optional for non-stock-tracked products.
+   */
+  @IsOptional()
+  @IsString()
+  batchId?: string;
+
   /** Batch / serial number for the sold units. */
   @IsOptional()
   @IsString()
@@ -227,6 +235,24 @@ export class CreateSaleDto {
   @IsString()
   @MaxLength(255)
   doctorName?: string;
+
+  /** External-referral link (opaque kalnostics id) chosen in the "Referral" field. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  referralId?: string;
+
+  /** Referral display-name snapshot (stored so lists/documents need no round-trip). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  referralName?: string;
+
+  /** Order Tags free-text (More Options). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  orderTags?: string;
 
   @IsOptional()
   @IsString()

@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { request } from '@/lib/http';
+import { openPdfBlob } from '@/lib/print';
 import { useInfiniteList } from '@/features/_shared/useInfiniteList';
+
+/** Render + open the requisition's PDF (kalnostics `inventory_requisition`). */
+export function openRequisitionPdf(id: string): Promise<void> {
+  return openPdfBlob(`/requisitions/${id}/pdf`, 'requisition');
+}
 
 /** A requisition row as returned by the list endpoint. */
 export interface RequisitionListRow {
@@ -12,6 +18,7 @@ export interface RequisitionListRow {
   fromBranchId: string | null;
   fromDepartmentName: string | null;
   toDepartmentName: string | null;
+  billerName: string | null;
   localPurchase: boolean;
   grandTotal: string | number;
   convertedToTransferId: string | null;
@@ -23,6 +30,11 @@ export interface RequisitionItem {
   productId: string;
   productName: string;
   productCode: string | null;
+  /** Specific source batch chosen for this line (EZHT batch/option). */
+  batchId: string | null;
+  batchNo: string | null;
+  serialNo: string | null;
+  expiryDate: string | null;
   quantity: string | number;
   unitPrice: string | number;
   netUnitPrice: string | number;
@@ -54,7 +66,22 @@ export interface RequisitionDetail extends RequisitionListRow {
   orderTax: string | number;
   shipping: string | number;
   subtotal: string | number;
+  productDiscount: string | number;
   totalTax: string | number;
+  // EZHT identity + referral fields.
+  billerId: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  referralSourceType: string | null;
+  referralContactFname: string | null;
+  referralContactMname: string | null;
+  referralContactLname: string | null;
+  referralBusinessName: string | null;
+  referralBusinessAddress: string | null;
+  referralDoctorName: string | null;
+  referralSlnId: string | null;
   items: RequisitionItem[];
   statusHistory: RequisitionStatusEntry[];
 }

@@ -1,9 +1,11 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { KalnosticsBranchClient } from './clients/kalnostics-branch.client';
 import { KalnosticsDepartmentClient } from './clients/kalnostics-department.client';
 import { KalnosticsLabTestClient } from './clients/kalnostics-lab-test.client';
 import { KalnosticsLocationClient } from './clients/kalnostics-location.client';
 import { KalnosticsUsersClient } from './clients/kalnostics-users.client';
+import { KalnosticsReferralClient } from './clients/kalnostics-referral.client';
+import { CreateReferralDto } from './dto/create-referral.dto';
 
 /**
  * Thin passthrough endpoints exposing kalnostics reference data the inventory
@@ -19,6 +21,7 @@ export class IntegrationController {
     private readonly labTestClient: KalnosticsLabTestClient,
     private readonly locationClient: KalnosticsLocationClient,
     private readonly usersClient: KalnosticsUsersClient,
+    private readonly referralClient: KalnosticsReferralClient,
   ) {}
 
   /**
@@ -68,6 +71,32 @@ export class IntegrationController {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  /**
+   * External-referral options (`{ id, name }`, paginated/searchable) — powers the
+   * Add-Sale "Referral" selector. Proxies kalnostics `GET /external-referrals/options`.
+   */
+  @Get('referrals')
+  referrals(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.referralClient.getOptions({
+      search,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  /**
+   * Inline "Add Referral" from the Add-Sale page — creates an external referral in
+   * the caller's tenant. Proxies kalnostics `POST /external-referrals`.
+   */
+  @Post('referrals')
+  createReferral(@Body() dto: CreateReferralDto) {
+    return this.referralClient.create({ ...dto });
   }
 
   // ── SiteAdmin location reference (Country → State → City) ──────────────────

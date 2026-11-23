@@ -1,0 +1,40 @@
+meta {
+  name: 60 Branch isolation - validate at branch B
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proforma-consumption/validate
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "branchId": "{{branchB}}",
+    "labTestSourceIds": [
+      "{{labTest1}}", "{{labTest2}}", "{{labTest3}}", "{{labTest4}}", "{{labTest5}}"
+    ]
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.hasMapping: eq false
+}
+
+tests {
+  test("proforma does not apply at branch B (no cross-branch leak)", function () {
+    expect(res.body.data.products.length).to.equal(0);
+  });
+}
+
+docs {
+  The proforma is mapped only to branch A. At branch B it does not apply, so an
+  order there would deduct nothing from this proforma — branch isolation.
+}

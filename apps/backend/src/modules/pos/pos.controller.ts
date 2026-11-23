@@ -44,8 +44,12 @@ export class PosController {
   }
 
   @Post('verify-pin')
-  verifyPin(@CurrentTenant() tenantId: string, @Body() dto: VerifyPinDto) {
-    return this.posService.verifyPin(tenantId, dto.pin);
+  verifyPin(
+    @CurrentTenant() tenantId: string,
+    @CurrentProfile() profile: ActiveProfile,
+    @Body() dto: VerifyPinDto,
+  ) {
+    return this.posService.verifyPin(tenantId, profile.branchId, dto.pin);
   }
 
   @Get('gateway-balances')
@@ -128,7 +132,11 @@ export class PosController {
   }
 
   @Get('lookup')
-  lookup(@CurrentTenant() tenantId: string, @Query('search') search?: string) {
-    return this.posService.lookup(tenantId, search);
+  lookup(
+    @CurrentTenant() tenantId: string,
+    @CurrentProfile() profile: ActiveProfile,
+    @Query('search') search?: string,
+  ) {
+    return this.posService.lookup(tenantId, profile.branchId, search);
   }
 }

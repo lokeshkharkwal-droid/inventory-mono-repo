@@ -1,9 +1,13 @@
 import { useEffect } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, type RegisterOptions } from 'react-hook-form';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { FieldError } from '@/components/ui/field-error';
 import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
+import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
 import { cn } from '@/lib/utils';
 import type { FieldConfig } from '@/components/shared/CrudFormDialog';
 
@@ -16,15 +20,39 @@ interface Props {
   submitting?: boolean;
   submitLabel?: string;
   onCancel?: () => void;
-  /** Receives the typed values (numbers/arrays/booleans coerced per field). */
-  onSubmit: (values: Record<string, unknown>) => void;
+  /**
+   * Receives the typed values (numbers/arrays/booleans coerced per field). May
+   * return a promise; if it rejects, the error is mapped onto the relevant field
+   * (or shown as a toast fallback) by this form — callers should not swallow it.
+   */
+  onSubmit: (values: Record<string, unknown>) => void | Promise<void>;
   /** Wrapper/footer styling — `dialog` pins the footer, `page` is inline. */
   variant?: 'dialog' | 'page';
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Build react-hook-form validation rules from a field's declarative config. */
+function buildRules(f: FieldConfig): RegisterOptions<FormShape> {
+  const rules: RegisterOptions<FormShape> = {};
+  if (f.required) rules.required = `${f.label} is required`;
+  if (f.type === 'number') {
+    if (f.min != null) rules.min = { value: f.min, message: `Minimum ${f.min}` };
+    if (f.max != null) rules.max = { value: f.max, message: `Maximum ${f.max}` };
+  }
+  if (f.maxLength != null) {
+    rules.maxLength = { value: f.maxLength, message: `Max ${f.maxLength} characters` };
+  }
+  if (f.pattern) rules.pattern = f.pattern;
+  if (f.type === 'email' && !f.pattern) {
+    rules.pattern = { value: EMAIL_RE, message: 'Enter a valid email' };
+  }
+  return rules;
+}
+
 /** Shared control styling — matches the Input primitive for a consistent form. */
 const CONTROL =
-  'flex w-full rounded-lg border border-input bg-background px-3.5 py-2 text-sm shadow-xs transition-colors duration-150 placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50';
+  'flex w-full rounded-lg border border-input bg-background px-3.5 py-2 text-sm shadow-xs transition-colors duration-150 placeholder:text-muted-foreground hover:border-muted-foreground/40 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:ring-destructive/30';
 
 const spansFull = (f: FieldConfig) =>
   f.fullWidth || f.type === 'textarea' || f.type === 'bool' || f.type === 'tags';
@@ -43,8 +71,16 @@ export function CrudForm({
   onSubmit,
   variant = 'dialog',
 }: Props) {
-  const { register, handleSubmit, reset, control } = useForm<FormShape>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    setError,
+    formState: { errors },
+  } = useForm<FormShape>({
     defaultValues: initialValues,
+    mode: 'onTouched',
   });
 
   // Re-seed when the incoming values change (e.g. edit record loads).
@@ -52,7 +88,7 @@ export function CrudForm({
     reset(initialValues);
   }, [initialValues, reset]);
 
-  const submit = handleSubmit((raw) => {
+  const submit = handleSubmit(async (raw) => {
     const out: Record<string, unknown> = {};
     for (const f of fields) {
       const v = raw[f.name];
@@ -69,7 +105,14 @@ export function CrudForm({
         out[f.name] = v === '' ? undefined : v;
       }
     }
-    onSubmit(out);
+    try {
+      await onSubmit(out);
+    } catch (err) {
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: fields.map((f) => f.name),
+      });
+      if (!mapped) toast.error(getApiErrorMessage(err, 'Could not save'));
+    }
   });
 
   return (
@@ -92,9 +135,9 @@ export function CrudForm({
             {f.type === 'select' ? (
               <select
                 id={f.name}
-                required={f.required}
+                aria-invalid={!!errors[f.name]}
                 className={cn(CONTROL, 'h-10')}
-                {...register(f.name, { required: f.required })}
+                {...register(f.name, buildRules(f))}
               >
                 <option value="">—</option>
                 {f.options?.map((o) => (
@@ -107,7 +150,7 @@ export function CrudForm({
               <Controller
                 name={f.name}
                 control={control}
-                rules={{ required: f.required }}
+                rules={{ required: f.required ? `${f.label} is required` : false }}
                 render={({ field }) => (
                   <InfiniteSelect
                     id={f.name}
@@ -138,9 +181,9 @@ export function CrudForm({
               <textarea
                 id={f.name}
                 rows={3}
-                required={f.required}
+                aria-invalid={!!errors[f.name]}
                 className={cn(CONTROL, 'min-h-20 resize-y')}
-                {...register(f.name, { required: f.required })}
+                {...register(f.name, buildRules(f))}
               />
             ) : (
               <Input
@@ -154,14 +197,15 @@ export function CrudForm({
                         ? 'date'
                         : 'text'
                 }
-                required={f.required}
+                aria-invalid={!!errors[f.name]}
                 step={f.type === 'number' ? 'any' : undefined}
                 placeholder={
                   f.type === 'tags' ? 'Comma-separated values' : undefined
                 }
-                {...register(f.name, { required: f.required })}
+                {...register(f.name, buildRules(f))}
               />
             )}
+            <FieldError message={errors[f.name]?.message as string | undefined} />
           </div>
         ))}
       </div>

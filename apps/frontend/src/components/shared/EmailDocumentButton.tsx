@@ -15,22 +15,35 @@ import { request, getApiErrorMessage } from '@/lib/http';
 
 interface Props {
   /** Document kind the backend knows how to render + email. */
-  type: 'sale' | 'purchase' | 'quote' | 'proforma';
+  type: 'sale' | 'purchase' | 'quote' | 'proforma' | 'requisition' | 'transfer';
   id: string;
   /** Pre-fill the recipient (e.g. the customer/supplier email). */
   defaultTo?: string | null;
+  /** Pre-fill the subject line. */
+  defaultSubject?: string;
   title?: string;
 }
 
 /**
- * Emails a document (invoice / PO / quote / proforma) through the backend, which
- * forwards it to the kalnostics comms gateway. Opens a small dialog to confirm
- * the recipient and an optional message.
+ * Emails a document (invoice / PO / quote / proforma / requisition / transfer)
+ * through the backend, which forwards it to the kalnostics comms gateway. Opens a
+ * dialog to confirm the recipient, subject, optional CC/BCC and a message (EZHT
+ * email-dialog parity: To / Subject / Message, plus CC/BCC).
  */
-export function EmailDocumentButton({ type, id, defaultTo, title = 'Email' }: Props) {
+export function EmailDocumentButton({
+  type,
+  id,
+  defaultTo,
+  defaultSubject,
+  title = 'Email',
+}: Props) {
   const [open, setOpen] = useState(false);
   const [to, setTo] = useState(defaultTo ?? '');
+  const [subject, setSubject] = useState(defaultSubject ?? '');
+  const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
   const [message, setMessage] = useState('');
+  const [showMore, setShowMore] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const send = async () => {
@@ -41,7 +54,15 @@ export function EmailDocumentButton({ type, id, defaultTo, title = 'Email' }: Pr
     setBusy(true);
     try {
       await request('POST', '/print/email', {
-        body: { type, id, to: to.trim(), message: message || undefined },
+        body: {
+          type,
+          id,
+          to: to.trim(),
+          subject: subject.trim() || undefined,
+          cc: cc.trim() || undefined,
+          bcc: bcc.trim() || undefined,
+          message: message || undefined,
+        },
       });
       toast.success('Email queued.');
       setOpen(false);
@@ -61,6 +82,7 @@ export function EmailDocumentButton({ type, id, defaultTo, title = 'Email' }: Pr
         title={title}
         onClick={() => {
           setTo(defaultTo ?? '');
+          setSubject(defaultSubject ?? '');
           setOpen(true);
         }}
       >
@@ -83,6 +105,15 @@ export function EmailDocumentButton({ type, id, defaultTo, title = 'Email' }: Pr
               />
             </div>
             <div className="space-y-1.5">
+              <Label htmlFor="email-subject">Subject</Label>
+              <Input
+                id="email-subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="(default if blank)"
+              />
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="email-msg">Message (optional)</Label>
               <Input
                 id="email-msg"
@@ -91,6 +122,38 @@ export function EmailDocumentButton({ type, id, defaultTo, title = 'Email' }: Pr
                 placeholder="Please find your document attached."
               />
             </div>
+            {showMore ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email-cc">CC</Label>
+                  <Input
+                    id="email-cc"
+                    value={cc}
+                    onChange={(e) => setCc(e.target.value)}
+                    placeholder="comma-separated"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="email-bcc">BCC</Label>
+                  <Input
+                    id="email-bcc"
+                    value={bcc}
+                    onChange={(e) => setBcc(e.target.value)}
+                    placeholder="comma-separated"
+                  />
+                </div>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="px-0"
+                onClick={() => setShowMore(true)}
+              >
+                Add CC / BCC
+              </Button>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>

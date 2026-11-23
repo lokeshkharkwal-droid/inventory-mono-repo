@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
+import { resolveWarehouseNameMap } from '../../common/utils/party-detail.util';
 import { D, dateFilter } from './report-utils';
 import { ReportQueryDto } from './dto/reports-query.dto';
 
@@ -19,7 +21,10 @@ import { ReportQueryDto } from './dto/reports-query.dto';
  */
 @Injectable()
 export class ReportsFinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branchClient: KalnosticsBranchClient,
+  ) {}
 
   /**
    * Transfers Report — inter-branch stock movements over a date range, one row
@@ -27,8 +32,9 @@ export class ReportsFinanceService {
    * money totals. `InventoryTransfer` has no total/tax/shipping/grandTotal
    * columns, so Total is derived as Σ(item.quantity × item.cost), Total Tax and
    * Shipping are 0 and Grand Total equals Total (flagged in `dataGap`). Branch
-   * names are not stored on the transfer and there is no branch entity, so
-   * fromWarehouse/toWarehouse resolve to null. Sorted by date desc, capped at 1000.
+   * names are not stored on the transfer, so fromWarehouse/toWarehouse are
+   * resolved best-effort from the kalnostics Branch API (null if unreachable).
+   * Sorted by date desc, capped at 1000.
    *
    * @param tenantId tenant from JWT context (never the request body)
    * @param q report query filters (from/to, reference, createdBy, warehouseId,
@@ -59,7 +65,12 @@ export class ReportsFinanceService {
                   ? { product: { categoryId: q.categoryId } }
                   : {}),
                 ...(q.serial
-                  ? { productSerial: { contains: q.serial, mode: 'insensitive' } }
+                  ? {
+                      productSerial: {
+                        contains: q.serial,
+                        mode: 'insensitive',
+                      },
+                    }
                   : {}),
               },
             },
@@ -82,6 +93,11 @@ export class ReportsFinanceService {
       take: 1000,
     });
 
+    const branchMap = await resolveWarehouseNameMap(this.branchClient, [
+      ...transfers.map((t) => t.fromBranchId),
+      ...transfers.map((t) => t.toBranchId),
+    ]);
+
     const totals = {
       total: D(0),
       totalTax: D(0),
@@ -101,8 +117,12 @@ export class ReportsFinanceService {
         reference: t.reference,
         fromBranchId: t.fromBranchId,
         toBranchId: t.toBranchId,
-        fromWarehouse: null as string | null,
-        toWarehouse: null as string | null,
+        fromWarehouse: t.fromBranchId
+          ? (branchMap.get(t.fromBranchId) ?? null)
+          : null,
+        toWarehouse: t.toBranchId
+          ? (branchMap.get(t.toBranchId) ?? null)
+          : null,
         items: t.items.map((i) => ({
           productName: i.productName,
           quantity: i.quantity,
@@ -126,7 +146,7 @@ export class ReportsFinanceService {
       limit,
       total,
       dataGap:
-        'InventoryTransfer has no total/tax/shipping/grandTotal columns — Total is derived as Σ(quantity × cost), Total Tax and Shipping are 0, Grand Total equals Total. Branch names are not modelled, so fromWarehouse/toWarehouse are null (the Serial Number filter matches InventoryTransferItem.productSerial).',
+        'InventoryTransfer has no total/tax/shipping/grandTotal columns — Total is derived as Σ(quantity × cost), Total Tax and Shipping are 0, Grand Total equals Total. fromWarehouse/toWarehouse are resolved best-effort from the kalnostics Branch API (null if unreachable; the Serial Number filter matches InventoryTransferItem.productSerial).',
     };
   }
 

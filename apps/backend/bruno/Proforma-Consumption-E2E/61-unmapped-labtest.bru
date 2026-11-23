@@ -1,0 +1,31 @@
+meta {
+  name: 61 Unmapped lab test - no mapping
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proforma-consumption/validate
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "branchId": "{{branchA}}",
+    "labTestSourceIds": ["99999999-9999-4999-8999-999999999999"]
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.hasMapping: eq false
+}
+
+docs {
+  A lab test with no proforma mapping pulls no inventory (hasMapping=false).
+}

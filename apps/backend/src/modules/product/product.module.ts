@@ -11,6 +11,7 @@ import { AlertsModule } from '../alerts/alerts.module';
 import { ProductController } from './product.controller';
 import { ProductService } from './product.service';
 import { ProductStockService } from './product-stock.service';
+import { ProductBatchService } from './product-batch.service';
 import { ProductImportService } from './product-import.service';
 
 /**
@@ -31,7 +32,12 @@ import { ProductImportService } from './product-import.service';
     AlertsModule,
   ],
   controllers: [ProductController],
-  providers: [ProductService, ProductStockService, ProductImportService],
-  exports: [ProductService, ProductStockService],
+  providers: [
+    ProductService,
+    ProductStockService,
+    ProductBatchService,
+    ProductImportService,
+  ],
+  exports: [ProductService, ProductStockService, ProductBatchService],
 })
 export class ProductModule {}

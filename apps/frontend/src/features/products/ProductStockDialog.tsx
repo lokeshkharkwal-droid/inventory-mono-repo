@@ -20,6 +20,7 @@ import {
 import { getApiErrorMessage } from '@/lib/http';
 import {
   useProductStock,
+  useProductVariantStock,
   useRecordAdjustment,
   useSetRack,
   type ProductListRow,
@@ -34,6 +35,9 @@ interface Props {
 /** Shows per-branch stock and lets the user record an adjustment at their branch. */
 export function ProductStockDialog({ open, onOpenChange, product }: Props) {
   const { data: stock, isLoading } = useProductStock(open ? product?.id ?? null : null);
+  const { data: variantStock } = useProductVariantStock(
+    open ? product?.id ?? null : null,
+  );
   const adjust = useRecordAdjustment(product?.id ?? '');
   const setRackMut = useSetRack(product?.id ?? '');
   const [quantity, setQuantity] = useState('');
@@ -115,6 +119,50 @@ export function ProductStockDialog({ open, onOpenChange, product }: Props) {
             </TableBody>
           </Table>
         </div>
+
+        {(variantStock?.length ?? 0) > 0 && (
+          <div className="rounded-lg border">
+            <p className="border-b px-3 py-2 text-sm font-medium">
+              Variant stock
+            </p>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Variant</TableHead>
+                  <TableHead>Branch</TableHead>
+                  <TableHead>Quantity</TableHead>
+                  <TableHead>Cost</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {variantStock!.flatMap((v) =>
+                  v.warehouseStocks.length === 0
+                    ? [
+                        <TableRow key={v.id}>
+                          <TableCell>{v.name}</TableCell>
+                          <TableCell
+                            colSpan={3}
+                            className="text-muted-foreground"
+                          >
+                            No stock recorded yet.
+                          </TableCell>
+                        </TableRow>,
+                      ]
+                    : v.warehouseStocks.map((w) => (
+                        <TableRow key={w.id}>
+                          <TableCell>{v.name}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {w.branchId}
+                          </TableCell>
+                          <TableCell>{w.quantity}</TableCell>
+                          <TableCell>{w.cost ?? '—'}</TableCell>
+                        </TableRow>
+                      )),
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
 
         <div className="space-y-3 rounded-lg border p-4">
           <p className="text-sm font-medium">Record adjustment (at your active branch)</p>

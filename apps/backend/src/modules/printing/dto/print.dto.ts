@@ -65,8 +65,8 @@ export class BarcodeSheetDto {
  * (legacy Purchases/Sales "combine_pdf" action).
  */
 export class CombinePrintDto {
-  @IsIn(['purchase', 'sale'])
-  type: 'purchase' | 'sale';
+  @IsIn(['purchase', 'sale', 'quote', 'proforma', 'requisition', 'transfer'])
+  type: 'purchase' | 'sale' | 'quote' | 'proforma' | 'requisition' | 'transfer';
 
   @IsArray()
   @ArrayNotEmpty()
@@ -79,8 +79,23 @@ export class CombinePrintDto {
  * kalnostics comms gateway (legacy Sales::email_invoice / Purchases::email …).
  */
 export class EmailDocumentDto {
-  @IsIn(['sale', 'purchase', 'quote', 'proforma'])
-  type: 'sale' | 'purchase' | 'quote' | 'proforma';
+  @IsIn([
+    'sale',
+    'sale_return',
+    'purchase',
+    'quote',
+    'proforma',
+    'requisition',
+    'transfer',
+  ])
+  type:
+    | 'sale'
+    | 'sale_return'
+    | 'purchase'
+    | 'quote'
+    | 'proforma'
+    | 'requisition'
+    | 'transfer';
 
   @IsString()
   id: string;
@@ -93,6 +108,22 @@ export class EmailDocumentDto {
   @IsString()
   @MaxLength(255)
   subject?: string;
+
+  /** Comma-separated CC addresses (visible carbon copy). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  cc?: string;
+
+  /**
+   * Comma-separated BCC addresses. The comms gateway has no bcc field, so each is
+   * sent its own separate copy — preserving bcc's privacy (recipients stay hidden
+   * from each other and from the main recipient).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  bcc?: string;
 
   @IsOptional()
   @IsString()

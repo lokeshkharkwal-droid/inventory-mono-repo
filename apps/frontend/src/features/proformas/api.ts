@@ -13,6 +13,8 @@ export interface ProformaListRow {
   date: string;
   status: string;
   grandTotal: number;
+  /** Assigned branch names (EZHT "Branch Selection" column), comma-joined in the UI. */
+  branchNames: string[];
 }
 
 const KEY = ['proformas'] as const;

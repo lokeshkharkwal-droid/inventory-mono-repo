@@ -1,0 +1,42 @@
+meta {
+  name: 41 Consume retry (idempotent)
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proforma-consumption/consume
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "kalnosticsOrderId": "{{orderId}}",
+    "orderCode": "ORD-BRU-{{runSfx}}",
+    "branchId": "{{branchA}}",
+    "labTestSourceIds": [
+      "{{labTest1}}", "{{labTest2}}", "{{labTest3}}", "{{labTest4}}", "{{labTest5}}"
+    ]
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.alreadyConsumed: eq true
+}
+
+tests {
+  test("same sale returned, no second deduction", function () {
+    expect(res.body.data.saleId).to.equal(bru.getEnvVar("saleId"));
+  });
+}
+
+docs {
+  Re-submitting the same kalnosticsOrderId must NOT deduct again or create a second
+  sale. The unique inventory_order_consumptions.kalnostics_order_id is the guard.
+}

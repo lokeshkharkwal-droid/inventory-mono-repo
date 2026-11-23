@@ -6,7 +6,6 @@ import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { CrudForm } from '@/components/shared/CrudForm';
 import type { FieldConfig } from '@/components/shared/CrudFormDialog';
-import { getApiErrorMessage } from '@/lib/http';
 
 type FormValues = Record<string, string | boolean>;
 
@@ -65,19 +64,17 @@ export function EntityFormPage<T extends Row>({
     [isEdit, one.data, toFormValues, emptyValues],
   );
 
+  // Errors propagate to CrudForm, which maps them onto the relevant field (or
+  // falls back to a toast); success navigates back to the list.
   const onSubmit = async (values: Record<string, unknown>) => {
-    try {
-      if (isEdit && id) {
-        await update.mutateAsync({ id, input: values });
-        toast.success(`${entity} updated`);
-      } else {
-        await create.mutateAsync(values);
-        toast.success(`${entity} created`);
-      }
-      navigate(basePath);
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save'));
+    if (isEdit && id) {
+      await update.mutateAsync({ id, input: values });
+      toast.success(`${entity} updated`);
+    } else {
+      await create.mutateAsync(values);
+      toast.success(`${entity} created`);
     }
+    navigate(basePath);
   };
 
   return (

@@ -7,7 +7,9 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { SaleService } from './sale.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { SaleQueryDto } from './dto/sale-query.dto';
@@ -51,6 +53,31 @@ export class SaleController {
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.saleService.getDetail(id, tenantId);
+  }
+
+  /**
+   * Render this sale's "Template Invoice" as a PDF (via the mapped
+   * `inventory_invoice` kalnostics print template) and stream it back as
+   * `application/pdf`, opened inline in the browser. Uses a library-specific
+   * response so the global ResponseInterceptor doesn't wrap the binary.
+   */
+  @Get(':id/invoice-pdf')
+  async invoicePdf(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { pdf, reference } = await this.saleService.renderInvoicePdf(
+      id,
+      tenantId,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="invoice-${reference}.pdf"`,
+    );
+    res.setHeader('Content-Length', pdf.length);
+    res.end(pdf);
   }
 
   @Patch(':id')

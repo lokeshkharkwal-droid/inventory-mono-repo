@@ -1,0 +1,26 @@
+meta {
+  name: 72 Map zero proforma to branch A
+  type: http
+  seq: 25
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proformas/{{zeroProformaId}}/relations
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "entityType": "branch",
+    "entityId": "{{branchA}}"
+  }
+}
+
+assert {
+  res.status: eq 201
+}

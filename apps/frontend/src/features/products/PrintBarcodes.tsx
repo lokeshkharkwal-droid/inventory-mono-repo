@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Trash2, Printer, Search, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { getApiErrorMessage } from '@/lib/http';
 import { fetchPrintHtml, printIframe } from '@/lib/print';
 import { useProducts } from '@/features/products/api';
+import { usePurchase } from '@/features/purchases/api';
 
 interface Row {
   productId: string;
@@ -43,6 +45,25 @@ export function PrintBarcodes() {
   const [search, setSearch] = useState('');
   const { data } = useProducts({ page: 1, limit: 20, search });
   const [rows, setRows] = useState<Row[]>([]);
+
+  // EZHT: `products/print_barcode?purchase={id}` — prefill the sheet with the
+  // purchase's products (quantity = received quantity). Runs once per purchase.
+  const [searchParams] = useSearchParams();
+  const purchaseId = searchParams.get('purchase');
+  const { data: purchase } = usePurchase(purchaseId);
+  const prefilledFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!purchase || prefilledFor.current === purchase.id) return;
+    prefilledFor.current = purchase.id;
+    setRows(
+      purchase.items.map((it) => ({
+        productId: it.productId,
+        code: it.productCode ?? '',
+        name: it.productName,
+        quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
+      })),
+    );
+  }, [purchase]);
   const [style, setStyle] = useState<Style>('24');
   const [symbology, setSymbology] = useState<Symbology>('CODE128');
   const [showName, setShowName] = useState(true);

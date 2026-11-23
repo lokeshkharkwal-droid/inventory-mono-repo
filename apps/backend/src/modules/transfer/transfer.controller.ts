@@ -4,9 +4,12 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { TransferService } from './transfer.service';
 import {
   CreateTransferDto,
@@ -47,6 +50,36 @@ export class TransferController {
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.transferService.findById(id, tenantId);
+  }
+
+  /** Render the transfer as a PDF via the kalnostics print engine. */
+  @Get(':id/pdf')
+  async pdf(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { pdf, reference } = await this.transferService.renderTransferPdf(
+      id,
+      tenantId,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="transfer-${reference}.pdf"`,
+    );
+    res.setHeader('Content-Length', pdf.length);
+    res.end(pdf);
+  }
+
+  /** Edit a PENDING transfer (no stock moved yet). */
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: CreateTransferDto,
+  ) {
+    return this.transferService.update(id, tenantId, dto);
   }
 
   /** Send: remove stock from the source branch. */

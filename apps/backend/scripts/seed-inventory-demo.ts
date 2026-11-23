@@ -91,6 +91,7 @@ async function main(): Promise<void> {
       await tx.inventoryProductVariant.deleteMany(w);
       await tx.inventoryProductDrug.deleteMany(w);
       await tx.inventoryProduct.deleteMany(w);
+      await tx.inventoryDrug.deleteMany(w);
       await tx.inventoryCustomer.deleteMany(w);
       await tx.inventorySupplier.deleteMany(w);
       await tx.inventoryTaxRate.deleteMany(w);
@@ -158,6 +159,20 @@ async function main(): Promise<void> {
         data: [
           { id: incCat.consult, tenantId: TENANT, code: 'CONS', name: 'Consultation' },
           { id: incCat.misc, tenantId: TENANT, code: 'MISC', name: 'Miscellaneous' },
+        ],
+      });
+
+      // Drug master (EZHT `pharmacy_drug`) — feeds the product Drugs modal.
+      await tx.inventoryDrug.createMany({
+        data: [
+          { id: id(), tenantId: TENANT, name: 'Paracetamol', formulation: 'Tablet', therapeuticGroup: 'Analgesic' },
+          { id: id(), tenantId: TENANT, name: 'Ibuprofen', formulation: 'Tablet', therapeuticGroup: 'NSAID' },
+          { id: id(), tenantId: TENANT, name: 'Amoxicillin', formulation: 'Capsule', therapeuticGroup: 'Antibiotic' },
+          { id: id(), tenantId: TENANT, name: 'Azithromycin', formulation: 'Tablet', therapeuticGroup: 'Antibiotic' },
+          { id: id(), tenantId: TENANT, name: 'Metformin', formulation: 'Tablet', therapeuticGroup: 'Antidiabetic' },
+          { id: id(), tenantId: TENANT, name: 'Cetirizine', formulation: 'Tablet', therapeuticGroup: 'Antihistamine' },
+          { id: id(), tenantId: TENANT, name: 'Omeprazole', formulation: 'Capsule', therapeuticGroup: 'PPI' },
+          { id: id(), tenantId: TENANT, name: 'Aspirin', formulation: 'Tablet', therapeuticGroup: 'Antiplatelet' },
         ],
       });
 

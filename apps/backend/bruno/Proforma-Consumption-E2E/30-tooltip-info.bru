@@ -1,0 +1,36 @@
+meta {
+  name: 30 Tooltip info (registration hover)
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{inventoryBaseUrl}}/proforma-consumption/info?branchId={{branchA}}&labTestSourceId={{labTest1}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.mapped: eq true
+}
+
+tests {
+  test("tooltip returns both products with availability + alert", function () {
+    const products = res.body.data.proformas[0].products;
+    expect(products.length).to.equal(2);
+    products.forEach(function (p) {
+      expect(p).to.have.property("availableQty");
+      expect(p).to.have.property("alertQty");
+    });
+  });
+}
+
+docs {
+  Powers the kaltros /registration/create ProformaInfoIcon hover card. Single lab
+  test → mapped-test count is 1, so requiredQty shows the configured quantity.
+}

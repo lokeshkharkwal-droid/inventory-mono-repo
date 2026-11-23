@@ -6,6 +6,7 @@ import { expenseHooks } from '@/features/expenses/api';
 import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { useBranchOptions } from '@/features/_shared/branches';
 import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
 import '@/styles/ezht-form.css';
 
 interface FormShape {
@@ -45,8 +46,15 @@ export function ExpenseFormPage() {
   const { data: branches } = useBranchOptions();
   const warehouses = useMemo(() => branches ?? [], [branches]);
 
-  const { register, handleSubmit, reset } = useForm<FormShape>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<FormShape>({
     defaultValues: EMPTY,
+    mode: 'onTouched',
   });
   const [categoryId, setCategoryId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
@@ -89,7 +97,18 @@ export function ExpenseFormPage() {
       }
       navigate('/expenses');
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save expense'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: [
+          'date',
+          'reference',
+          'amount',
+          'hsnCode',
+          'gstNo',
+          'attachmentUrl',
+          'note',
+        ],
+      });
+      if (!mapped) toast.error(getApiErrorMessage(err, 'Could not save expense'));
     }
   });
 
@@ -112,7 +131,8 @@ export function ExpenseFormPage() {
             <label className="ezht-label" htmlFor="date">
               Date<span className="ezht-req">*</span>
             </label>
-            <input id="date" type="date" className="ezht-control" required {...register('date', { required: true })} />
+            <input id="date" type="date" className="ezht-control" aria-invalid={!!errors.date} {...register('date', { required: 'Date is required' })} />
+            {errors.date && <p className="ezht-error">{errors.date?.message as string}</p>}
           </div>
 
           <div className="ezht-form-group">
@@ -154,7 +174,8 @@ export function ExpenseFormPage() {
             <label className="ezht-label" htmlFor="amount">
               Amount<span className="ezht-req">*</span>
             </label>
-            <input id="amount" type="number" step="any" className="ezht-control" required {...register('amount', { required: true })} />
+            <input id="amount" type="number" step="any" className="ezht-control" aria-invalid={!!errors.amount} {...register('amount', { required: 'Amount is required' })} />
+            {errors.amount && <p className="ezht-error">{errors.amount?.message as string}</p>}
           </div>
 
           <div className="ezht-form-group">

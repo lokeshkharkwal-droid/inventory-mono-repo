@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProductStockService } from '../product/product-stock.service';
@@ -8,14 +8,43 @@ import {
 } from '../../common/utils/order-totals.util';
 import {
   ConsumeConsumptionDto,
+  LoadAdjustmentDto,
+  SaveAdjustmentDto,
   ValidateConsumptionDto,
 } from './dto/consumption.dto';
-import { InsufficientConsumptionStockException } from './exceptions/consumption.exceptions';
+import {
+  ConsumptionScopeMismatchException,
+  InsufficientConsumptionStockException,
+} from './exceptions/consumption.exceptions';
 
 const D = (v: number | string | Prisma.Decimal) => new Prisma.Decimal(v);
 
+/**
+ * Proforma-item quantity methods (mirrors `InventoryProformaItem.quantityMethod`):
+ * - SINGLE: deduct `configuredQty × (number of the order's tests mapped to this
+ *   proforma)` — the product is consumed once per mapped test.
+ * - COMBINED: deduct `configuredQty` once, no matter how many tests map.
+ */
+const QUANTITY_METHOD = { SINGLE: 1, COMBINED: 2 } as const;
+
 /** A product line aggregated across every matched proforma (summed quantity). */
 interface AggregatedProduct {
+  productId: string;
+  productName: string;
+  productCode: string | null;
+  quantity: Prisma.Decimal;
+  unitPrice: Prisma.Decimal;
+  taxRate: Prisma.Decimal;
+}
+
+/**
+ * One deduction-ledger line: a product's required quantity at a given granularity.
+ * For `scope = ORDER` the `labTestSourceId` is the `''` sentinel; for `scope = TEST`
+ * it is the master lab test the line belongs to.
+ */
+interface LedgerLine {
+  scope: 'ORDER' | 'TEST';
+  labTestSourceId: string;
   productId: string;
   productName: string;
   productCode: string | null;
@@ -62,7 +91,14 @@ export class ProformaConsumptionService {
   /**
    * Find the proformas that apply to `labTestSourceIds` at `branchId`: mapped to
    * at least one of the lab tests AND enabled for the branch. Returns each with
-   * its product lines (quantities summed when a product recurs across proformas).
+   * its product lines, with the per-line **quantity method** already applied:
+   * a SINGLE line is multiplied by how many of the order's tests map to that
+   * proforma; a COMBINED line is taken once. (A product recurring within a
+   * proforma is summed after that multiplication.)
+   *
+   * The mapped-test count is the number of **distinct** `labTestSourceIds` mapped
+   * to the proforma — kalnostics sends a deduped list, so a test ordered twice is
+   * one mapped test.
    */
   private async resolveMatchedProformas(
     tenantId: string,
@@ -71,7 +107,9 @@ export class ProformaConsumptionService {
   ): Promise<MatchedProforma[]> {
     if (labTestSourceIds.length === 0) return [];
 
-    // 1. Proformas mapped to any of these master lab tests.
+    // 1. Proformas mapped to any of these master lab tests. Keep `entityId` so we
+    //    can count, per proforma, how many of the order's tests map to it (the
+    //    SINGLE multiplier).
     const labRelations = await this.prisma.inventoryProformaRelation.findMany({
       where: {
         tenantId,
@@ -79,14 +117,22 @@ export class ProformaConsumptionService {
         entityType: 'lab_test',
         entityId: { in: labTestSourceIds },
       },
-      select: { proformaId: true },
+      select: { proformaId: true, entityId: true },
     });
     const candidateIds = [...new Set(labRelations.map((r) => r.proformaId))];
     if (candidateIds.length === 0) return [];
 
+    // Distinct mapped tests per proforma (guards against duplicate relation rows).
+    const testsByProforma = new Map<string, Set<string>>();
+    for (const r of labRelations) {
+      const set = testsByProforma.get(r.proformaId) ?? new Set<string>();
+      set.add(r.entityId);
+      testsByProforma.set(r.proformaId, set);
+    }
+
     // 2. Of those, keep only the ones also enabled for the active branch.
-    const branchRelations = await this.prisma.inventoryProformaRelation.findMany(
-      {
+    const branchRelations =
+      await this.prisma.inventoryProformaRelation.findMany({
         where: {
           tenantId,
           deletedAt: null,
@@ -95,8 +141,7 @@ export class ProformaConsumptionService {
           proformaId: { in: candidateIds },
         },
         select: { proformaId: true },
-      },
-    );
+      });
     const matchedIds = [...new Set(branchRelations.map((r) => r.proformaId))];
     if (matchedIds.length === 0) return [];
 
@@ -107,17 +152,23 @@ export class ProformaConsumptionService {
     });
 
     return proformas.map((p) => {
+      // How many of the order's tests map to this proforma (SINGLE multiplier).
+      const mappedTestCount = testsByProforma.get(p.id)?.size ?? 1;
+
       const byProduct = new Map<string, AggregatedProduct>();
       for (const it of p.items) {
+        const multiplier =
+          it.quantityMethod === QUANTITY_METHOD.COMBINED ? 1 : mappedTestCount;
+        const effectiveQty = D(it.quantity).mul(multiplier);
         const existing = byProduct.get(it.productId);
         if (existing) {
-          existing.quantity = existing.quantity.add(it.quantity);
+          existing.quantity = existing.quantity.add(effectiveQty);
         } else {
           byProduct.set(it.productId, {
             productId: it.productId,
             productName: it.productName,
             productCode: it.productCode,
-            quantity: D(it.quantity),
+            quantity: effectiveQty,
             unitPrice: D(it.unitPrice),
             taxRate: D(it.taxRate),
           });
@@ -141,6 +192,81 @@ export class ProformaConsumptionService {
         if (existing) existing.quantity = existing.quantity.add(p.quantity);
         else byProduct.set(p.productId, { ...p, quantity: D(p.quantity) });
       }
+    }
+    return [...byProduct.values()];
+  }
+
+  /**
+   * Resolve the deduction-ledger lines for an order at the requested granularity.
+   * - `ORDER`: one set of product lines aggregated across all the order's tests
+   *   (SINGLE × mapped-test-count, COMBINED × 1), tagged with the `''` sentinel.
+   * - `TEST`: one set of product lines PER lab test, each resolved from that test
+   *   alone — so SINGLE and COMBINED both deduct the configured quantity once per
+   *   test. The planned total therefore differs from ORDER for COMBINED products,
+   *   by design (confirmed product decision).
+   */
+  private async computeLedgerLines(
+    tenantId: string,
+    branchId: string,
+    labTestSourceIds: string[],
+    scope: 'ORDER' | 'TEST',
+  ): Promise<LedgerLine[]> {
+    if (scope === 'TEST') {
+      const distinct = [...new Set(labTestSourceIds)];
+      const perTest = await Promise.all(
+        distinct.map(async (testId) => {
+          const matched = await this.resolveMatchedProformas(
+            tenantId,
+            branchId,
+            [testId],
+          );
+          return this.aggregateProducts(matched).map((p): LedgerLine => ({
+            scope: 'TEST',
+            labTestSourceId: testId,
+            productId: p.productId,
+            productName: p.productName,
+            productCode: p.productCode,
+            quantity: p.quantity,
+            unitPrice: p.unitPrice,
+            taxRate: p.taxRate,
+          }));
+        }),
+      );
+      return perTest.flat();
+    }
+
+    const matched = await this.resolveMatchedProformas(
+      tenantId,
+      branchId,
+      labTestSourceIds,
+    );
+    return this.aggregateProducts(matched).map((p): LedgerLine => ({
+      scope: 'ORDER',
+      labTestSourceId: '',
+      productId: p.productId,
+      productName: p.productName,
+      productCode: p.productCode,
+      quantity: p.quantity,
+      unitPrice: p.unitPrice,
+      taxRate: p.taxRate,
+    }));
+  }
+
+  /** Sum quantity per product across ledger lines (the stock/sale aggregate). */
+  private aggregateLedger(lines: LedgerLine[]): AggregatedProduct[] {
+    const byProduct = new Map<string, AggregatedProduct>();
+    for (const l of lines) {
+      const existing = byProduct.get(l.productId);
+      if (existing) existing.quantity = existing.quantity.add(l.quantity);
+      else
+        byProduct.set(l.productId, {
+          productId: l.productId,
+          productName: l.productName,
+          productCode: l.productCode,
+          quantity: D(l.quantity),
+          unitPrice: l.unitPrice,
+          taxRate: l.taxRate,
+        });
     }
     return [...byProduct.values()];
   }
@@ -292,12 +418,14 @@ export class ProformaConsumptionService {
       };
     }
 
-    const matched = await this.resolveMatchedProformas(
+    const scope: 'ORDER' | 'TEST' = dto.scope ?? 'ORDER';
+    const ledgerLines = await this.computeLedgerLines(
       tenantId,
       dto.branchId,
       dto.labTestSourceIds,
+      scope,
     );
-    const required = this.aggregateProducts(matched);
+    const required = this.aggregateLedger(ledgerLines);
     if (required.length === 0) {
       return {
         consumed: false,
@@ -417,7 +545,7 @@ export class ProformaConsumptionService {
         });
       }
 
-      await tx.inventoryOrderConsumption.create({
+      const consumption = await tx.inventoryOrderConsumption.create({
         data: {
           tenantId,
           branchId: dto.branchId,
@@ -425,7 +553,30 @@ export class ProformaConsumptionService {
           orderCode: dto.orderCode,
           saleId: sale.id,
           status: 'CONSUMED',
+          scope,
+          isAutoDeducted: true,
         },
+        select: { id: true },
+      });
+
+      // Record the authoritative per-scope deduction state so later manual
+      // adjustments can diff against it (currentQty = plannedQty on auto-deduct).
+      await tx.inventoryConsumptionLine.createMany({
+        data: ledgerLines.map((l) => ({
+          tenantId,
+          branchId: dto.branchId,
+          scope: l.scope,
+          kalnosticsOrderId: dto.kalnosticsOrderId,
+          labTestSourceId: l.labTestSourceId,
+          productId: l.productId,
+          productName: l.productName,
+          productCode: l.productCode,
+          plannedQty: l.quantity,
+          currentQty: l.quantity,
+          unitPrice: l.unitPrice,
+          taxRate: l.taxRate,
+          consumptionId: consumption.id,
+        })),
       });
 
       this.logger.log(
@@ -438,6 +589,464 @@ export class ProformaConsumptionService {
         saleId: sale.id,
       };
     });
+  }
+
+  /**
+   * The scope a manual adjustment runs at. Once an order has a consumption row its
+   * scope is fixed; a request at a different scope is rejected to prevent a per-test
+   * adjustment double-deducting on top of an order-level one (or vice-versa) after a
+   * mode switch. With no row yet (auto-deduction was off) the requested scope wins.
+   */
+  private effectiveScope(
+    recorded: string | undefined,
+    requested: 'ORDER' | 'TEST',
+  ): 'ORDER' | 'TEST' {
+    if (recorded && recorded !== requested) {
+      throw new ConsumptionScopeMismatchException(recorded, requested);
+    }
+    return requested;
+  }
+
+  /** The proforma-planned ledger lines for a load/save target (order or one test). */
+  private async plannedLinesFor(
+    tenantId: string,
+    dto: LoadAdjustmentDto,
+    scope: 'ORDER' | 'TEST',
+  ): Promise<LedgerLine[]> {
+    if (scope === 'TEST') {
+      if (!dto.labTestSourceId) return [];
+      return this.computeLedgerLines(
+        tenantId,
+        dto.branchId,
+        [dto.labTestSourceId],
+        'TEST',
+      );
+    }
+    return this.computeLedgerLines(
+      tenantId,
+      dto.branchId,
+      dto.labTestSourceIds,
+      'ORDER',
+    );
+  }
+
+  /**
+   * Load the manual-adjustment view for a kalnostics order at the given scope.
+   * Per product: the proforma-planned quantity, the quantity currently deducted
+   * (0 when nothing is deducted yet), live branch stock, and a suggested final
+   * quantity (the previously-deducted value if any, else the planned). Read-only.
+   *
+   * @throws ConsumptionScopeMismatchException if the order was recorded at a
+   *   different granularity than requested.
+   */
+  async loadAdjustment(tenantId: string, dto: LoadAdjustmentDto) {
+    const consumption = await this.prisma.inventoryOrderConsumption.findUnique({
+      where: { kalnosticsOrderId: dto.kalnosticsOrderId },
+      select: { scope: true, isAutoDeducted: true, status: true },
+    });
+    const scope = this.effectiveScope(consumption?.scope, dto.scope);
+    const labTestKey = scope === 'TEST' ? (dto.labTestSourceId ?? '') : '';
+
+    const planned = await this.plannedLinesFor(tenantId, dto, scope);
+    const plannedByProduct = new Map(planned.map((l) => [l.productId, l]));
+
+    const existing = await this.prisma.inventoryConsumptionLine.findMany({
+      where: {
+        tenantId,
+        kalnosticsOrderId: dto.kalnosticsOrderId,
+        scope,
+        labTestSourceId: labTestKey,
+        deletedAt: null,
+      },
+    });
+    const existingByProduct = new Map(existing.map((l) => [l.productId, l]));
+
+    const productIds = [
+      ...new Set([...plannedByProduct.keys(), ...existingByProduct.keys()]),
+    ];
+    const stock = await this.stockByProduct(tenantId, dto.branchId, productIds);
+
+    const products = productIds.map((productId) => {
+      const p = plannedByProduct.get(productId);
+      const line = existingByProduct.get(productId);
+      const prev = line ? D(line.currentQty) : D(0);
+      const plannedQty = p ? p.quantity : line ? D(line.plannedQty) : D(0);
+      return {
+        productId,
+        productName: p?.productName ?? line?.productName ?? '',
+        productCode: p?.productCode ?? line?.productCode ?? null,
+        plannedQty: plannedQty.toNumber(),
+        previouslyDeductedQty: prev.toNumber(),
+        currentStock: (stock.get(productId) ?? D(0)).toNumber(),
+        finalQtySuggestion: (line ? prev : plannedQty).toNumber(),
+      };
+    });
+
+    return {
+      scope,
+      kalnosticsOrderId: dto.kalnosticsOrderId,
+      labTestSourceId: scope === 'TEST' ? labTestKey : null,
+      isAutoDeducted: consumption?.isAutoDeducted ?? false,
+      status: consumption?.status ?? 'PENDING_MANUAL',
+      totalPlannedQty: products.reduce((s, p) => s + p.plannedQty, 0),
+      products,
+    };
+  }
+
+  /**
+   * Apply a manual inventory adjustment: set the final deducted quantity per
+   * product for an order (ORDER scope) or one lab test (TEST scope), applying only
+   * the DIFFERENCE against what is already deducted — so stock is never
+   * double-deducted and re-saving the same values is a no-op. When auto-deduction
+   * was off and this is the first save, it performs the initial deduction and
+   * creates the linked sale.
+   *
+   * @throws ConsumptionScopeMismatchException on a scope/mode mismatch.
+   * @throws InsufficientConsumptionStockException if a net additional deduction
+   *   exceeds available stock (nothing is applied — the transaction rolls back).
+   */
+  async saveAdjustment(
+    tenantId: string,
+    dto: SaveAdjustmentDto,
+    actorId?: string,
+  ) {
+    if (dto.scope === 'TEST' && !dto.labTestSourceId) {
+      throw new BadRequestException(
+        'labTestSourceId is required for TEST scope',
+      );
+    }
+    const scope = dto.scope;
+    const labTestKey = scope === 'TEST' ? (dto.labTestSourceId ?? '') : '';
+
+    const planned = await this.plannedLinesFor(tenantId, dto, scope);
+    const plannedByProduct = new Map(planned.map((l) => [l.productId, l]));
+
+    const applied = await this.prisma.withTenant(tenantId, async (tx) => {
+      // Resolve or create the parent consumption row (unique key serializes creates).
+      let consumption = await tx.inventoryOrderConsumption.findUnique({
+        where: { kalnosticsOrderId: dto.kalnosticsOrderId },
+      });
+      if (consumption && consumption.scope !== scope) {
+        throw new ConsumptionScopeMismatchException(consumption.scope, scope);
+      }
+      if (!consumption) {
+        consumption = await tx.inventoryOrderConsumption.create({
+          data: {
+            tenantId,
+            branchId: dto.branchId,
+            kalnosticsOrderId: dto.kalnosticsOrderId,
+            orderCode: dto.orderCode,
+            saleId: null,
+            status: 'PENDING_MANUAL',
+            scope,
+            isAutoDeducted: false,
+          },
+        });
+      }
+
+      const existing = await tx.inventoryConsumptionLine.findMany({
+        where: {
+          tenantId,
+          kalnosticsOrderId: dto.kalnosticsOrderId,
+          scope,
+          labTestSourceId: labTestKey,
+          deletedAt: null,
+        },
+      });
+      const existingByProduct = new Map(existing.map((l) => [l.productId, l]));
+
+      const changes = dto.lines.map((ln) => {
+        const line = existingByProduct.get(ln.productId);
+        const p = plannedByProduct.get(ln.productId);
+        const previousQty = line ? D(line.currentQty) : D(0);
+        const finalQty = D(ln.finalQty);
+        return {
+          productId: ln.productId,
+          planned: p,
+          line,
+          previousQty,
+          finalQty,
+          difference: finalQty.sub(previousQty),
+          productName: p?.productName ?? line?.productName ?? ln.productId,
+          productCode: p?.productCode ?? line?.productCode ?? null,
+          plannedQty: p ? p.quantity : line ? D(line.plannedQty) : D(0),
+          unitPrice: p?.unitPrice ?? (line ? D(line.unitPrice) : D(0)),
+          taxRate: p?.taxRate ?? (line ? D(line.taxRate) : D(0)),
+        };
+      });
+
+      // Pre-flight: a net additional deduction (difference > 0) must fit in stock.
+      const addByProduct = new Map<string, Prisma.Decimal>();
+      for (const c of changes) {
+        if (c.difference.gt(0)) {
+          addByProduct.set(
+            c.productId,
+            (addByProduct.get(c.productId) ?? D(0)).add(c.difference),
+          );
+        }
+      }
+      if (addByProduct.size > 0) {
+        const stock = await this.stockByProduct(tenantId, dto.branchId, [
+          ...addByProduct.keys(),
+        ]);
+        const shortages = [];
+        for (const [productId, need] of addByProduct) {
+          const have = stock.get(productId) ?? D(0);
+          if (have.lt(need)) {
+            const c = changes.find((x) => x.productId === productId)!;
+            shortages.push({
+              productId,
+              productName: c.productName,
+              requiredQty: need.toNumber(),
+              availableQty: have.toNumber(),
+            });
+          }
+        }
+        if (shortages.length > 0) {
+          throw new InsufficientConsumptionStockException(shortages);
+        }
+      }
+
+      // Apply each change: stock delta, ledger upsert, audit row (on a real change).
+      const changed: Array<{ productId: string; difference: number }> = [];
+      for (const c of changes) {
+        if (!c.difference.isZero()) {
+          await this.stockService.applyDelta(tx, {
+            tenantId,
+            branchId: dto.branchId,
+            productId: c.productId,
+            delta: c.difference.negated(),
+          });
+        }
+
+        if (c.line) {
+          await tx.inventoryConsumptionLine.update({
+            where: { id: c.line.id },
+            data: {
+              currentQty: c.finalQty,
+              plannedQty: c.plannedQty,
+              unitPrice: c.unitPrice,
+              taxRate: c.taxRate,
+              productName: c.productName,
+              productCode: c.productCode,
+            },
+          });
+        } else {
+          await tx.inventoryConsumptionLine.create({
+            data: {
+              tenantId,
+              branchId: dto.branchId,
+              scope,
+              kalnosticsOrderId: dto.kalnosticsOrderId,
+              labTestSourceId: labTestKey,
+              productId: c.productId,
+              productName: c.productName,
+              productCode: c.productCode,
+              plannedQty: c.plannedQty,
+              currentQty: c.finalQty,
+              unitPrice: c.unitPrice,
+              taxRate: c.taxRate,
+              consumptionId: consumption.id,
+            },
+          });
+        }
+
+        if (!c.difference.isZero()) {
+          await tx.inventoryConsumptionAdjustment.create({
+            data: {
+              tenantId,
+              branchId: dto.branchId,
+              consumptionId: consumption.id,
+              scope,
+              kalnosticsOrderId: dto.kalnosticsOrderId,
+              labTestSourceId: labTestKey,
+              productId: c.productId,
+              productName: c.productName,
+              plannedQty: c.plannedQty,
+              previousQty: c.previousQty,
+              finalQty: c.finalQty,
+              difference: c.difference,
+              reason: dto.reason,
+              note: dto.note,
+              createdBy: actorId,
+            },
+          });
+          changed.push({
+            productId: c.productId,
+            difference: c.difference.toNumber(),
+          });
+        }
+      }
+
+      // Keep the linked sale consistent with the full current ledger for the order.
+      const saleId = await this.rebuildSale(
+        tx,
+        tenantId,
+        consumption,
+        dto,
+        actorId,
+      );
+
+      await tx.inventoryOrderConsumption.update({
+        where: { id: consumption.id },
+        data: { status: 'ADJUSTED', saleId },
+      });
+
+      this.logger.log(
+        `Adjusted ${changed.length} product(s) for order ${dto.kalnosticsOrderId} (${scope}) → sale ${saleId ?? 'none'}`,
+      );
+      return { saleId, applied: changed };
+    });
+
+    // Fresh post-save view (committed), plus what changed.
+    const view = await this.loadAdjustment(tenantId, dto);
+    return { ...view, saleId: applied.saleId, applied: applied.applied };
+  }
+
+  /** A sale-item create payload from an aggregated product + its computed totals. */
+  private saleItemData(
+    tenantId: string,
+    p: AggregatedProduct,
+    c: {
+      realUnitPrice: Prisma.Decimal;
+      netUnitPrice: Prisma.Decimal;
+      taxAmount: Prisma.Decimal;
+      subtotal: Prisma.Decimal;
+    },
+  ) {
+    return {
+      tenantId,
+      productId: p.productId,
+      productName: p.productName,
+      productCode: p.productCode,
+      quantity: p.quantity,
+      price: p.unitPrice,
+      realUnitPrice: c.realUnitPrice,
+      netUnitPrice: c.netUnitPrice,
+      taxRate: p.taxRate,
+      taxAmount: c.taxAmount,
+      subtotal: c.subtotal,
+    };
+  }
+
+  /**
+   * Rebuild the order's linked inventory sale from the full current ledger
+   * (`currentQty > 0` across every scope row of the order). Updates the existing
+   * sale in place, or — when auto-deduction was off and no sale exists yet — creates
+   * it now as the financial mirror of the first manual deduction. Returns the sale
+   * id (or null when nothing is deducted yet).
+   */
+  private async rebuildSale(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    consumption: {
+      id: string;
+      saleId: string | null;
+      orderCode: string | null;
+    },
+    dto: SaveAdjustmentDto,
+    actorId?: string,
+  ): Promise<string | null> {
+    const lines = await tx.inventoryConsumptionLine.findMany({
+      where: {
+        tenantId,
+        kalnosticsOrderId: dto.kalnosticsOrderId,
+        deletedAt: null,
+      },
+    });
+    const byProduct = new Map<string, AggregatedProduct>();
+    for (const l of lines) {
+      const q = D(l.currentQty);
+      if (q.lte(0)) continue;
+      const e = byProduct.get(l.productId);
+      if (e) e.quantity = e.quantity.add(q);
+      else
+        byProduct.set(l.productId, {
+          productId: l.productId,
+          productName: l.productName,
+          productCode: l.productCode,
+          quantity: q,
+          unitPrice: D(l.unitPrice),
+          taxRate: D(l.taxRate),
+        });
+    }
+    const products = [...byProduct.values()];
+
+    const totals = computeOrderTotals({
+      lines: products.map((p) => ({
+        quantity: p.quantity.toNumber(),
+        unitPrice: p.unitPrice.toNumber(),
+        taxRatePercent: p.taxRate.toNumber(),
+        taxInclusive: false,
+      })),
+      orderTaxPercent: 0,
+      shipping: 0,
+    });
+    const date = dto.date ? new Date(dto.date) : new Date();
+    const reference =
+      dto.orderCode ?? consumption.orderCode ?? dto.kalnosticsOrderId;
+    const saleFinancials = {
+      subtotal: totals.subtotal,
+      productDiscount: totals.productDiscount,
+      orderTax: totals.orderTax,
+      totalTax: totals.totalTax,
+      shipping: totals.shipping,
+      roundoff: totals.roundoff,
+      grandTotal: totals.grandTotal,
+      totalItems: Math.round(totals.totalItems.toNumber()),
+      paid: totals.grandTotal,
+      paymentStatus: derivePaymentStatus(totals.grandTotal, totals.grandTotal),
+    };
+
+    if (consumption.saleId) {
+      await tx.inventorySaleItem.deleteMany({
+        where: { saleId: consumption.saleId },
+      });
+      await tx.inventorySale.update({
+        where: { id: consumption.saleId },
+        data: {
+          ...saleFinancials,
+          date,
+          note: `Adjusted from kalnostics order ${reference}`,
+          items: {
+            create: products.map((p, i) =>
+              this.saleItemData(tenantId, p, totals.lines[i]!),
+            ),
+          },
+        },
+      });
+      return consumption.saleId;
+    }
+
+    // Auto-deduction was off and nothing is deducted yet → no sale to create.
+    if (products.length === 0) return null;
+
+    const customerId = await this.resolveCustomer(
+      tx,
+      tenantId,
+      dto.patientId,
+      dto.patientName,
+    );
+    const sale = await tx.inventorySale.create({
+      data: {
+        tenantId,
+        branchId: dto.branchId,
+        customerId,
+        reference,
+        date,
+        status: 'COMPLETED',
+        ...saleFinancials,
+        note: `Auto-generated from kalnostics order ${reference} (manual adjustment)`,
+        createdBy: actorId,
+        items: {
+          create: products.map((p, i) =>
+            this.saleItemData(tenantId, p, totals.lines[i]!),
+          ),
+        },
+      },
+      select: { id: true },
+    });
+    return sale.id;
   }
 
   /**

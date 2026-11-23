@@ -1,0 +1,38 @@
+meta {
+  name: 70 Create zero-stock product
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{inventoryBaseUrl}}/products
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "code": "BRU-ZERO-{{runSfx}}",
+    "name": "Bruno Zero {{runSfx}}",
+    "categoryId": "{{categoryId}}",
+    "cost": 5,
+    "price": 10,
+    "alertQuantity": 1
+  }
+}
+
+script:post-response {
+  if (res.body.data) bru.setEnvVar("zeroProductId", res.body.data.id);
+}
+
+assert {
+  res.status: eq 201
+}
+
+docs {
+  No stock is seeded for this product (on-hand = 0 at every branch).
+}

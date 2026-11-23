@@ -9,6 +9,7 @@ import {
   Factory,
   Percent,
   Shapes,
+  Pill,
   Boxes,
   Truck,
   Users,
@@ -282,6 +283,7 @@ const GROUPS: NavGroup[] = [
       { to: '/brands', label: 'Brands', icon: Factory },
       { to: '/product-templates', label: 'Product templates', icon: FileSpreadsheet },
       { to: '/variants', label: 'Variants', icon: Shapes },
+      { to: '/drugs', label: 'Drugs', icon: Pill },
       { to: '/tax-rates', label: 'Tax rates', icon: Percent },
       { to: '/expense-categories', label: 'Expense categories', icon: TrendingDown },
       { to: '/income-categories', label: 'Income categories', icon: TrendingUp },
@@ -344,7 +346,8 @@ export function AppLayout() {
     items: group.items.filter((i) => allow(i.perm)),
   })).filter((group) => allow(group.perm) && group.items.length > 0);
 
-  // Which groups are expanded. Persisted; the active group is always opened.
+  // Which groups are expanded. All accordions are collapsed by default; only
+  // the user's own persisted toggles reopen groups across sessions.
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     let stored: string[] = [];
     try {
@@ -352,23 +355,11 @@ export function AppLayout() {
     } catch {
       /* ignore */
     }
-    const initial = new Set(stored.length ? stored : [GROUPS[0]!.title]);
-    if (activeTitle) initial.add(activeTitle);
-    return initial;
+    return new Set(stored);
   });
 
   // Mobile off-canvas drawer.
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  // Keep the active group expanded as the route changes.
-  useEffect(() => {
-    if (!activeTitle) return;
-    setOpenGroups((prev) => {
-      if (prev.has(activeTitle)) return prev;
-      const next = new Set(prev).add(activeTitle);
-      return next;
-    });
-  }, [activeTitle]);
 
   // Close the mobile drawer on navigation.
   useEffect(() => {

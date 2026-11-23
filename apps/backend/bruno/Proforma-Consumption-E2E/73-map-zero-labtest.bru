@@ -1,0 +1,26 @@
+meta {
+  name: 73 Map zero proforma to lab test 1
+  type: http
+  seq: 26
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proformas/{{zeroProformaId}}/relations
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "entityType": "lab_test",
+    "entityId": "{{labTest1}}"
+  }
+}
+
+assert {
+  res.status: eq 201
+}

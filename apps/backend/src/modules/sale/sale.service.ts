@@ -5,10 +5,16 @@ import { PaginatedResult } from '../../common/dto/response.dto';
 import { CustomerService } from '../customer/customer.service';
 import { ProductService } from '../product/product.service';
 import { ProductStockService } from '../product/product-stock.service';
+import { ProductBatchService } from '../product/product-batch.service';
 import { NumberingService } from '../settings/numbering.service';
+import { SettingsService } from '../settings/settings.service';
 import { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
 import { KalnosticsUsersClient } from '../../integration/clients/kalnostics-users.client';
-import { BranchRequiredException } from '../product/exceptions/product.exceptions';
+import { KalnosticsPrintTemplateClient } from '../../integration/clients/kalnostics-print-template.client';
+import {
+  BranchRequiredException,
+  VariantNotFoundException,
+} from '../product/exceptions/product.exceptions';
 import { CreateSaleDto, SalePaymentInputDto } from './dto/create-sale.dto';
 import { SaleQueryDto } from './dto/sale-query.dto';
 import { CreateSalePaymentDto, UpdateSalePaymentDto } from './dto/payment.dto';
@@ -33,11 +39,16 @@ import {
 
 const D = (v: number | string | Prisma.Decimal) => new Prisma.Decimal(v);
 
-/** A line ready to persist, zipped from the DTO + computed money. */
-type PersistedSaleLine = Prisma.InventorySaleItemCreateWithoutSaleInput & {
-  productId: string;
-  quantity: Prisma.Decimal;
-};
+/**
+ * A line ready to persist, zipped from the DTO + computed money. Uses the
+ * *unchecked* create input so the scalar `batchId` foreign key can be set directly
+ * (the checked variant would require a nested `batch: { connect }`).
+ */
+type PersistedSaleLine =
+  Prisma.InventorySaleItemUncheckedCreateWithoutSaleInput & {
+    productId: string;
+    quantity: Prisma.Decimal;
+  };
 
 /**
  * Sales — invoices to customers (CLAUDE.md §4.7). A COMPLETED sale removes stock
@@ -53,9 +64,12 @@ export class SaleService {
     private readonly customerService: CustomerService,
     private readonly productService: ProductService,
     private readonly stockService: ProductStockService,
+    private readonly batchService: ProductBatchService,
     private readonly numbering: NumberingService,
+    private readonly settingsService: SettingsService,
     private readonly branchClient: KalnosticsBranchClient,
     private readonly usersClient: KalnosticsUsersClient,
+    private readonly printTemplateClient: KalnosticsPrintTemplateClient,
   ) {}
 
   /**
@@ -75,6 +89,15 @@ export class SaleService {
     return branchId;
   }
 
+  /** Tenant policy: whether selling from an expired batch is hard-blocked. */
+  private async isExpiredSaleBlocked(
+    tenantId: string,
+    branchId: string | null = null,
+  ): Promise<boolean> {
+    const settings = await this.settingsService.get(tenantId, branchId);
+    return settings?.isExpiredSaleBlocked ?? false;
+  }
+
   /**
    * Resolve + snapshot each product and compute the full money breakdown.
    * Returns persist-ready line rows plus the order totals.
@@ -83,21 +106,53 @@ export class SaleService {
     tenantId: string,
     branchId: string,
     dto: CreateSaleDto,
-  ): Promise<{ lines: PersistedSaleLine[]; totals: ComputedOrder }> {
+  ): Promise<{
+    lines: PersistedSaleLine[];
+    totals: ComputedOrder;
+    stockTracked: boolean[];
+  }> {
     const resolved = await Promise.all(
       dto.items.map(async (item) => {
         const product = await this.productService.findById(
           item.productId,
           tenantId,
         );
+        // A line may target a specific variant (EZHT option). Validate it belongs
+        // to the product so stock is decremented against a real variant row.
+        if (
+          item.optionId &&
+          !product.variants.some((v) => v.id === item.optionId)
+        ) {
+          throw new VariantNotFoundException(item.optionId, product.id);
+        }
         const stock = await this.prisma.inventoryWarehouseProduct.findUnique({
           where: { productId_branchId: { productId: product.id, branchId } },
           select: { avgCost: true },
         });
+        // When a batch is chosen, snapshot its cost (truer COGS) + serial/expiry.
+        const batch = item.batchId
+          ? await this.prisma.inventoryProductBatch.findFirst({
+              where: {
+                id: item.batchId,
+                tenantId,
+                branchId,
+                productId: product.id,
+                deletedAt: null,
+              },
+              select: {
+                id: true,
+                batchNo: true,
+                serialNo: true,
+                expiryDate: true,
+                cost: true,
+              },
+            })
+          : null;
         return {
           item,
           product,
-          cost: stock?.avgCost ?? D(product.cost),
+          batch,
+          cost: batch?.cost ?? stock?.avgCost ?? D(product.cost),
         };
       }),
     );
@@ -117,7 +172,7 @@ export class SaleService {
     });
 
     const lines: PersistedSaleLine[] = resolved.map(
-      ({ item, product, cost }, i) => {
+      ({ item, product, batch, cost }, i) => {
         const c = totals.lines[i]!;
         return {
           tenantId,
@@ -137,9 +192,12 @@ export class SaleService {
           discountSpec: item.discount,
           subtotal: c.subtotal,
           hsnCode: item.hsnCode,
-          serialNo: item.serialNo,
+          batchId: batch?.id ?? null,
+          serialNo: batch?.serialNo ?? batch?.batchNo ?? item.serialNo,
           invExposure: item.invExposure ?? 0,
-          expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+          expiryDate:
+            batch?.expiryDate ??
+            (item.expiryDate ? new Date(item.expiryDate) : null),
           packSize: item.packSize != null ? D(item.packSize) : null,
           packQuantity: item.packQuantity != null ? D(item.packQuantity) : null,
           igst: c.igst,
@@ -149,7 +207,8 @@ export class SaleService {
       },
     );
 
-    return { lines, totals };
+    const stockTracked = resolved.map(({ product }) => product.isStockTracked);
+    return { lines, totals, stockTracked };
   }
 
   /** Header money/meta columns shared by create + update. */
@@ -188,6 +247,9 @@ export class SaleService {
       attachmentUrl: dto.attachmentUrl,
       quoteId: dto.quoteId,
       doctorName: dto.doctorName,
+      referralId: dto.referralId,
+      referralName: dto.referralName,
+      orderTags: dto.orderTags,
       note: dto.note,
       staffNote: dto.staffNote,
     };
@@ -203,7 +265,7 @@ export class SaleService {
     const warehouse = await this.resolveWarehouse(branchId, dto.warehouseId);
     await this.customerService.findById(dto.customerId, tenantId);
 
-    const { lines, totals } = await this.buildSaleLines(
+    const { lines, totals, stockTracked } = await this.buildSaleLines(
       tenantId,
       warehouse,
       dto,
@@ -211,7 +273,8 @@ export class SaleService {
     const status = dto.status ?? 'COMPLETED';
     const date = dto.date ? new Date(dto.date) : new Date();
     const reference =
-      dto.reference ?? (await this.numbering.next(tenantId, 'sale'));
+      dto.reference ?? (await this.numbering.next(tenantId, 'sale', warehouse));
+    const blockExpired = await this.isExpiredSaleBlocked(tenantId, warehouse);
 
     const { paid, paymentStatus } = this.resolvePaymentPlan(
       dto.payment,
@@ -243,13 +306,35 @@ export class SaleService {
       }
 
       if (status === 'COMPLETED') {
-        for (const l of lines) {
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i]!;
+          if (!stockTracked[i]) continue; // services carry no stock
+          if (l.batchId) {
+            await this.batchService.consume(tx, {
+              tenantId,
+              branchId: warehouse,
+              productId: l.productId,
+              batchId: l.batchId,
+              quantity: l.quantity,
+              blockExpired,
+            });
+          }
           await this.stockService.applyDelta(tx, {
             tenantId,
             branchId: warehouse,
             productId: l.productId,
             delta: l.quantity.negated(),
           });
+          // Decrement the specific variant's branch stock when the line targets one
+          // (EZHT `warehouses_products_variants`), kept in lock-step with the total.
+          if (l.optionId) {
+            await this.stockService.applyVariantDelta(tx, {
+              tenantId,
+              branchId: warehouse,
+              variantId: l.optionId,
+              delta: l.quantity.negated(),
+            });
+          }
         }
         const points = Math.floor(totals.grandTotal.toNumber() / 100);
         if (points > 0) {
@@ -490,7 +575,7 @@ export class SaleService {
     );
     await this.customerService.findById(dto.customerId, tenantId);
 
-    const { lines, totals } = await this.buildSaleLines(
+    const { lines, totals, stockTracked } = await this.buildSaleLines(
       tenantId,
       warehouse,
       dto,
@@ -498,30 +583,81 @@ export class SaleService {
     const newStatus =
       dto.status ?? (existing.status as 'COMPLETED' | 'PENDING');
     const date = dto.date ? new Date(dto.date) : existing.date;
+    const blockExpired = await this.isExpiredSaleBlocked(tenantId, warehouse);
+
+    // Stock-tracked flags for the previous items, so the reverse mirrors exactly
+    // what the original sale decremented.
+    const prevProductIds = [...new Set(existing.items.map((i) => i.productId))];
+    const prevProducts = prevProductIds.length
+      ? await this.prisma.inventoryProduct.findMany({
+          where: { tenantId, id: { in: prevProductIds } },
+          select: { id: true, isStockTracked: true },
+        })
+      : [];
+    const prevTracked = new Map(
+      prevProducts.map((p) => [p.id, p.isStockTracked]),
+    );
 
     return this.prisma.withTenant(tenantId, async (tx) => {
-      // 1. Reverse the previous outbound movement if the sale had removed stock.
+      // 1. Reverse the previous outbound movement if the sale had removed stock —
+      //    restore the exact batch it drew from (no-op for null-batch legacy lines).
       if (existing.status === 'COMPLETED') {
         for (const l of existing.items) {
+          if (!prevTracked.get(l.productId)) continue;
+          await this.batchService.restore(tx, {
+            batchId: l.batchId,
+            quantity: D(l.quantity),
+          });
           await this.stockService.applyDelta(tx, {
             tenantId,
             branchId: existing.branchId,
             productId: l.productId,
             delta: D(l.quantity),
           });
+          // Restore the variant's branch stock too (allow negative — a reversal
+          // must never be blocked).
+          if (l.optionId) {
+            await this.stockService.applyVariantDelta(tx, {
+              tenantId,
+              branchId: existing.branchId,
+              variantId: l.optionId,
+              delta: D(l.quantity),
+              allowNegative: true,
+            });
+          }
         }
       }
       // 2. Replace line items.
       await tx.inventorySaleItem.deleteMany({ where: { saleId: id } });
       // 3. Apply the new outbound movement if the edited sale is COMPLETED.
       if (newStatus === 'COMPLETED') {
-        for (const l of lines) {
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i]!;
+          if (!stockTracked[i]) continue;
+          if (l.batchId) {
+            await this.batchService.consume(tx, {
+              tenantId,
+              branchId: warehouse,
+              productId: l.productId,
+              batchId: l.batchId,
+              quantity: l.quantity,
+              blockExpired,
+            });
+          }
           await this.stockService.applyDelta(tx, {
             tenantId,
             branchId: warehouse,
             productId: l.productId,
             delta: l.quantity.negated(),
           });
+          if (l.optionId) {
+            await this.stockService.applyVariantDelta(tx, {
+              tenantId,
+              branchId: warehouse,
+              variantId: l.optionId,
+              delta: l.quantity.negated(),
+            });
+          }
         }
       }
       const paid = D(existing.paid);
@@ -612,6 +748,75 @@ export class SaleService {
         payments: { where: { deletedAt: null }, orderBy: { date: 'desc' } },
       },
     });
+  }
+
+  /**
+   * Render the sale's "Template Invoice" PDF through kalnostics' print-template
+   * engine (the same Puppeteer engine that renders lab reports/bills). kalnostics
+   * resolves whichever `inventory_invoice` template the tenant mapped on its
+   * Configuration screen; this method only assembles the render context from the
+   * sale + the tenant's business settings. Returns the raw PDF bytes.
+   * @returns the rendered PDF buffer together with the sale reference (for the filename)
+   * @throws SaleNotFoundException if the sale isn't the tenant's
+   * @throws UpstreamException if no invoice template is configured or rendering fails
+   */
+  async renderInvoicePdf(
+    id: string,
+    tenantId: string,
+  ): Promise<{ pdf: Buffer; reference: string }> {
+    const sale = await this.getDetail(id, tenantId);
+    const settings = await this.settingsService.get(tenantId, sale.branchId);
+    const money = (v: Prisma.Decimal | number | string) => D(v).toFixed(2);
+    const balance = D(sale.grandTotal).sub(sale.paid);
+
+    const variables: Record<string, unknown> = {
+      invoice_number: sale.reference,
+      invoice_date: sale.date.toISOString().slice(0, 10),
+      customer_name: sale.customer?.name ?? '',
+      customer_phone: sale.customer?.phone ?? '',
+      customer_email: sale.customer?.email ?? '',
+      customer_address: sale.customer?.address ?? '',
+      customer_gst: sale.customer?.gstNo ?? '',
+      business_name: settings.businessName ?? sale.warehouse?.name ?? '',
+      business_address: settings.businessAddress ?? '',
+      business_phone: settings.businessPhone ?? '',
+      business_email: settings.businessEmail ?? '',
+      business_gst: sale.gstNumber ?? '',
+      subtotal: money(sale.subtotal),
+      order_discount: money(sale.orderDiscount),
+      total_tax: money(sale.totalTax),
+      shipping: money(sale.shipping),
+      roundoff: money(sale.roundoff),
+      grand_total: money(sale.grandTotal),
+      paid: money(sale.paid),
+      balance: money(balance),
+      payment_status: sale.paymentStatus,
+      note: sale.note ?? '',
+    };
+
+    const items = sale.items.map((it) => ({
+      product_name: it.productName,
+      product_code: it.productCode ?? '',
+      hsn_code: it.hsnCode ?? '',
+      quantity: D(it.quantity).toFixed(2),
+      unit: it.unit ?? '',
+      unit_price: money(it.price),
+      discount: money(it.discount),
+      tax_rate: D(it.taxRate).toFixed(2),
+      tax_amount: money(it.taxAmount),
+      subtotal: money(it.subtotal),
+      serial_no: it.serialNo ?? '',
+      expiry: it.expiryDate ? it.expiryDate.toISOString().slice(0, 10) : '',
+    }));
+
+    const pdf = await this.printTemplateClient.renderByType(
+      'inventory_invoice',
+      {
+        variables,
+        sections: { items },
+      },
+    );
+    return { pdf, reference: sale.reference };
   }
 
   /** Soft-delete a sale (does not restore stock — a return does that). */

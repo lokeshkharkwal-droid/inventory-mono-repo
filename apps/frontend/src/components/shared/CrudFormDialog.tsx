@@ -37,6 +37,14 @@ export interface FieldConfig {
   };
   /** Force a field to span the full dialog width (default: textarea/bool do). */
   fullWidth?: boolean;
+  /** Minimum numeric value (for `'number'` fields). */
+  min?: number;
+  /** Maximum numeric value (for `'number'` fields). */
+  max?: number;
+  /** Maximum string length. */
+  maxLength?: number;
+  /** Custom regex validation with a message (for text-like fields). */
+  pattern?: { value: RegExp; message: string };
 }
 
 type FormShape = Record<string, string | boolean>;

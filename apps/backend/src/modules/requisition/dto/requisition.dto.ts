@@ -57,6 +57,67 @@ export class RequisitionItemDto {
   @IsOptional()
   @IsString()
   optionId?: string;
+
+  /** The specific source-branch batch chosen for this line (EZHT batch/option). */
+  @IsOptional()
+  @IsString()
+  batchId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  batchNo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  serialNo?: string;
+
+  @IsOptional()
+  @IsDateString()
+  expiryDate?: string;
+}
+
+/** EZ Health Track referral block (legacy `ReferralForm[...]`). */
+export class RequisitionReferralDto {
+  /** doctor | insurance | personal | agency | hospital. */
+  @IsOptional()
+  @IsIn(['doctor', 'insurance', 'personal', 'agency', 'hospital'])
+  sourceType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  contactFname?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  contactMname?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  contactLname?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  businessName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  businessAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  doctorName?: string;
+
+  @IsOptional()
+  @IsString()
+  slnId?: string;
 }
 
 /** Create a requisition (request from the active/destination branch). */
@@ -66,6 +127,15 @@ export class CreateRequisitionDto {
   @IsString()
   fromBranchId?: string;
 
+  /**
+   * Destination branch (legacy `warehouse_id`). EZHT lets the user pick this;
+   * when omitted it defaults to the caller's active branch. Always validated
+   * against the caller's tenant before use.
+   */
+  @IsOptional()
+  @IsString()
+  toBranchId?: string;
+
   @IsOptional()
   @IsString()
   fromDepartmentId?: string;
@@ -73,6 +143,39 @@ export class CreateRequisitionDto {
   @IsOptional()
   @IsString()
   toDepartmentId?: string;
+
+  /** EZHT identity fields (id + snapshotted display name). */
+  @IsOptional()
+  @IsString()
+  billerId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  billerName?: string;
+
+  @IsOptional()
+  @IsString()
+  supplierId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  supplierName?: string;
+
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  customerName?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RequisitionReferralDto)
+  referral?: RequisitionReferralDto;
 
   @IsOptional()
   @IsString()

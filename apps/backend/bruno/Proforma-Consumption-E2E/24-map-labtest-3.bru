@@ -1,0 +1,27 @@
+meta {
+  name: 24 Map proforma to lab test 3
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proformas/{{proformaId}}/relations
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "entityType": "lab_test",
+    "entityId": "{{labTest3}}",
+    "label": "Lab Test 3"
+  }
+}
+
+assert {
+  res.status: eq 201
+}

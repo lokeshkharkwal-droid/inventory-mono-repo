@@ -18,6 +18,7 @@ import { ManufacturerModule } from './modules/manufacturer/manufacturer.module';
 import { TaxRateModule } from './modules/tax-rate/tax-rate.module';
 import { VariantModule } from './modules/variant/variant.module';
 import { ProductModule } from './modules/product/product.module';
+import { DrugModule } from './modules/drug/drug.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { CustomerModule } from './modules/customer/customer.module';
 import { PurchaseModule } from './modules/purchase/purchase.module';
@@ -89,6 +90,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     TaxRateModule,
     VariantModule,
     ProductModule,
+    DrugModule,
     SupplierModule,
     CustomerModule,
     PurchaseModule,

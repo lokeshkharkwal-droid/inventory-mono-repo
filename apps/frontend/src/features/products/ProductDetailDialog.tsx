@@ -107,7 +107,7 @@ export function ProductDetailDialog({ product, onOpenChange }: Props) {
               <Field label="Sales method" value={p.salesMethod} />
               <Field label="Barcode symbology" value={p.barcodeSymbology} />
               <Field label="Alert qty" value={p.alertQuantity} />
-              <Field label="Total stock" value={p.totalQuantity} />
+              <Field label="Branch stock" value={p.quantity} />
               <Field label="Stock tracked" value={yesNo(p.isStockTracked)} />
               <Field label="Serialized" value={yesNo(p.isSerialized)} />
             </div>

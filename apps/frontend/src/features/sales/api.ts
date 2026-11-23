@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { request, requestPaged } from '@/lib/http';
+import { api, request, requestPaged } from '@/lib/http';
 import { useInfiniteList } from '@/features/_shared/useInfiniteList';
 import type { WarehouseDetail } from '@/features/_shared/warehouse';
 
@@ -123,6 +123,7 @@ export function useInfiniteSales(
   params: {
     search?: string;
     extra?: Record<string, string | number | boolean | undefined>;
+    limit?: number;
   } = {},
 ) {
   return useInfiniteList<SaleListRow>(['sales'], '/sales', params);
@@ -178,4 +179,54 @@ export function useDeleteSale() {
     mutationFn: (id: string) => request('DELETE', `/sales/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
+}
+
+/**
+ * Render the sale's "Template Invoice" (via the mapped kalnostics
+ * `inventory_invoice` print template) and open the resulting PDF in a new tab.
+ * Fetches the binary through the authed `api` instance (so the Bearer token +
+ * 401-refresh apply) rather than `request`, which unwraps the JSON envelope.
+ * @throws Error with a human-readable message (e.g. no template configured)
+ */
+export async function openSalePdf(saleId: string): Promise<void> {
+  let blob: Blob;
+  try {
+    const res = await api.request<Blob>({
+      method: 'GET',
+      url: `/sales/${saleId}/invoice-pdf`,
+      responseType: 'blob',
+    });
+    blob = res.data;
+  } catch (err) {
+    throw new Error(await extractBlobErrorMessage(err));
+  }
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  // Revoke later so the opened tab has time to load the document first.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  if (!win) {
+    throw new Error('Pop-up blocked — allow pop-ups to view the invoice.');
+  }
+}
+
+/**
+ * Pull a readable message out of a failed blob request: the backend returns its
+ * JSON `{ error: { message } }` envelope even on the PDF route, but axios hands
+ * it back as a Blob when `responseType: 'blob'`, so parse it here.
+ */
+async function extractBlobErrorMessage(err: unknown): Promise<string> {
+  const fallback = 'Could not generate the invoice PDF.';
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await data.text()) as {
+        error?: { message?: string };
+      };
+      if (parsed.error?.message) return parsed.error.message;
+    } catch {
+      /* non-JSON body — fall through to the generic message */
+    }
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
 }

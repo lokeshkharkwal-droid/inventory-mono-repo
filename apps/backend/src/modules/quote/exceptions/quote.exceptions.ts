@@ -28,3 +28,15 @@ export class QuoteNotConvertibleException extends KaltrosException {
     super('QUOTE_NOT_CONVERTIBLE', reason, {}, HttpStatus.CONFLICT);
   }
 }
+
+/** 400 — a manual (off-catalogue) line needs a product name. */
+export class QuoteLineInvalidException extends KaltrosException {
+  constructor() {
+    super(
+      'QUOTE_LINE_INVALID',
+      'A manual line needs a product name (or select a catalogue product)',
+      {},
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}

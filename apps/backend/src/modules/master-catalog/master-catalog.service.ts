@@ -56,7 +56,7 @@ export class MasterCatalogService {
   async listSuppliers(q: CatalogQueryDto): Promise<PaginatedResult<unknown>> {
     const { page, limit } = this.page(q);
     const where = this.supplierWhere(q);
-    const [data, total] = await this.prisma.$transaction([
+    const [data, total] = await Promise.all([
       this.prisma.inventoryMasterSupplier.findMany({
         where,
         orderBy: { name: 'asc' },
@@ -72,7 +72,7 @@ export class MasterCatalogService {
   async supplierOptions(q: CatalogQueryDto): Promise<PaginatedResult<unknown>> {
     const { page, limit } = this.page(q);
     const where = { ...this.supplierWhere(q), isActive: true };
-    const [rows, total] = await this.prisma.$transaction([
+    const [rows, total] = await Promise.all([
       this.prisma.inventoryMasterSupplier.findMany({
         where,
         select: { id: true, name: true, company: true },
@@ -133,7 +133,7 @@ export class MasterCatalogService {
         { email: { contains: q.search, mode: 'insensitive' } },
         { phone: { contains: q.search, mode: 'insensitive' } },
       ];
-    const [data, total] = await this.prisma.$transaction([
+    const [data, total] = await Promise.all([
       this.prisma.inventoryMasterManufacturer.findMany({
         where,
         orderBy: { name: 'asc' },
@@ -208,7 +208,7 @@ export class MasterCatalogService {
     const d = this.fin(
       kind,
     ) as typeof this.prisma.inventoryMasterExpenseCategory;
-    const [data, total] = await this.prisma.$transaction([
+    const [data, total] = await Promise.all([
       d.findMany({
         where,
         orderBy: { name: 'asc' },
@@ -324,7 +324,7 @@ export class MasterCatalogService {
     const { page, limit } = this.page(q);
     const where: Prisma.InventoryMasterProformaWhereInput = { deletedAt: null };
     if (q.search) where.name = { contains: q.search, mode: 'insensitive' };
-    const [data, total] = await this.prisma.$transaction([
+    const [data, total] = await Promise.all([
       this.prisma.inventoryMasterProforma.findMany({
         where,
         orderBy: { createdAt: 'desc' },

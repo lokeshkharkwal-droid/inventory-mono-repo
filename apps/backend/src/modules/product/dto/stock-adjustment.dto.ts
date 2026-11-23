@@ -39,6 +39,12 @@ export class RecordAdjustmentDto {
   note?: string;
 
   // ── EZHT full-adjustment parity ──
+  /**
+   * The product batch ("Purchased Item") this adjustment targets. When set, the
+   * batch balance moves with the warehouse total so the batch ledger stays in
+   * lock-step. Omit for a plain warehouse-level adjustment.
+   */
+  @IsOptional() @IsString() batchId?: string;
   /** Effective adjustment date (ISO). Defaults to now. */
   @IsOptional() @IsDateString() adjustedAt?: string;
   @IsOptional() @IsString() variantId?: string;

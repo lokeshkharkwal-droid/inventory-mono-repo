@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ProductService } from './product.service';
 import { ProductStockService } from './product-stock.service';
+import { ProductBatchService } from './product-batch.service';
 import { ProductImportService } from './product-import.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -41,6 +42,7 @@ export class ProductController {
   constructor(
     private readonly productService: ProductService,
     private readonly stockService: ProductStockService,
+    private readonly batchService: ProductBatchService,
     private readonly importService: ProductImportService,
   ) {}
 
@@ -82,18 +84,53 @@ export class ProductController {
     return this.importService.updateImport(tenantId, dto);
   }
 
-  /** Tenant-wide adjustment history (declared before `:id` routes). */
+  /**
+   * Adjustment history for the caller's active branch (declared before `:id`).
+   * The branch is forced from the JWT — a client-supplied branchId is ignored.
+   */
   @Get('adjustments')
   listAllAdjustments(
     @CurrentTenant() tenantId: string,
+    @CurrentProfile() profile: ActiveProfile,
     @Query() query: AllAdjustmentsQueryDto,
   ) {
-    return this.stockService.listAllAdjustments(tenantId, query);
+    return this.stockService.listAllAdjustments(tenantId, {
+      ...query,
+      branchId: profile.branchId ?? undefined,
+    });
   }
 
+  /** Product list with inventory values scoped to the caller's active branch. */
   @Get()
-  findAll(@CurrentTenant() tenantId: string, @Query() query: ProductQueryDto) {
-    return this.productService.findAll(tenantId, query);
+  findAll(
+    @CurrentTenant() tenantId: string,
+    @CurrentProfile() profile: ActiveProfile,
+    @Query() query: ProductQueryDto,
+  ) {
+    return this.productService.findAll(tenantId, profile.branchId, query);
+  }
+
+  /**
+   * Batch-level product search for the Add-Sale autocomplete (EZHT parity):
+   * search by product name/code → one row per batch (Name · Batch · Expiry · Qty,
+   * negatives preserved) carrying the line defaults. Declared before `:id`. The
+   * warehouse defaults to the active branch; a supplied `warehouseId` must be a
+   * branch the caller can see (the JWT branch is the safe default). `[]` when no
+   * active branch.
+   */
+  @Get('batch-search')
+  searchBatches(
+    @CurrentTenant() tenantId: string,
+    @CurrentProfile() profile: ActiveProfile,
+    @Query('term') term?: string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const branchId = warehouseId || profile.branchId;
+    if (!branchId) return [];
+    return this.batchService.searchBatches(tenantId, branchId, term, {
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @Get(':id')
@@ -152,6 +189,56 @@ export class ProductController {
   @Get(':id/stock')
   getStock(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.stockService.getStock(id, tenantId);
+  }
+
+  /** Per-variant on-hand stock across branches for a product. */
+  @Get(':id/variant-stock')
+  getVariantStock(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.stockService.getVariantStock(id, tenantId);
+  }
+
+  /**
+   * Batches of this product available at the caller's active branch, earliest-expiry
+   * first — the source for the sale-form batch picker and the Product Details batch
+   * panel. Default: in-stock, non-expired. `?all=1` includes expired + non-zero
+   * (negative) rows for the detail page. Returns `[]` when there's no active branch.
+   */
+  @Get(':id/batches')
+  async getBatches(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentProfile() profile: ActiveProfile,
+    @Query('all') all?: string,
+  ) {
+    await this.productService.findById(id, tenantId); // 404 if not in tenant
+    if (!profile.branchId) return [];
+    const includeAll = all === '1' || all === 'true';
+    return this.batchService.availableForProduct(
+      tenantId,
+      profile.branchId,
+      id,
+      { includeExpired: includeAll, includeEmpty: includeAll },
+    );
+  }
+
+  /**
+   * Fully-described batches of this product at the active branch for the Product
+   * Details "Batches" panel (EZHT product-view parity: date, code/name, variant,
+   * serial, expiry, pack size/cost, cost, pack MRP/MRP, tax rate, HSN, quantity,
+   * warehouse). Includes expired + zero/negative rows. `[]` when no active branch.
+   */
+  @Get(':id/batch-details')
+  async getBatchDetails(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentProfile() profile: ActiveProfile,
+  ) {
+    await this.productService.findById(id, tenantId); // 404 if not in tenant
+    if (!profile.branchId) return [];
+    return this.batchService.detailForProduct(tenantId, profile.branchId, id, {
+      includeExpired: true,
+      includeEmpty: true,
+    });
   }
 
   /** Record a stock adjustment at the caller's active branch. */

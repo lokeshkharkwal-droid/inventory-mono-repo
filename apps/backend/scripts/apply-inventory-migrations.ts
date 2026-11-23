@@ -111,10 +111,10 @@ async function main(): Promise<void> {
 
     // ── Safety: refuse to replay migrations onto a hand-migrated DB ──
     if (applied.size === 0) {
-      const [{ exists }] = await prisma.$queryRawUnsafe<{ exists: boolean }[]>(
+      const rows = await prisma.$queryRawUnsafe<{ exists: boolean }[]>(
         `SELECT to_regclass('public.inventory_categories') IS NOT NULL AS "exists"`,
       );
-      if (exists) {
+      if (rows[0]?.exists) {
         throw new Error(
           `inventory_* tables exist but "${LEDGER}" is empty. The schema was applied ` +
             `manually; record what is already there first, e.g.\n` +

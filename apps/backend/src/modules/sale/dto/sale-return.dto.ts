@@ -26,6 +26,12 @@ export class SaleReturnItemDto {
   @IsNumber()
   @Min(0)
   price: number;
+
+  /** Batch/serial snapshot of the returned line (shown in the detail modal). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  serialNo?: string;
 }
 
 /** Create a sale return (restocks + optional refund). */
@@ -47,6 +53,20 @@ export class CreateSaleReturnDto {
   @IsNumber()
   @Min(0)
   refundAmount?: number;
+
+  /** EZHT return surcharge — SUBTRACTED from the grand total. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  surcharge?: number;
+
+  /** Order-level discount on the return (subtracted from the grand total). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  orderDiscount?: number;
 
   @IsOptional()
   @IsString()

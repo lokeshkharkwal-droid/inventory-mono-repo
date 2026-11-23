@@ -130,19 +130,17 @@ export function MasterCrudPage<T extends Row>({
     setDialogOpen(true);
   };
 
+  // Errors propagate to CrudForm, which maps them onto the relevant field (or
+  // falls back to a toast); success closes the dialog.
   const onSubmit = async (values: Record<string, unknown>) => {
-    try {
-      if (editing) {
-        await update.mutateAsync({ id: editing.id, input: values });
-        toast.success(`${title} updated`);
-      } else {
-        await create.mutateAsync(values);
-        toast.success(`${title} created`);
-      }
-      setDialogOpen(false);
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save'));
+    if (editing) {
+      await update.mutateAsync({ id: editing.id, input: values });
+      toast.success(`${title} updated`);
+    } else {
+      await create.mutateAsync(values);
+      toast.success(`${title} created`);
     }
+    setDialogOpen(false);
   };
 
   const onDelete = async (row: T) => {

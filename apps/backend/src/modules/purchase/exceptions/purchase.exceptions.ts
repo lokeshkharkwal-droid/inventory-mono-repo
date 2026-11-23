@@ -24,3 +24,13 @@ export class PaymentExceedsBalanceException extends KaltrosException {
     );
   }
 }
+
+/**
+ * 409 — the purchase is locked against this operation (EZHT edit/delete rules):
+ * it already has a return, and/or (for delete) recorded payments.
+ */
+export class PurchaseLockedException extends KaltrosException {
+  constructor(reason: string, context: Record<string, unknown> = {}) {
+    super('PURCHASE_LOCKED', reason, context, HttpStatus.CONFLICT);
+  }
+}

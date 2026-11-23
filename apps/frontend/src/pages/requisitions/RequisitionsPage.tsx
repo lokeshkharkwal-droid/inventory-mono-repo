@@ -1,17 +1,21 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Plus, Download, Trash2 } from 'lucide-react';
+import { Plus, Download, Trash2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { PrintButton } from '@/components/shared/PrintButton';
+import { EmailDocumentButton } from '@/components/shared/EmailDocumentButton';
+import { useRowSelection, BulkPdfBar } from '@/components/shared/bulk-pdf';
 import { exportCsv } from '@/lib/csv';
+import { openCombinedPdf, printRowsAsPdf } from '@/lib/print';
 import { getApiErrorMessage } from '@/lib/http';
 import { useBranchOptions } from '@/features/_shared/branches';
 import {
   useInfiniteRequisitions,
   useDeleteRequisition,
+  openRequisitionPdf,
   type RequisitionListRow,
 } from '@/features/requisitions/api';
 
@@ -23,6 +27,7 @@ export function RequisitionsPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const sel = useRowSelection();
   const { data: branches } = useBranchOptions();
   const del = useDeleteRequisition();
 
@@ -51,7 +56,7 @@ export function RequisitionsPage() {
     {
       key: 'date',
       header: 'Date',
-      render: (r) => new Date(r.date).toLocaleDateString(),
+      render: (r) => new Date(r.date).toLocaleString(),
     },
     { key: 'reference', header: 'Reference' },
     {
@@ -63,6 +68,11 @@ export function RequisitionsPage() {
       key: 'destination',
       header: 'Destination branch',
       render: (r) => branchName(r.branchId),
+    },
+    {
+      key: 'biller',
+      header: 'Biller',
+      render: (r) => r.billerName ?? '—',
     },
     {
       key: 'localPurchase',
@@ -81,6 +91,14 @@ export function RequisitionsPage() {
       className: 'text-right w-px whitespace-nowrap',
       render: (r) => (
         <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Requisition details"
+            onClick={() => navigate(`/requisitions/view/${r.id}`)}
+          >
+            <FileText className="h-4 w-4" /> Details
+          </Button>
           {r.status === 'PENDING' && (
             <Button
               variant="outline"
@@ -90,11 +108,30 @@ export function RequisitionsPage() {
               Edit
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Download PDF"
+            onClick={() =>
+              void openRequisitionPdf(r.id).catch((e) =>
+                toast.error(
+                  e instanceof Error ? e.message : 'Could not generate PDF',
+                ),
+              )
+            }
+          >
+            <FileText className="h-4 w-4" />
+          </Button>
+          <EmailDocumentButton
+            type="requisition"
+            id={r.id}
+            title="Email requisition"
+          />
           <PrintButton
             path={`/print/requisition/${r.id}`}
             title="Print requisition"
           />
-          {r.status === 'PENDING' && (
+          {(r.status === 'PENDING' || r.status === 'REJECTED') && (
             <Button
               variant="ghost"
               size="icon"
@@ -133,6 +170,7 @@ export function RequisitionsPage() {
                   reference: r.reference,
                   sourceBranch: branchName(r.fromBranchId),
                   destinationBranch: branchName(r.branchId),
+                  biller: r.billerName ?? '',
                   localPurchase: r.localPurchase ? 'Yes' : 'No',
                   total: Number(r.grandTotal).toFixed(2),
                   status: r.status,
@@ -169,12 +207,37 @@ export function RequisitionsPage() {
         </select>
       </div>
 
+      <BulkPdfBar
+        count={sel.selectedIds.size}
+        onCombine={() => void openCombinedPdf('requisition', [...sel.selectedIds])}
+        onExport={() =>
+          printRowsAsPdf(
+            'Requisitions',
+            ['Date', 'Reference', 'Source', 'Destination', 'Biller', 'Local Purchase', 'Total', 'Status'],
+            rows
+              .filter((r) => sel.selectedIds.has(r.id))
+              .map((r) => [
+                new Date(r.date).toLocaleString(),
+                r.reference,
+                branchName(r.fromBranchId),
+                branchName(r.branchId),
+                r.billerName ?? '',
+                r.localPurchase ? 'Yes' : 'No',
+                Number(r.grandTotal).toFixed(2),
+                r.status,
+              ]),
+          )
+        }
+        onClear={sel.clear}
+      />
+
       <DataTable
         columns={columns}
         rows={rows}
         rowKey={(r) => r.id}
         isLoading={isLoading}
         emptyMessage="No requisitions yet."
+        selection={sel.selection}
         infinite={{ hasMore, isFetchingMore, onLoadMore: fetchMore }}
       />
     </div>

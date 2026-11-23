@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
@@ -8,19 +8,24 @@ import { Label } from '@/components/ui/label';
 import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { AttachmentUpload } from '@/components/shared/AttachmentUpload';
 import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
+import { FieldError } from '@/components/ui/field-error';
 import { useBranchOptions } from '@/features/_shared/branches';
 import { useBillers, useTaxRates } from '@/features/_shared/options';
 import { computeOrder } from '@/features/orders/totals';
-import { useCreateQuote } from './api';
+import { useCreateQuote, useUpdateQuote, useQuote, type QuoteDetail } from './api';
 
 const selectCls =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
+  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm aria-[invalid=true]:border-destructive';
 const inputSm = 'h-9';
 
 interface LineRow {
   productId: string;
   productName?: string;
   productCode?: string;
+  /** Manual (off-catalogue) line — name/code typed in, no catalogue product. */
+  isManual: boolean;
+  serialNo: string;
   unitPrice: string;
   packSize: string;
   packQuantity: string;
@@ -61,6 +66,8 @@ const EMPTY_ROW: LineRow = {
   productId: '',
   productName: '',
   productCode: '',
+  isManual: false,
+  serialNo: '',
   unitPrice: '0',
   packSize: '',
   packQuantity: '',
@@ -69,6 +76,8 @@ const EMPTY_ROW: LineRow = {
   taxRateId: '',
   taxRate: '0',
 };
+
+const MANUAL_ROW: LineRow = { ...EMPTY_ROW, isManual: true };
 
 function defaults(type: 'SALE' | 'PURCHASE'): FormValues {
   return {
@@ -100,36 +109,103 @@ function defaults(type: 'SALE' | 'PURCHASE'): FormValues {
 interface Props {
   /** Pre-selected quote type (sales vs purchase). */
   defaultType?: 'SALE' | 'PURCHASE';
+  /** When set, the form edits this quote instead of creating a new one. */
+  editId?: string | null;
   /** Called after a successful save or on cancel. */
   onDone: () => void;
 }
 
 /**
- * Create-quote form (sales or purchase) — EZ Health Track `quotes/add` parity.
- * A full order-items table (product search-to-add rows with net unit price,
- * pack size/quantity, quantity, discount, per-line tax and a live subtotal),
- * header fields (date, party, reference, biller, warehouse, status), an
- * optional referral panel (SALE only), a footer "more options" block and a
- * live totals summary. Shared by {@link QuoteFormDialog} and the dedicated
- * `/quotes/add` page.
+ * Create/edit-quote form (sales or purchase) — EZ Health Track `quotes/add` +
+ * `quotes/edit_{sales,purchase}` parity. A full order-items table (product
+ * search-to-add rows with net unit price, pack size/quantity, quantity, discount
+ * — flat or `%`, per-line tax and a live subtotal), header fields (date, party,
+ * reference, biller, warehouse, status), an optional referral panel (SALE only),
+ * a "more options" block and a live totals summary driven by the same money
+ * engine ({@link computeOrder}) the server uses — so the preview equals the saved
+ * grand total. Shared by {@link QuoteFormDialog} and the dedicated add/edit pages.
  */
-export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
+export function QuoteForm({ defaultType = 'SALE', editId = null, onDone }: Props) {
   const create = useCreateQuote();
+  const updateQuote = useUpdateQuote();
+  const { data: editing } = useQuote(editId ?? undefined);
   const { data: branches } = useBranchOptions();
   const { data: billers } = useBillers();
   const { data: taxRates } = useTaxRates();
   const [type, setType] = useState<'SALE' | 'PURCHASE'>(defaultType);
 
-  const { register, handleSubmit, control, reset, setValue } = useForm<FormValues>({
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    setValue,
+    setError,
+    formState: { errors },
+  } = useForm<FormValues>({
     defaultValues: defaults(defaultType),
+    mode: 'onTouched',
   });
   const items = useFieldArray({ control, name: 'items' });
+
+  // Hydrate the form when editing an existing quote (needs the tax-rate catalogue
+  // loaded first so a line's stored rate can be matched back to its dropdown id).
+  useEffect(() => {
+    if (!editId || !editing) return;
+    const q = editing as QuoteDetail;
+    const matchTaxRateId = (rate: number) =>
+      (taxRates ?? []).find((t) => Number(t.rate) === Number(rate))?.id ?? '';
+    const referral = q.referralInfo ?? null;
+    setType(q.type);
+    reset({
+      ...defaults(q.type),
+      type: q.type,
+      customerId: q.customerId ?? '',
+      supplierId: q.supplierId ?? '',
+      billerId: q.billerId ?? '',
+      warehouseId: q.warehouseId ?? '',
+      status: q.status === 'CONVERTED' ? 'DRAFT' : q.status,
+      reference: q.reference ?? '',
+      date: q.date ? String(q.date).slice(0, 10) : '',
+      referralEnabled: Boolean(referral),
+      referralSourceType: referral?.sourceType ?? 'DOCTOR',
+      referralFirstName: referral?.contactFname ?? '',
+      referralMiddleName: referral?.contactMname ?? '',
+      referralLastName: referral?.contactLname ?? '',
+      referralBusinessName: referral?.businessName ?? '',
+      referralBusinessAddress: referral?.businessAddress ?? '',
+      orderDiscount: q.orderDiscountSpec ?? String(q.orderDiscount ?? 0),
+      orderTax: String(q.orderTaxPercent ?? 0),
+      shipping: String(q.shipping ?? 0),
+      gstNumber: q.gstNumber ?? '',
+      note: q.note ?? '',
+      attachmentUrl: q.attachmentUrl ?? '',
+      items:
+        q.items.length > 0
+          ? q.items.map((i) => ({
+              productId: i.productId ?? '',
+              productName: i.productName,
+              productCode: i.productCode ?? '',
+              isManual: !i.productId,
+              serialNo: i.serialNo ?? '',
+              unitPrice: String(i.unitPrice ?? 0),
+              packSize: i.packSize ?? '',
+              packQuantity: i.packQuantity != null ? String(i.packQuantity) : '',
+              quantity: String(i.quantity ?? 1),
+              discount: i.discountSpec ?? String(i.discount ?? 0),
+              taxRateId: matchTaxRateId(Number(i.taxRate ?? 0)),
+              taxRate: String(i.taxRate ?? 0),
+            }))
+          : [{ ...EMPTY_ROW }],
+    });
+  }, [editId, editing, taxRates, reset]);
 
   // useWatch re-renders reliably on nested field-array edits (plain watch() does
   // not), so the per-line subtotals and the totals summary stay in sync.
   const live = useWatch({ control }) as Partial<FormValues>;
   const watchedItems = useMemo(() => live.items ?? [], [live.items]);
   const referralEnabled = Boolean(live.referralEnabled);
+  const lineCount = watchedItems.filter((l) => l?.productId).length;
 
   const totals = useMemo(
     () =>
@@ -149,14 +225,19 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
 
   const submit = handleSubmit(async (v) => {
     const productItems = v.items
-      .filter((i) => i.productId)
+      .filter((i) => (i.isManual ? i.productName?.trim() : i.productId))
       .map((i) => ({
-        productId: i.productId,
+        productId: i.isManual ? undefined : i.productId,
+        productName: i.isManual ? i.productName?.trim() : undefined,
+        productCode: i.isManual ? i.productCode || undefined : undefined,
+        productType: i.isManual ? 'manual' : undefined,
+        serialNo: i.serialNo || undefined,
         quantity: Number(i.quantity || 0),
         unitPrice: Number(i.unitPrice || 0),
         taxRate: Number(i.taxRate || 0),
-        discount: Number(i.discount || 0),
-        packSize: i.packSize ? Number(i.packSize) : undefined,
+        // Keep the raw spec ("5%" or flat) — the server resolves it.
+        discount: i.discount || undefined,
+        packSize: i.packSize || undefined,
         packQuantity: i.packQuantity ? Number(i.packQuantity) : undefined,
       }));
     if (productItems.length === 0) {
@@ -184,32 +265,54 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
           }
         : undefined;
 
+    const body = {
+      type: v.type,
+      customerId: v.type === 'SALE' ? v.customerId : undefined,
+      supplierId: v.type === 'PURCHASE' ? v.supplierId : undefined,
+      billerId: v.billerId || undefined,
+      warehouseId: v.warehouseId || undefined,
+      status: v.status || undefined,
+      reference: v.reference || undefined,
+      date: v.date || undefined,
+      gstNumber: v.gstNumber || undefined,
+      attachmentUrl: v.attachmentUrl || undefined,
+      referral,
+      // Order discount stays a spec ("5%" or flat); order tax is a percentage.
+      orderDiscount: v.orderDiscount || undefined,
+      orderTax: Number(v.orderTax || 0) || undefined,
+      shipping: Number(v.shipping || 0) || undefined,
+      note: v.note || undefined,
+      items: productItems,
+    };
+
     try {
-      await create.mutateAsync({
-        type: v.type,
-        customerId: v.type === 'SALE' ? v.customerId : undefined,
-        supplierId: v.type === 'PURCHASE' ? v.supplierId : undefined,
-        billerId: v.billerId || undefined,
-        warehouseId: v.warehouseId || undefined,
-        status: v.status || undefined,
-        reference: v.reference || undefined,
-        date: v.date || undefined,
-        gstNumber: v.gstNumber || undefined,
-        attachmentUrl: v.attachmentUrl || undefined,
-        referral,
-        orderDiscount: Number(v.orderDiscount || 0) || undefined,
-        orderTax: Number(v.orderTax || 0) || undefined,
-        shipping: Number(v.shipping || 0) || undefined,
-        note: v.note || undefined,
-        items: productItems,
-      });
-      toast.success('Quote created');
-      reset(defaults(type));
+      if (editId) {
+        await updateQuote.mutateAsync({ id: editId, input: body });
+        toast.success('Quote updated');
+      } else {
+        await create.mutateAsync(body);
+        toast.success('Quote created');
+        reset(defaults(type));
+      }
       onDone();
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not create quote'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: [
+          'customerId',
+          'supplierId',
+          'billerId',
+          'warehouseId',
+          'date',
+        ],
+      });
+      if (!mapped)
+        toast.error(
+          getApiErrorMessage(err, editId ? 'Could not update quote' : 'Could not create quote'),
+        );
     }
   });
+
+  const saving = create.isPending || updateQuote.isPending;
 
   return (
     <form onSubmit={submit} className="space-y-4">
@@ -220,6 +323,7 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
           <select
             id="type"
             className={selectCls}
+            disabled={Boolean(editId)}
             {...register('type', {
               onChange: (e) => setType(e.target.value as 'SALE' | 'PURCHASE'),
             })}
@@ -238,6 +342,9 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
             <Controller
               control={control}
               name="customerId"
+              rules={{
+                required: type === 'SALE' ? 'Patient is required' : false,
+              }}
               render={({ field }) => (
                 <InfiniteSelect
                   id="customerId"
@@ -252,6 +359,7 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
                 />
               )}
             />
+            <FieldError message={errors.customerId?.message as string} />
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -259,6 +367,9 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
             <Controller
               control={control}
               name="supplierId"
+              rules={{
+                required: type === 'PURCHASE' ? 'Supplier is required' : false,
+              }}
               render={({ field }) => (
                 <InfiniteSelect
                   id="supplierId"
@@ -273,6 +384,7 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
                 />
               )}
             />
+            <FieldError message={errors.supplierId?.message as string} />
           </div>
         )}
         <div className="space-y-1.5">
@@ -306,6 +418,7 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
           <select id="status" className={selectCls} {...register('status')}>
             <option value="DRAFT">Pending</option>
             <option value="SENT">Sent</option>
+            <option value="COMPLETED">Completed</option>
           </select>
         </div>
       </div>
@@ -368,14 +481,24 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
       <section className="space-y-2 rounded-lg border p-4">
         <div className="flex items-center justify-between">
           <Label className="text-base">Order items *</Label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => items.append({ ...EMPTY_ROW })}
-          >
-            <Plus className="h-4 w-4" /> Add line
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => items.append({ ...EMPTY_ROW })}
+            >
+              <Plus className="h-4 w-4" /> Add line
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => items.append({ ...MANUAL_ROW })}
+            >
+              <Plus className="h-4 w-4" /> Add manual product
+            </Button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[960px] text-sm">
@@ -383,6 +506,7 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th className="py-2 pr-2">Product Name (Product Code)</th>
                 <th className="px-1">Net Unit Price</th>
+                <th className="px-1">Serial No</th>
                 <th className="px-1">Pack Size</th>
                 <th className="px-1">Pack Quantity</th>
                 <th className="px-1">Quantity</th>
@@ -396,32 +520,52 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
               {items.fields.map((f, i) => (
                 <tr key={f.id} className="border-b align-top">
                   <td className="py-2 pr-2" style={{ minWidth: 200 }}>
-                    <Controller
-                      control={control}
-                      name={`items.${i}.productId`}
-                      render={({ field }) => (
-                        <InfiniteSelect
-                          value={field.value}
-                          onChange={field.onChange}
-                          onSelect={(p) => {
-                            setValue(`items.${i}.productName`, p.name);
-                            setValue(`items.${i}.productCode`, p.code ?? '');
-                            setValue(`items.${i}.unitPrice`, String(p.price ?? 0));
-                          }}
-                          queryKey={['products']}
-                          path="/products"
-                          getOptionValue={(p) => p.id}
-                          getOptionLabel={(p) => p.name}
-                          selectedLabel={watchedItems[i]?.productName}
-                          placeholder="Select product…"
+                    {watchedItems[i]?.isManual ? (
+                      <div className="space-y-1">
+                        <Input
+                          className={inputSm}
+                          placeholder="Manual product name"
+                          {...register(`items.${i}.productName`)}
                         />
-                      )}
-                    />
-                    {watchedItems[i]?.productCode ? (
-                      <span className="text-xs text-muted-foreground">
-                        {watchedItems[i]?.productCode}
-                      </span>
-                    ) : null}
+                        <Input
+                          className={inputSm}
+                          placeholder="Code (optional)"
+                          {...register(`items.${i}.productCode`)}
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <Controller
+                          control={control}
+                          name={`items.${i}.productId`}
+                          render={({ field }) => (
+                            <InfiniteSelect
+                              value={field.value}
+                              onChange={field.onChange}
+                              onSelect={(p) => {
+                                setValue(`items.${i}.productName`, p.name);
+                                setValue(`items.${i}.productCode`, p.code ?? '');
+                                setValue(
+                                  `items.${i}.unitPrice`,
+                                  String(p.price ?? 0),
+                                );
+                              }}
+                              queryKey={['products']}
+                              path="/products"
+                              getOptionValue={(p) => p.id}
+                              getOptionLabel={(p) => p.name}
+                              selectedLabel={watchedItems[i]?.productName}
+                              placeholder="Select product…"
+                            />
+                          )}
+                        />
+                        {watchedItems[i]?.productCode ? (
+                          <span className="text-xs text-muted-foreground">
+                            {watchedItems[i]?.productCode}
+                          </span>
+                        ) : null}
+                      </>
+                    )}
                   </td>
                   <td className="px-1" style={{ width: 110 }}>
                     <Input
@@ -429,6 +573,13 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
                       step="any"
                       className={inputSm}
                       {...register(`items.${i}.unitPrice`)}
+                    />
+                  </td>
+                  <td className="px-1" style={{ width: 110 }}>
+                    <Input
+                      className={inputSm}
+                      placeholder="Serial"
+                      {...register(`items.${i}.serialNo`)}
                     />
                   </td>
                   <td className="px-1" style={{ width: 100 }}>
@@ -543,7 +694,7 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
 
         {/* ── Totals ── */}
         <section className="space-y-1 rounded-lg border p-4 text-sm">
-          <Row label="Items" value={totals.totalItems} />
+          <Row label="Items" value={lineCount} />
           <Row label="Total" value={totals.subtotal} money />
           <Row label="Product discount" value={totals.productDiscount} money />
           <Row label="Order discount" value={totals.orderDiscount} money />
@@ -560,8 +711,8 @@ export function QuoteForm({ defaultType = 'SALE', onDone }: Props) {
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={create.isPending}>
-          {create.isPending ? 'Saving…' : 'Save'}
+        <Button type="submit" disabled={saving}>
+          {saving ? 'Saving…' : editId ? 'Update' : 'Save'}
         </Button>
       </div>
     </form>

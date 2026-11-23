@@ -10,6 +10,7 @@ import {
 } from '@/components/shared/LocationSelect';
 import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
 import '@/styles/ezht-form.css';
 
 interface FormShape {
@@ -70,8 +71,15 @@ export function CustomerFormPage({ patient = false }: { patient?: boolean } = {}
   const create = customerHooks.useCreate();
   const update = customerHooks.useUpdate();
 
-  const { register, handleSubmit, reset } = useForm<FormShape>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<FormShape>({
     defaultValues: EMPTY,
+    mode: 'onTouched',
   });
   const [location, setLocation] = useState<LocationValue>(EMPTY_LOCATION);
   const [customerGroupId, setCustomerGroupId] = useState('');
@@ -146,7 +154,29 @@ export function CustomerFormPage({ patient = false }: { patient?: boolean } = {}
       }
       navigate(basePath);
     } catch (err) {
-      toast.error(getApiErrorMessage(err, `Could not save ${entity.toLowerCase()}`));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: [
+          'company',
+          'name',
+          'vatNo',
+          'email',
+          'phone',
+          'address',
+          'status',
+          'postalCode',
+          'gstNo',
+          'panNo',
+          'gstState',
+          'ccf1',
+          'ccf2',
+          'ccf3',
+          'ccf4',
+          'ccf5',
+          'ccf6',
+        ],
+      });
+      if (!mapped)
+        toast.error(getApiErrorMessage(err, `Could not save ${entity.toLowerCase()}`));
     }
   });
 
@@ -171,9 +201,10 @@ export function CustomerFormPage({ patient = false }: { patient?: boolean } = {}
         id={name}
         type={type}
         className="ezht-control"
-        required={required}
-        {...register(name, { required })}
+        aria-invalid={!!errors[name]}
+        {...register(name, required ? { required: `${label} is required` } : {})}
       />
+      {errors[name] && <p className="ezht-error">{errors[name]?.message as string}</p>}
     </div>
   );
 
@@ -221,12 +252,15 @@ export function CustomerFormPage({ patient = false }: { patient?: boolean } = {}
                 <select
                   id="status"
                   className="ezht-control"
-                  required
-                  {...register('status', { required: true })}
+                  aria-invalid={!!errors.status}
+                  {...register('status', { required: 'Status is required' })}
                 >
                   <option value="1">Active</option>
                   <option value="0">Inactive</option>
                 </select>
+                {errors.status && (
+                  <p className="ezht-error">{errors.status?.message as string}</p>
+                )}
               </div>
             </div>
 

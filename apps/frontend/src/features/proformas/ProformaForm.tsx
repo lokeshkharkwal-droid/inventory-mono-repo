@@ -7,12 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
+import { FieldError } from '@/components/ui/field-error';
 import { useTaxRates } from '@/features/_shared/options';
 import { computeOrder } from '@/features/orders/totals';
 import { useCreateProforma, useUpdateProforma, type ProformaDetail } from './api';
 
 const selectCls =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
+  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm aria-[invalid=true]:border-destructive';
 const inputSm = 'h-9';
 
 interface LineRow {
@@ -38,9 +40,6 @@ interface FormValues {
   reference: string;
   date: string;
   status: string;
-  orderDiscount: string;
-  orderTax: string;
-  shipping: string;
   note: string;
   items: LineRow[];
   labTests: LabRow[];
@@ -65,9 +64,6 @@ function defaults(): FormValues {
     reference: '',
     date: '',
     status: 'ACTIVE',
-    orderDiscount: '0',
-    orderTax: '0',
-    shipping: '0',
     note: '',
     items: [{ ...EMPTY_ROW }],
     labTests: [],
@@ -82,9 +78,6 @@ export function toFormValues(p: ProformaDetail): FormValues {
     reference: p.reference,
     date: p.date ? new Date(p.date).toISOString().slice(0, 10) : '',
     status: p.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
-    orderDiscount: '0',
-    orderTax: '0',
-    shipping: '0',
     note: p.note ?? '',
     items: (p.items ?? []).map((it) => ({
       productId: it.productId,
@@ -124,8 +117,17 @@ export function ProformaForm({ onDone, proformaId, initialValues }: Props) {
   const mutation = isEdit ? update : create;
   const { data: taxRates } = useTaxRates();
 
-  const { register, handleSubmit, control, reset, setValue } = useForm<FormValues>({
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    setValue,
+    setError,
+    formState: { errors },
+  } = useForm<FormValues>({
     defaultValues: initialValues ?? defaults(),
+    mode: 'onTouched',
   });
 
   // Edit mode: once tax rates load, resolve each line's `taxRateId` from its rate
@@ -148,6 +150,8 @@ export function ProformaForm({ onDone, proformaId, initialValues }: Props) {
   const live = useWatch({ control }) as Partial<FormValues>;
   const watchedItems = useMemo(() => live.items ?? [], [live.items]);
 
+  // Proforma totals are product-level only — no order discount / order tax /
+  // shipping (EZHT parity: those fields don't belong on a proforma).
   const totals = useMemo(
     () =>
       computeOrder({
@@ -157,11 +161,8 @@ export function ProformaForm({ onDone, proformaId, initialValues }: Props) {
           discount: l?.discount,
           taxRatePercent: Number(l?.taxRate || 0),
         })),
-        orderDiscount: live.orderDiscount,
-        orderTaxPercent: Number(live.orderTax || 0),
-        shipping: Number(live.shipping || 0),
       }),
-    [watchedItems, live.orderDiscount, live.orderTax, live.shipping],
+    [watchedItems],
   );
 
   const submit = handleSubmit(async (v) => {
@@ -192,8 +193,6 @@ export function ProformaForm({ onDone, proformaId, initialValues }: Props) {
       status: v.status || undefined,
       reference: v.reference || undefined,
       date: v.date || undefined,
-      orderDiscount: Number(v.orderDiscount || 0) || undefined,
-      shipping: Number(v.shipping || 0) || undefined,
       note: v.note || undefined,
       items: productItems,
       labTests: labTests.length ? labTests : undefined,
@@ -209,12 +208,16 @@ export function ProformaForm({ onDone, proformaId, initialValues }: Props) {
       }
       onDone();
     } catch (err) {
-      toast.error(
-        getApiErrorMessage(
-          err,
-          isEdit ? 'Could not update proforma' : 'Could not create proforma',
-        ),
-      );
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: ['name', 'customerId', 'reference', 'date'],
+      });
+      if (!mapped)
+        toast.error(
+          getApiErrorMessage(
+            err,
+            isEdit ? 'Could not update proforma' : 'Could not create proforma',
+          ),
+        );
     }
   });
 
@@ -229,8 +232,10 @@ export function ProformaForm({ onDone, proformaId, initialValues }: Props) {
           <Input
             id="name"
             placeholder="Proforma name"
-            {...register('name', { required: true })}
+            aria-invalid={!!errors.name}
+            {...register('name', { required: 'Name is required' })}
           />
+          <FieldError message={errors.name?.message as string} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="date">Date</Label>
@@ -403,20 +408,8 @@ export function ProformaForm({ onDone, proformaId, initialValues }: Props) {
         {/* ── More options ── */}
         <section className="space-y-3 rounded-lg border p-4">
           <Label className="text-base">More options</Label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <div className="space-y-1.5">
-              <Label>Order discount</Label>
-              <Input placeholder="0 or 5%" {...register('orderDiscount')} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Order tax %</Label>
-              <Input type="number" step="any" {...register('orderTax')} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Shipping</Label>
-              <Input type="number" step="any" {...register('shipping')} />
-            </div>
-            <div className="col-span-2 space-y-1.5">
               <Label htmlFor="note">Note</Label>
               <Input id="note" {...register('note')} />
             </div>
@@ -468,9 +461,7 @@ export function ProformaForm({ onDone, proformaId, initialValues }: Props) {
           <Row label="Items" value={totals.totalItems} />
           <Row label="Total" value={totals.subtotal} money />
           <Row label="Product discount" value={totals.productDiscount} money />
-          <Row label="Order discount" value={totals.orderDiscount} money />
           <Row label="Tax" value={totals.totalTax} money />
-          <Row label="Shipping" value={totals.shipping} money />
           <div className="mt-2 flex items-center justify-between border-t pt-2 text-base font-semibold">
             <span>Grand total</span>
             <span className="tabular-nums">{totals.grandTotal.toFixed(2)}</span>

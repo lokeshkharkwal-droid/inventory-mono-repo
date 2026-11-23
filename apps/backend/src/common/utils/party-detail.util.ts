@@ -41,6 +41,29 @@ export async function resolveWarehouseDetail(
 }
 
 /**
+ * Batch-resolve many branch ids to their names in one pass (deduped), best-effort.
+ * Used by list endpoints (purchases/transfers/adjustments/batches) that show a
+ * Warehouse column but store only `branchId`. Unknown/unreachable ids map to null
+ * so the list still renders. Mirrors the inline pattern in {@link QuoteService}.
+ */
+export async function resolveWarehouseNameMap(
+  branchClient: KalnosticsBranchClient,
+  branchIds: (string | null | undefined)[],
+): Promise<Map<string, string | null>> {
+  const ids = [...new Set(branchIds.filter((b): b is string => !!b))];
+  const entries = await Promise.all(
+    ids.map(
+      async (id) =>
+        [
+          id,
+          (await resolveWarehouseDetail(branchClient, id))?.name ?? null,
+        ] as const,
+    ),
+  );
+  return new Map(entries);
+}
+
+/**
  * Best-effort staff-name lookup for a `createdBy` person id (inventory stores the
  * UUID only; names live on the kalnostics auth layer — mirrors the reports
  * "Created By" resolver). Returns `null` when unset/unknown/unreachable.

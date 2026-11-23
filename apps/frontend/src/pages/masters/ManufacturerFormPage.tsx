@@ -9,6 +9,7 @@ import {
   type LocationValue,
 } from '@/components/shared/LocationSelect';
 import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
 import '@/styles/ezht-form.css';
 
 interface FormShape {
@@ -64,8 +65,15 @@ export function ManufacturerFormPage() {
   const create = manufacturerHooks.useCreate();
   const update = manufacturerHooks.useUpdate();
 
-  const { register, handleSubmit, reset } = useForm<FormShape>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<FormShape>({
     defaultValues: EMPTY,
+    mode: 'onTouched',
   });
   const [location, setLocation] = useState<LocationValue>(EMPTY_LOCATION);
 
@@ -135,7 +143,27 @@ export function ManufacturerFormPage() {
       }
       navigate('/manufacturers');
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save manufacturer'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: [
+          'company',
+          'name',
+          'vatNo',
+          'email',
+          'phone',
+          'address',
+          'status',
+          'imageUrl',
+          'postalCode',
+          'cf1',
+          'cf2',
+          'cf3',
+          'cf4',
+          'cf5',
+          'cf6',
+          'invoiceFooter',
+        ],
+      });
+      if (!mapped) toast.error(getApiErrorMessage(err, 'Could not save manufacturer'));
     }
   });
 
@@ -161,9 +189,10 @@ export function ManufacturerFormPage() {
         id={name}
         type={type}
         className="ezht-control"
-        required={required}
-        {...register(name, { required })}
+        aria-invalid={!!errors[name]}
+        {...register(name, required ? { required: `${label} is required` } : {})}
       />
+      {errors[name] && <p className="ezht-error">{errors[name]?.message as string}</p>}
     </div>
   );
 
@@ -193,12 +222,15 @@ export function ManufacturerFormPage() {
                 <select
                   id="status"
                   className="ezht-control"
-                  required
-                  {...register('status', { required: true })}
+                  aria-invalid={!!errors.status}
+                  {...register('status', { required: 'Status is required' })}
                 >
                   <option value="1">Active</option>
                   <option value="0">Inactive</option>
                 </select>
+                {errors.status && (
+                  <p className="ezht-error">{errors.status?.message as string}</p>
+                )}
               </div>
             </div>
 

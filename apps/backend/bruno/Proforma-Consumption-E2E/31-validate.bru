@@ -1,0 +1,46 @@
+meta {
+  name: 31 Validate (5 tests) - Single x5, Combined x1
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proforma-consumption/validate
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "branchId": "{{branchA}}",
+    "labTestSourceIds": [
+      "{{labTest1}}", "{{labTest2}}", "{{labTest3}}", "{{labTest4}}", "{{labTest5}}"
+    ]
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.hasMapping: eq true
+  res.body.data.ok: eq true
+}
+
+tests {
+  test("Reagent (Single) required = 5, Bandage (Combined) required = 1", function () {
+    const byName = {};
+    res.body.data.products.forEach(function (p) {
+      if (p.productName.indexOf("Reagent") >= 0) byName.reagent = p.requiredQty;
+      if (p.productName.indexOf("Bandage") >= 0) byName.bandage = p.requiredQty;
+    });
+    expect(byName.reagent).to.equal(5);
+    expect(byName.bandage).to.equal(1);
+  });
+}
+
+docs {
+  Single: 1 configured x 5 mapped tests = 5. Combined: 1 configured x 1 = 1.
+}

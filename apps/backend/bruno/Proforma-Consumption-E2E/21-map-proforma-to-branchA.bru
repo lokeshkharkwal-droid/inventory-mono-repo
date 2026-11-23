@@ -1,0 +1,32 @@
+meta {
+  name: 21 Map proforma to branch A
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proformas/{{proformaId}}/relations
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "entityType": "branch",
+    "entityId": "{{branchA}}",
+    "label": "Branch A"
+  }
+}
+
+assert {
+  res.status: eq 201
+}
+
+docs {
+  A proforma consumes inventory only when mapped to BOTH the order's branch AND at
+  least one of its lab tests. This is the branch half.
+}

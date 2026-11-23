@@ -1,0 +1,32 @@
+meta {
+  name: 52 Verify sale items + quantities
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{inventoryBaseUrl}}/sales/{{saleId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq COMPLETED
+}
+
+tests {
+  test("sale records Reagent x5 and Bandage x1 with correct subtotals", function () {
+    const items = res.body.data.items;
+    const reagent = items.find(function (i) { return i.productName.indexOf("Reagent") >= 0; });
+    const bandage = items.find(function (i) { return i.productName.indexOf("Bandage") >= 0; });
+    expect(Number(reagent.quantity)).to.equal(5);
+    expect(Number(reagent.subtotal)).to.equal(100);
+    expect(Number(bandage.quantity)).to.equal(1);
+    expect(Number(bandage.subtotal)).to.equal(15);
+  });
+}

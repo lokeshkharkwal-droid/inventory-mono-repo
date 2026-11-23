@@ -3,6 +3,8 @@ import { ProductStockService } from './product-stock.service';
 import { InsufficientStockException } from './exceptions/product.exceptions';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ProductService } from './product.service';
+import type { ProductBatchService } from './product-batch.service';
+import type { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
 
 const D = (v: number) => new Prisma.Decimal(v);
 
@@ -53,6 +55,8 @@ describe('ProductStockService.applyDelta (stock math)', () => {
   const service = new ProductStockService(
     {} as unknown as PrismaService,
     {} as unknown as ProductService,
+    {} as unknown as ProductBatchService,
+    {} as unknown as KalnosticsBranchClient,
   );
 
   const base = { tenantId: 't1', branchId: 'b1', productId: 'p1' };

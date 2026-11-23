@@ -2,6 +2,8 @@ import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ProformaConsumptionService } from './proforma-consumption.service';
 import {
   ConsumeConsumptionDto,
+  LoadAdjustmentDto,
+  SaveAdjustmentDto,
   ValidateConsumptionDto,
 } from './dto/consumption.dto';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
@@ -44,5 +46,31 @@ export class ProformaConsumptionController {
     @Query('labTestSourceId') labTestSourceId: string,
   ) {
     return this.service.info(tenantId, branchId, labTestSourceId);
+  }
+
+  /**
+   * Load the manual inventory-adjustment view for an order (ORDER scope) or one
+   * lab test (TEST scope): planned / previously-deducted / current-stock per
+   * product. Read-only.
+   */
+  @Post('adjustment/load')
+  loadAdjustment(
+    @CurrentTenant() tenantId: string,
+    @Body() dto: LoadAdjustmentDto,
+  ) {
+    return this.service.loadAdjustment(tenantId, dto);
+  }
+
+  /**
+   * Apply a manual inventory adjustment — set the final deducted quantity per
+   * product, applying only the difference against what is already deducted.
+   */
+  @Post('adjustment/save')
+  saveAdjustment(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('person_id') personId: string,
+    @Body() dto: SaveAdjustmentDto,
+  ) {
+    return this.service.saveAdjustment(tenantId, dto, personId);
   }
 }

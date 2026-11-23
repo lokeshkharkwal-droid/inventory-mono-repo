@@ -24,12 +24,17 @@ export class TransferItemDto {
   @Min(0.0001)
   quantity: number;
 
+  /** The specific source-branch batch this line draws stock from (EZHT batch/option). */
+  @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsString() @MaxLength(100) batchNo?: string;
   @IsOptional() @IsDateString() expiryDate?: string;
   @IsOptional() @IsString() @MaxLength(100) productSerial?: string;
   @IsOptional() @IsString() @MaxLength(50) packSize?: string;
   @IsOptional() @Type(() => Number) @IsNumber() packQuantity?: number;
   @IsOptional() @Type(() => Number) @IsNumber() rate?: number;
   @IsOptional() @Type(() => Number) @IsNumber() mrp?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() packMrp?: number;
+  @IsOptional() @IsString() @MaxLength(50) hsnCode?: string;
   @IsOptional() @Type(() => Number) @IsNumber() taxRate?: number;
 }
 
@@ -60,9 +65,14 @@ export class CreateTransferDto {
   @IsOptional() @IsString() @MaxLength(255) toDepartment?: string;
   @IsOptional() @Type(() => Number) @IsNumber() shipping?: number;
   @IsOptional() @IsString() @MaxLength(1000) attachmentUrl?: string;
-  /** Legacy "Status": Pending (PENDING) or Sent (IN_TRANSIT). Received is via the receive action. */
-  @IsOptional() @IsIn(['PENDING', 'IN_TRANSIT']) status?:
-    'PENDING' | 'IN_TRANSIT';
+  /**
+   * Legacy "Status" dropdown offers Completed / Pending / Sent:
+   *  - Pending   → PENDING (no stock moved)
+   *  - Sent      → IN_TRANSIT (stock auto-sent from source)
+   *  - Completed → COMPLETED (stock auto-sent and received at destination)
+   */
+  @IsOptional() @IsIn(['PENDING', 'IN_TRANSIT', 'COMPLETED']) status?:
+    'PENDING' | 'IN_TRANSIT' | 'COMPLETED';
 
   @IsArray()
   @ArrayNotEmpty()

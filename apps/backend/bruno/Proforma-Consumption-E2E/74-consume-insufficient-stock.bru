@@ -1,0 +1,41 @@
+meta {
+  name: 74 Consume with insufficient stock (expect 409 + rollback)
+  type: http
+  seq: 27
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proforma-consumption/consume
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "kalnosticsOrderId": "BRU-ZERO-ORDER-{{runSfx}}",
+    "orderCode": "ORD-BRU-ZERO-{{runSfx}}",
+    "branchId": "{{branchA}}",
+    "labTestSourceIds": ["{{labTest1}}"]
+  }
+}
+
+assert {
+  res.status: eq 409
+  res.body.error.code: eq INSUFFICIENT_INVENTORY_STOCK
+}
+
+tests {
+  test("nothing was consumed (no sale id)", function () {
+    expect(res.body.success).to.equal(false);
+  });
+}
+
+docs {
+  The zero-stock product cannot be fulfilled, so the whole transaction rolls back:
+  no stock change, no sale, and NO ledger row (re-submitting this order id would try
+  again, not report alreadyConsumed). Verifies transactional, all-or-nothing safety.
+}

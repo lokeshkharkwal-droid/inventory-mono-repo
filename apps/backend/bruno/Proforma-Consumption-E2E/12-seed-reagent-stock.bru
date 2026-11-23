@@ -1,0 +1,38 @@
+meta {
+  name: 12 Seed Reagent stock at branch A (+100)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{inventoryBaseUrl}}/products/{{reagentId}}/adjustments
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "quantity": 100,
+    "cost": 10,
+    "reason": "bruno e2e seed"
+  }
+}
+
+assert {
+  res.status: eq 201
+}
+
+tests {
+  test("on-hand is 100 at the active (branch A) warehouse", function () {
+    expect(Number(res.body.data.quantity)).to.equal(100);
+  });
+}
+
+docs {
+  Addition adjustment at the ACTIVE branch (branch A). This is what makes stock
+  branch-specific — the row is created for (reagent, branch A) only.
+}

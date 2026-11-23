@@ -1,54 +1,21 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Plus, Upload, Download, Printer, Trash2 } from 'lucide-react';
+import { Plus, Upload, Download, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DataTable, type Column } from '@/components/shared/DataTable';
-import { PrintButton } from '@/components/shared/PrintButton';
-import { EmailDocumentButton } from '@/components/shared/EmailDocumentButton';
-import { ImportDialog } from '@/components/shared/ImportDialog';
 import { exportCsv } from '@/lib/csv';
 import { openPrintDocumentPost } from '@/lib/print';
 import { getApiErrorMessage } from '@/lib/http';
 import {
   useInfinitePurchases,
-  useDeletePurchase,
   type PurchaseListRow,
 } from '@/features/purchases/api';
-import { PurchaseManageDialog } from '@/features/purchases/PurchaseManageDialog';
+import { PurchaseActionsMenu } from '@/features/purchases/PurchaseActionsMenu';
 
 const selectCls =
   'flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm';
-
-/** Group flat CSV line rows into purchase documents keyed by reference/supplier. */
-function groupPurchaseRows(records: Record<string, string>[]): unknown[] {
-  const groups = new Map<string, Record<string, unknown>>();
-  for (const r of records) {
-    const key = r.reference || `${r.supplierId}|${r.date}`;
-    let doc = groups.get(key);
-    if (!doc) {
-      doc = {
-        supplierId: r.supplierId,
-        reference: r.reference || undefined,
-        date: r.date || undefined,
-        status: r.status || undefined,
-        items: [] as unknown[],
-      };
-      groups.set(key, doc);
-    }
-    (doc.items as unknown[]).push({
-      productId: r.productId,
-      quantity: Number(r.quantity),
-      cost: Number(r.cost),
-      taxRate: r.taxRate ? Number(r.taxRate) : undefined,
-      discount: r.discount || undefined,
-      batchNo: r.batchNo || undefined,
-      expiryDate: r.expiryDate || undefined,
-    });
-  }
-  return [...groups.values()];
-}
 
 /** Purchases list. */
 export function PurchasesPage() {
@@ -58,10 +25,7 @@ export function PurchasesPage() {
   const [paymentStatus, setPaymentStatus] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [importOpen, setImportOpen] = useState(false);
-  const [manageRow, setManageRow] = useState<PurchaseListRow | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const del = useDeletePurchase();
 
   const extra = useMemo(
     () => ({
@@ -90,14 +54,6 @@ export function PurchasesPage() {
       else next.add(id);
       return next;
     });
-
-  const remove = (id: string) => {
-    if (!confirm('Delete this purchase?')) return;
-    del.mutate(id, {
-      onSuccess: () => toast.success('Purchase deleted'),
-      onError: () => toast.error('Could not delete purchase'),
-    });
-  };
 
   const onCombinePrint = async () => {
     if (selected.size === 0) {
@@ -153,39 +109,8 @@ export function PurchasesPage() {
       header: '',
       className: 'text-right w-px whitespace-nowrap',
       render: (r) => (
-        <div className="flex justify-end gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate(`/purchases/edit/${r.id}`)}
-          >
-            Edit
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setManageRow(r)}
-            title="Payments & expenses"
-          >
-            Manage
-          </Button>
-          <PrintButton
-            path={`/print/purchase/${r.id}`}
-            title="Print purchase order"
-          />
-          <EmailDocumentButton
-            type="purchase"
-            id={r.id}
-            title="Email purchase order"
-          />
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Delete"
-            onClick={() => remove(r.id)}
-          >
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
+        <div className="flex justify-end">
+          <PurchaseActionsMenu purchase={r} />
         </div>
       ),
     },
@@ -232,7 +157,10 @@ export function PurchasesPage() {
           >
             <Download className="h-4 w-4" /> Export
           </Button>
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Button
+            variant="outline"
+            onClick={() => navigate('/purchases/import')}
+          >
             <Upload className="h-4 w-4" /> Import
           </Button>
           <Button onClick={() => navigate('/purchases/add')}>
@@ -305,20 +233,6 @@ export function PurchasesPage() {
           </strong>
         </span>
       </div>
-
-      <PurchaseManageDialog
-        purchase={manageRow}
-        onOpenChange={(o) => !o && setManageRow(null)}
-      />
-      <ImportDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        title="Import Purchases"
-        endpoint="/purchases/import"
-        invalidateKey="purchases"
-        templateHeader="reference,supplierId,date,status,productId,quantity,cost,taxRate,discount,batchNo,expiryDate"
-        buildRows={groupPurchaseRows}
-      />
     </div>
   );
 }

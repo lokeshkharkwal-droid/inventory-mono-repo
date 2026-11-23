@@ -43,6 +43,8 @@ export class CreatePurchasePaymentDto {
   @IsOptional() @IsString() @MaxLength(50) ccType?: string;
   @IsOptional() @IsString() @MaxLength(4) ccMonth?: string;
   @IsOptional() @IsString() @MaxLength(4) ccYear?: string;
+  /** Uploaded proof/receipt URL (EZHT add-payment attachment). */
+  @IsOptional() @IsString() @MaxLength(1000) attachmentUrl?: string;
 }
 
 /** Update an existing purchase payment (all fields optional). */
@@ -58,6 +60,7 @@ export class UpdatePurchasePaymentDto {
   @IsOptional() @IsString() @MaxLength(50) ccType?: string;
   @IsOptional() @IsString() @MaxLength(4) ccMonth?: string;
   @IsOptional() @IsString() @MaxLength(4) ccYear?: string;
+  @IsOptional() @IsString() @MaxLength(1000) attachmentUrl?: string;
 }
 
 /** Bulk payment across several of a supplier's outstanding purchases. */

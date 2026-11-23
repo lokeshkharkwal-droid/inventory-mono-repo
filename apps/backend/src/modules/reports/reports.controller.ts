@@ -44,6 +44,15 @@ export class ReportsController {
     return this.sales.overviewChart(t);
   }
 
+  /** Sales + purchases trend for a single product (Product Details chart panel). */
+  @Get('product-chart')
+  productChart(
+    @CurrentTenant() t: string,
+    @Query('productId') productId: string,
+  ) {
+    return this.sales.productChart(t, productId);
+  }
+
   @Get('sales')
   salesReport(@CurrentTenant() t: string, @Query() q: ReportQueryDto) {
     return this.sales.sales(t, q);

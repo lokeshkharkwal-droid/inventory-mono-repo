@@ -6,6 +6,8 @@ import { KalnosticsDepartmentClient } from './clients/kalnostics-department.clie
 import { KalnosticsLabTestClient } from './clients/kalnostics-lab-test.client';
 import { KalnosticsLocationClient } from './clients/kalnostics-location.client';
 import { KalnosticsUsersClient } from './clients/kalnostics-users.client';
+import { KalnosticsReferralClient } from './clients/kalnostics-referral.client';
+import { KalnosticsPrintTemplateClient } from './clients/kalnostics-print-template.client';
 import { IntegrationController } from './integration.controller';
 
 /**
@@ -27,6 +29,8 @@ import { IntegrationController } from './integration.controller';
     KalnosticsLabTestClient,
     KalnosticsLocationClient,
     KalnosticsUsersClient,
+    KalnosticsReferralClient,
+    KalnosticsPrintTemplateClient,
   ],
   exports: [
     KalnosticsHttpService,
@@ -35,6 +39,8 @@ import { IntegrationController } from './integration.controller';
     KalnosticsLabTestClient,
     KalnosticsLocationClient,
     KalnosticsUsersClient,
+    KalnosticsReferralClient,
+    KalnosticsPrintTemplateClient,
   ],
 })
 export class IntegrationModule {}

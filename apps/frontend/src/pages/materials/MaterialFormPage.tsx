@@ -11,6 +11,7 @@ import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { AttachmentUpload } from '@/components/shared/AttachmentUpload';
 import { useBranchOptions } from '@/features/_shared/branches';
 import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
 import '@/styles/ezht-form.css';
 
 interface FormShape {
@@ -88,8 +89,17 @@ export function MaterialFormPage() {
   const { data: branches } = useBranchOptions();
   const warehouses = useMemo(() => branches ?? [], [branches]);
 
-  const { register, handleSubmit, reset, setValue, watch } = useForm<FormShape>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    setError,
+    formState: { errors },
+  } = useForm<FormShape>({
     defaultValues: EMPTY,
+    mode: 'onTouched',
   });
   const [billerId, setBillerId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
@@ -171,7 +181,36 @@ export function MaterialFormPage() {
       }
       navigate('/materials');
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save material'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: [
+          'entryDate',
+          'purchaseOrderNo',
+          'department',
+          'departmentRoom',
+          'name',
+          'category',
+          'sellerName',
+          'quantity',
+          'purchaseDate',
+          'installationDate',
+          'materialStatus',
+          'cost',
+          'grandTotal',
+          'amcCost',
+          'cmcCost',
+          'estimatedPresentCost',
+          'codalLife',
+          'amcStatus',
+          'amcStartDate',
+          'amcEndDate',
+          'issueTo',
+          'transferTo',
+          'documentUrl',
+          'note',
+          'staffNote',
+        ],
+      });
+      if (!mapped) toast.error(getApiErrorMessage(err, 'Could not save material'));
     }
   });
 
@@ -198,9 +237,12 @@ export function MaterialFormPage() {
           type={type}
           step={type === 'number' ? 'any' : undefined}
           className="ezht-control"
-          required={required}
-          {...register(name, { required })}
+          aria-invalid={!!errors[name]}
+          {...register(name, required ? { required: `${label} is required` } : {})}
         />
+        {errors[name] && (
+          <p className="ezht-error">{errors[name]?.message as string}</p>
+        )}
       </div>
     </div>
   );
@@ -273,12 +315,15 @@ export function MaterialFormPage() {
                 <select
                   id="materialStatus"
                   className="ezht-control"
-                  required
-                  {...register('materialStatus', { required: true })}
+                  aria-invalid={!!errors.materialStatus}
+                  {...register('materialStatus', { required: 'Material Status is required' })}
                 >
                   <option value="completed">Completed</option>
                   <option value="pending">Pending</option>
                 </select>
+                {errors.materialStatus && (
+                  <p className="ezht-error">{errors.materialStatus?.message as string}</p>
+                )}
               </div>
             </div>
             {field('cost', 'Unit Price', false, 'number')}
@@ -296,14 +341,17 @@ export function MaterialFormPage() {
                 <select
                   id="amcStatus"
                   className="ezht-control"
-                  required
-                  {...register('amcStatus', { required: true })}
+                  aria-invalid={!!errors.amcStatus}
+                  {...register('amcStatus', { required: 'AMC Status is required' })}
                 >
                   <option value="pending">Pending</option>
                   <option value="due">Due</option>
                   <option value="expired">Expired</option>
                   <option value="active">Active</option>
                 </select>
+                {errors.amcStatus && (
+                  <p className="ezht-error">{errors.amcStatus?.message as string}</p>
+                )}
               </div>
             </div>
             {field('amcStartDate', 'AMC Start Date', false, 'date')}

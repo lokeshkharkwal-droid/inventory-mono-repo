@@ -1,0 +1,27 @@
+meta {
+  name: 50 Verify Reagent stock at branch A (= 95)
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{inventoryBaseUrl}}/products/{{reagentId}}/stock
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("Reagent branch A on-hand = 95 (100 - 5)", function () {
+    const row = res.body.data.find(function (r) { return r.branchId === bru.getEnvVar("branchA"); });
+    expect(row, "branch A stock row").to.not.be.undefined;
+    expect(Number(row.quantity)).to.equal(95);
+  });
+}

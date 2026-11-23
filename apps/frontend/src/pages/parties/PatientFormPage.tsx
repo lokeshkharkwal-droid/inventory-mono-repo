@@ -9,6 +9,7 @@ import {
   type LocationValue,
 } from '@/components/shared/LocationSelect';
 import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
 import '@/styles/ezht-form.css';
 
 interface FormShape {
@@ -71,8 +72,15 @@ export function PatientFormPage() {
   const create = customerHooks.useCreate();
   const update = customerHooks.useUpdate();
 
-  const { register, handleSubmit, reset } = useForm<FormShape>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<FormShape>({
     defaultValues: EMPTY,
+    mode: 'onTouched',
   });
   const [location, setLocation] = useState<LocationValue>(EMPTY_LOCATION);
 
@@ -157,7 +165,29 @@ export function PatientFormPage() {
       }
       navigate('/patients');
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save patient'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: [
+          'firstName',
+          'middleName',
+          'lastName',
+          'gender',
+          'age',
+          'dob',
+          'registrationDate',
+          'email',
+          'phone',
+          'patientType',
+          'address',
+          'address2',
+          'zip',
+          'idType',
+          'uid',
+          'gstNo',
+          'panNo',
+          'gstState',
+        ],
+      });
+      if (!mapped) toast.error(getApiErrorMessage(err, 'Could not save patient'));
     }
   });
 
@@ -182,9 +212,12 @@ export function PatientFormPage() {
           id={name}
           type={type}
           className="ezht-control"
-          required={required}
-          {...register(name, { required })}
+          aria-invalid={!!errors[name]}
+          {...register(name, required ? { required: `${label} is required` } : {})}
         />
+        {errors[name] && (
+          <p className="ezht-error">{errors[name]?.message as string}</p>
+        )}
       </div>
     </div>
   );
@@ -209,12 +242,15 @@ export function PatientFormPage() {
                 <label className="ezht-label" htmlFor="gender">
                   Gender<span className="ezht-req">*</span>
                 </label>
-                <select id="gender" className="ezht-control" required {...register('gender', { required: true })}>
+                <select id="gender" className="ezht-control" aria-invalid={!!errors.gender} {...register('gender', { required: 'Gender is required' })}>
                   <option value="">Select</option>
                   <option value="Male">Male</option>
                   <option value="Female">Female</option>
                   <option value="Other">Other</option>
                 </select>
+                {errors.gender && (
+                  <p className="ezht-error">{errors.gender?.message as string}</p>
+                )}
               </div>
             </div>
             {field('age', 'Age (In Years)')}
@@ -228,12 +264,15 @@ export function PatientFormPage() {
                 <label className="ezht-label" htmlFor="patientType">
                   Patient Type<span className="ezht-req">*</span>
                 </label>
-                <select id="patientType" className="ezht-control" required {...register('patientType', { required: true })}>
+                <select id="patientType" className="ezht-control" aria-invalid={!!errors.patientType} {...register('patientType', { required: 'Patient Type is required' })}>
                   <option value="General">General</option>
                   <option value="OPD">OPD</option>
                   <option value="IPD">IPD</option>
                   <option value="Emergency">Emergency</option>
                 </select>
+                {errors.patientType && (
+                  <p className="ezht-error">{errors.patientType?.message as string}</p>
+                )}
               </div>
             </div>
 

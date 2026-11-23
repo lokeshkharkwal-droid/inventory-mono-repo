@@ -5,6 +5,7 @@ import { LoginPage } from '@/pages/auth/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ProductsPage } from '@/pages/products/ProductsPage';
 import { ProductFormPage } from '@/pages/products/ProductFormPage';
+import { ProductDetailPage } from '@/pages/products/ProductDetailPage';
 import { PrintBarcodesPage } from '@/pages/products/PrintBarcodesPage';
 import { ImportFromMasterPage } from '@/pages/products/ImportFromMasterPage';
 import { ImportCsvPage } from '@/pages/products/ImportCsvPage';
@@ -18,6 +19,7 @@ import { ManufacturersPage } from '@/pages/masters/ManufacturersPage';
 import { ManufacturerFormPage } from '@/pages/masters/ManufacturerFormPage';
 import { TaxRatesPage } from '@/pages/masters/TaxRatesPage';
 import { VariantsPage } from '@/pages/masters/VariantsPage';
+import { DrugsPage } from '@/pages/masters/DrugsPage';
 import { SuppliersPage } from '@/pages/parties/SuppliersPage';
 import { SupplierFormPage } from '@/pages/parties/SupplierFormPage';
 import { CustomersPage } from '@/pages/parties/CustomersPage';
@@ -25,6 +27,8 @@ import { CustomerFormPage } from '@/pages/parties/CustomerFormPage';
 import { PatientFormPage } from '@/pages/parties/PatientFormPage';
 import { PurchasesPage } from '@/pages/purchases/PurchasesPage';
 import { PurchaseFormPage } from '@/pages/purchases/PurchaseFormPage';
+import { PurchaseDetailPage } from '@/pages/purchases/PurchaseDetailPage';
+import { PurchaseReturnFormPage } from '@/pages/purchases/PurchaseReturnFormPage';
 import { PurchaseImportPage } from '@/pages/purchases/PurchaseImportPage';
 import { SupplierPaymentsPage } from '@/pages/purchases/SupplierPaymentsPage';
 import { SalesPage } from '@/pages/sales/SalesPage';
@@ -37,6 +41,8 @@ import { ReceivedTransfersPage } from '@/pages/transfers/ReceivedTransfersPage';
 import { RequisitionsPage } from '@/pages/requisitions/RequisitionsPage';
 import { ReceivedRequisitionsPage } from '@/pages/requisitions/ReceivedRequisitionsPage';
 import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
+import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPage';
+import { TransferDetailPage } from '@/pages/transfers/TransferDetailPage';
 import { CurrenciesPage } from '@/pages/settings/CurrenciesPage';
 import { CustomerGroupsPage } from '@/pages/settings/CustomerGroupsPage';
 import { ExpenseCategoriesPage } from '@/pages/settings/ExpenseCategoriesPage';
@@ -51,6 +57,7 @@ import { PromotionsPage } from '@/pages/settings/PromotionsPage';
 import { ProductTemplatesPage } from '@/pages/masters/ProductTemplatesPage';
 import { QuotesPage } from '@/pages/quotes/QuotesPage';
 import { QuoteFormPage } from '@/pages/quotes/QuoteFormPage';
+import { QuoteDetailPage } from '@/pages/quotes/QuoteDetailPage';
 import { ProformasPage } from '@/pages/proformas/ProformasPage';
 import { ProformaFormPage } from '@/pages/proformas/ProformaFormPage';
 import { MaterialsPage } from '@/pages/materials/MaterialsPage';
@@ -131,6 +138,7 @@ export function AppRouter() {
             <Route path="products" element={<ProductsPage />} />
             <Route path="products/add" element={<ProductFormPage />} />
             <Route path="products/edit/:id" element={<ProductFormPage />} />
+            <Route path="products/view/:id" element={<ProductDetailPage />} />
             <Route path="products/print-barcodes" element={<PrintBarcodesPage />} />
             <Route path="products/import-products" element={<ImportFromMasterPage />} />
             <Route path="products/import-csv" element={<ImportCsvPage />} />
@@ -150,6 +158,7 @@ export function AppRouter() {
             <Route path="master-data" element={<Navigate to="/products/import-products" replace />} />
             <Route path="tax-rates" element={<TaxRatesPage />} />
             <Route path="variants" element={<VariantsPage />} />
+            <Route path="drugs" element={<DrugsPage />} />
             <Route path="suppliers" element={<SuppliersPage />} />
             <Route path="suppliers/add" element={<SupplierFormPage />} />
             <Route path="suppliers/edit/:id" element={<SupplierFormPage />} />
@@ -162,6 +171,12 @@ export function AppRouter() {
             <Route path="purchases" element={<PurchasesPage />} />
             <Route path="purchases/add" element={<PurchaseFormPage />} />
             <Route path="purchases/edit/:id" element={<PurchaseFormPage />} />
+            <Route path="purchases/view/:id" element={<PurchaseDetailPage />} />
+            <Route
+              path="purchases/return/:purchaseId"
+              element={<PurchaseReturnFormPage />}
+            />
+            <Route path="purchases/returns" element={<PurchaseReturnsPage />} />
             <Route path="purchases/import" element={<PurchaseImportPage />} />
             <Route
               path="purchases/supplier-payments"
@@ -177,12 +192,18 @@ export function AppRouter() {
             <Route path="pos/sales" element={<PosSalesPage />} />
             <Route path="transfers" element={<TransfersPage />} />
             <Route path="transfers/add" element={<TransferFormPage />} />
+            <Route path="transfers/edit/:id" element={<TransferFormPage />} />
+            <Route path="transfers/view/:id" element={<TransferDetailPage />} />
             <Route path="transfers/received" element={<ReceivedTransfersPage />} />
             <Route path="requisitions" element={<RequisitionsPage />} />
             <Route path="requisitions/add" element={<RequisitionFormPage />} />
             <Route
               path="requisitions/edit/:id"
               element={<RequisitionFormPage />}
+            />
+            <Route
+              path="requisitions/view/:id"
+              element={<RequisitionDetailPage />}
             />
             <Route
               path="requisitions/received"
@@ -196,9 +217,15 @@ export function AppRouter() {
             <Route path="quotes" element={<QuotesPage type="SALE" />} />
             <Route path="quotes/add" element={<QuoteFormPage type="SALE" />} />
             <Route path="quotes/sales/add" element={<QuoteFormPage type="SALE" />} />
+            <Route path="quotes/view/:id" element={<QuoteDetailPage />} />
+            <Route path="quotes/edit/:id" element={<QuoteFormPage type="SALE" />} />
             <Route path="quotes/purchases" element={<QuotesPage type="PURCHASE" />} />
             <Route
               path="quotes/purchases/add"
+              element={<QuoteFormPage type="PURCHASE" />}
+            />
+            <Route
+              path="quotes/purchases/edit/:id"
               element={<QuoteFormPage type="PURCHASE" />}
             />
             <Route path="proformas" element={<ProformasPage />} />

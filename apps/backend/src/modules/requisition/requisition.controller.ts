@@ -7,7 +7,9 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { RequisitionService } from './requisition.service';
 import {
   ApproveRequisitionDto,
@@ -53,6 +55,24 @@ export class RequisitionController {
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.requisitionService.findById(id, tenantId);
+  }
+
+  /** Render the requisition as a PDF via the kalnostics print engine. */
+  @Get(':id/pdf')
+  async pdf(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { pdf, reference } =
+      await this.requisitionService.renderRequisitionPdf(id, tenantId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="requisition-${reference}.pdf"`,
+    );
+    res.setHeader('Content-Length', pdf.length);
+    res.end(pdf);
   }
 
   @Patch(':id')

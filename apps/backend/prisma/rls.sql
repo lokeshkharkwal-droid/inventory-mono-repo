@@ -69,10 +69,13 @@ BEGIN
     'inventory_settings',
     'inventory_quotes',
     'inventory_quote_items',
+    'inventory_quote_status_history',
     'inventory_proformas',
     'inventory_proforma_items',
     'inventory_proforma_relations',
     'inventory_order_consumptions',
+    'inventory_consumption_lines',
+    'inventory_consumption_adjustments',
     'inventory_materials',
     'inventory_material_damages',
     'inventory_material_repairs',
@@ -86,6 +89,7 @@ BEGIN
     'inventory_purchase_return_items',
     'inventory_sale_returns',
     'inventory_sale_return_items',
+    'inventory_sale_return_payments',
     'inventory_sale_deliveries',
     'inventory_expenses',
     'inventory_incomes',
@@ -105,7 +109,9 @@ BEGIN
     'inventory_product_templates',
     'inventory_role_permissions',
     'inventory_roles',
-    'inventory_user_roles'
+    'inventory_user_roles',
+    'inventory_drugs',
+    'inventory_product_drugs'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);

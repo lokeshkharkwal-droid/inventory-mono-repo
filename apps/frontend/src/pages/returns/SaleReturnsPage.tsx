@@ -17,8 +17,9 @@ import { getApiErrorMessage } from '@/lib/http';
 import {
   useInfiniteSaleReturns,
   useCreateSaleReturn,
-  type ReturnRow,
+  type SaleReturnRow,
 } from '@/features/returns/api';
+import { SaleReturnActionsMenu } from '@/features/returns/SaleReturnActionsMenu';
 
 interface Line {
   productId: string;
@@ -57,10 +58,34 @@ export function SaleReturnsPage() {
     }
   };
 
-  const columns: Column<ReturnRow>[] = [
+  const columns: Column<SaleReturnRow>[] = [
+    {
+      key: 'date',
+      header: 'Date',
+      render: (r) => new Date(r.date).toLocaleString(),
+    },
     { key: 'reference', header: 'Reference' },
-    { key: 'date', header: 'Date', render: (r) => new Date(r.date).toLocaleDateString() },
-    { key: 'total', header: 'Total', render: (r) => r.total.toFixed(2) },
+    {
+      key: 'saleReference',
+      header: 'Sales Reference',
+      render: (r) => r.saleReference ?? '—',
+    },
+    { key: 'customer', header: 'Customer', render: (r) => r.customer ?? '—' },
+    {
+      key: 'surcharge',
+      header: 'Surcharge',
+      render: (r) => Number(r.surcharge ?? 0).toFixed(2),
+    },
+    {
+      key: 'grandTotal',
+      header: 'Grand Total',
+      render: (r) => Number(r.grandTotal ?? r.total ?? 0).toFixed(2),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (r) => <SaleReturnActionsMenu row={r} />,
+    },
   ];
 
   return (

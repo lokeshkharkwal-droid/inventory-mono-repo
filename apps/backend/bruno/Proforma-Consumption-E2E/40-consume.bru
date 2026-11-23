@@ -1,0 +1,43 @@
+meta {
+  name: 40 Consume (deduct + create sale)
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proforma-consumption/consume
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "kalnosticsOrderId": "{{orderId}}",
+    "orderCode": "ORD-BRU-{{runSfx}}",
+    "branchId": "{{branchA}}",
+    "labTestSourceIds": [
+      "{{labTest1}}", "{{labTest2}}", "{{labTest3}}", "{{labTest4}}", "{{labTest5}}"
+    ],
+    "patientName": "Bruno E2E Patient"
+  }
+}
+
+script:post-response {
+  if (res.body.data && res.body.data.saleId) bru.setEnvVar("saleId", res.body.data.saleId);
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.consumed: eq true
+  res.body.data.alreadyConsumed: eq false
+}
+
+tests {
+  test("a linked sale was created", function () {
+    expect(res.body.data.saleId).to.be.a("string");
+  });
+}

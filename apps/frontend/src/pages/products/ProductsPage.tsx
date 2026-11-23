@@ -32,7 +32,6 @@ import {
   useDuplicateProduct,
   type ProductListRow,
 } from '@/features/products/api';
-import { ProductDetailDialog } from '@/features/products/ProductDetailDialog';
 import { ProductStockDialog } from '@/features/products/ProductStockDialog';
 import { BulkPriceDialog } from '@/features/products/BulkPriceDialog';
 import { ProductSerialsDialog } from '@/features/products/ProductSerialsDialog';
@@ -49,7 +48,6 @@ export function ProductsPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [stockRow, setStockRow] = useState<ProductListRow | null>(null);
-  const [viewRow, setViewRow] = useState<ProductListRow | null>(null);
   const [serialsRow, setSerialsRow] = useState<ProductListRow | null>(null);
   const [drugsRow, setDrugsRow] = useState<ProductListRow | null>(null);
   const [imageRow, setImageRow] = useState<ProductListRow | null>(null);
@@ -118,9 +116,9 @@ export function ProductsPage() {
         subcategory: r.subCategory?.name ?? '',
         unit_cost: r.cost,
         unit_mrp: r.price,
-        pack_cost: r.packCost ?? '',
-        pack_mrp: r.packMrp ?? '',
-        quantity: r.totalQuantity,
+        product_cost: r.packCost ?? '',
+        product_mrp: r.packMrp ?? '',
+        quantity: r.quantity,
         unit: r.unit?.name ?? '',
         alert_quantity: r.alertQuantity,
       })),
@@ -180,21 +178,21 @@ export function ProductsPage() {
     },
     {
       key: 'packCost',
-      header: 'Pack Cost',
+      header: 'Product Cost',
       className: 'text-right',
       render: (r) => money(r.packCost),
     },
     {
       key: 'packMrp',
-      header: 'Pack MRP',
+      header: 'Product MRP',
       className: 'text-right',
       render: (r) => money(r.packMrp),
     },
     {
-      key: 'totalQuantity',
+      key: 'quantity',
       header: 'Quantity',
       className: 'text-right',
-      render: (r) => r.totalQuantity,
+      render: (r) => r.quantity,
     },
     { key: 'unit', header: 'Unit', render: (r) => r.unit?.name ?? '—' },
     { key: 'rack', header: 'Rack', render: (r) => r.rack ?? '—' },
@@ -211,7 +209,12 @@ export function ProductsPage() {
       render: (r) => (
         <div className="flex flex-wrap justify-end gap-1">
           {/* EZHT product row actions. */}
-          <Button variant="ghost" size="icon" title="Product details" onClick={() => setViewRow(r)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Product details"
+            onClick={() => navigate(`/products/view/${r.id}`)}
+          >
             <Eye className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="icon" title="Drugs" onClick={() => setDrugsRow(r)}>
@@ -376,11 +379,6 @@ export function ProductsPage() {
       <ProductSerialsDialog
         product={serialsRow}
         onOpenChange={(o) => !o && setSerialsRow(null)}
-      />
-
-      <ProductDetailDialog
-        product={viewRow}
-        onOpenChange={(o) => !o && setViewRow(null)}
       />
 
       <ProductStockDialog

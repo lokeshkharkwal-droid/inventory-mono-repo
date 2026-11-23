@@ -1,17 +1,24 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
-import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
+import { BatchSearchSelect } from '@/features/orders/BatchSearchSelect';
 import { AttachmentUpload } from '@/components/shared/AttachmentUpload';
 import { getApiErrorMessage } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
+import { FieldError } from '@/components/ui/field-error';
 import { useBranchOptions } from '@/features/_shared/branches';
-import { useCreateTransfer } from './api';
+import { useCreateTransfer, useTransfer, useUpdateTransfer } from './api';
 import '@/styles/ezht-form.css';
 
 interface LineRow {
   productId: string;
   productName?: string;
+  productCode?: string;
+  /** The specific source batch this line draws from (EZHT batch/option). */
+  batchId: string;
+  /** Available quantity in the chosen batch — caps the entered quantity. */
+  availableQty: string;
   expiryDate: string;
   productSerial: string;
   packSize: string;
@@ -19,6 +26,8 @@ interface LineRow {
   quantity: string;
   rate: string;
   mrp: string;
+  packMrp: string;
+  hsnCode: string;
   taxRate: string;
 }
 
@@ -39,6 +48,9 @@ interface FormValues {
 const EMPTY_ROW: LineRow = {
   productId: '',
   productName: '',
+  productCode: '',
+  batchId: '',
+  availableQty: '0',
   expiryDate: '',
   productSerial: '',
   packSize: '',
@@ -46,6 +58,8 @@ const EMPTY_ROW: LineRow = {
   quantity: '1',
   rate: '0',
   mrp: '0',
+  packMrp: '0',
+  hsnCode: '',
   taxRate: '0',
 };
 
@@ -58,21 +72,36 @@ const lineSubtotal = (r: LineRow) => {
 interface Props {
   /** Called after a successful save or on cancel. */
   onDone: () => void;
+  /** When set, edit this transfer instead of creating a new one. */
+  editId?: string | null;
 }
 
 /**
- * Create-transfer form — faithful EZ Health Track "Add Transfer": header
+ * Create/edit-transfer form — faithful EZ Health Track "Add Transfer": header
  * (date, from/to warehouse, reference, from/to department) + a full item grid
- * (expiry, serial, pack size/qty, rate, MRP, tax, live subtotal) + shipping,
- * note and a live grand total. The two-stage send/receive stock flow is unchanged.
+ * (expiry, serial, pack size/qty, rate, MRP, pack MRP, HSN, tax, live subtotal)
+ * + shipping, status (Completed/Pending/Sent), note and a live grand total.
+ * The two-stage send/receive stock flow is unchanged; edit is PENDING-only.
  */
-export function TransferForm({ onDone }: Props) {
+export function TransferForm({ onDone, editId }: Props) {
   const create = useCreateTransfer();
+  const update = useUpdateTransfer();
+  const { data: editing } = useTransfer(editId ?? undefined);
   const { data: branches } = useBranchOptions();
   const branchOptions = useMemo(() => branches ?? [], [branches]);
+  const saving = create.isPending || update.isPending;
 
-  const { register, handleSubmit, control, watch, setValue, reset } =
-    useForm<FormValues>({
+  const {
+    register,
+    handleSubmit,
+    control,
+    watch,
+    setValue,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<FormValues>({
+      mode: 'onTouched',
       defaultValues: {
         fromBranchId: '',
         toBranchId: '',
@@ -89,6 +118,40 @@ export function TransferForm({ onDone }: Props) {
     });
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
 
+  // Hydrate when editing.
+  useEffect(() => {
+    if (!editId || !editing) return;
+    reset({
+      fromBranchId: editing.fromBranchId ?? '',
+      toBranchId: editing.toBranchId ?? '',
+      fromDepartment: editing.fromDepartment ?? '',
+      toDepartment: editing.toDepartment ?? '',
+      reference: editing.reference ?? '',
+      date: editing.date ? String(editing.date).slice(0, 10) : '',
+      shipping: String(editing.shipping ?? 0),
+      note: editing.note ?? '',
+      status: editing.status ?? 'PENDING',
+      attachmentUrl: editing.attachmentUrl ?? '',
+      items: (editing.items ?? []).map((i) => ({
+        ...EMPTY_ROW,
+        productId: String(i.productId ?? ''),
+        productName: String(i.productName ?? ''),
+        productCode: String(i.productCode ?? ''),
+        batchId: String(i.batchId ?? ''),
+        expiryDate: i.expiryDate ? String(i.expiryDate).slice(0, 10) : '',
+        productSerial: String(i.productSerial ?? ''),
+        packSize: String(i.packSize ?? ''),
+        packQuantity: i.packQuantity != null ? String(i.packQuantity) : '',
+        quantity: String(i.quantity ?? 1),
+        rate: i.rate != null ? String(i.rate) : '0',
+        mrp: i.mrp != null ? String(i.mrp) : '0',
+        packMrp: i.packMrp != null ? String(i.packMrp) : '0',
+        hsnCode: String(i.hsnCode ?? ''),
+        taxRate: i.taxRate != null ? String(i.taxRate) : '0',
+      })),
+    });
+  }, [editId, editing, reset]);
+
   // Live totals.
   const watchedItems = useWatch({ control, name: 'items' });
   const watchedShipping = useWatch({ control, name: 'shipping' });
@@ -99,46 +162,66 @@ export function TransferForm({ onDone }: Props) {
   }, [watchedItems, watchedShipping]);
 
   const submit = handleSubmit(async (v) => {
-    const items = v.items
-      .filter((i) => i.productId)
-      .map((i) => ({
-        productId: i.productId,
-        quantity: n(i.quantity),
-        expiryDate: i.expiryDate || undefined,
-        productSerial: i.productSerial || undefined,
-        packSize: i.packSize || undefined,
-        packQuantity: i.packQuantity === '' ? undefined : n(i.packQuantity),
-        rate: i.rate === '' ? undefined : n(i.rate),
-        mrp: i.mrp === '' ? undefined : n(i.mrp),
-        taxRate: i.taxRate === '' ? undefined : n(i.taxRate),
-      }));
-    if (items.length === 0) {
+    const rows = v.items.filter((i) => i.productId);
+    if (rows.length === 0) {
       toast.error('Add at least one product line.');
       return;
     }
+    // Quantity can't exceed the chosen batch's available quantity.
+    for (let idx = 0; idx < rows.length; idx++) {
+      const i = rows[idx]!;
+      if (i.batchId && n(i.availableQty) > 0 && n(i.quantity) > n(i.availableQty)) {
+        toast.error(
+          `Line ${idx + 1}: quantity exceeds available batch qty (${i.availableQty}).`,
+        );
+        return;
+      }
+    }
+    const items = rows.map((i) => ({
+      productId: i.productId,
+      batchId: i.batchId || undefined,
+      quantity: n(i.quantity),
+      expiryDate: i.expiryDate || undefined,
+      productSerial: i.productSerial || undefined,
+      packSize: i.packSize || undefined,
+      packQuantity: i.packQuantity === '' ? undefined : n(i.packQuantity),
+      rate: i.rate === '' ? undefined : n(i.rate),
+      mrp: i.mrp === '' ? undefined : n(i.mrp),
+      packMrp: i.packMrp === '' ? undefined : n(i.packMrp),
+      hsnCode: i.hsnCode || undefined,
+      taxRate: i.taxRate === '' ? undefined : n(i.taxRate),
+    }));
     if (v.fromBranchId === v.toBranchId) {
-      toast.error('Source and destination must differ.');
+      const msg = 'Source and destination must differ.';
+      setError('toBranchId', { type: 'validate', message: msg });
+      toast.error(msg);
       return;
     }
+    const body = {
+      fromBranchId: v.fromBranchId,
+      toBranchId: v.toBranchId,
+      reference: v.reference || undefined,
+      date: v.date || undefined,
+      note: v.note || undefined,
+      fromDepartment: v.fromDepartment || undefined,
+      toDepartment: v.toDepartment || undefined,
+      shipping: v.shipping === '' ? undefined : n(v.shipping),
+      status: v.status || undefined,
+      attachmentUrl: v.attachmentUrl || undefined,
+      items,
+    };
     try {
-      await create.mutateAsync({
-        fromBranchId: v.fromBranchId,
-        toBranchId: v.toBranchId,
-        reference: v.reference || undefined,
-        date: v.date || undefined,
-        note: v.note || undefined,
-        fromDepartment: v.fromDepartment || undefined,
-        toDepartment: v.toDepartment || undefined,
-        shipping: v.shipping === '' ? undefined : n(v.shipping),
-        status: v.status || undefined,
-        attachmentUrl: v.attachmentUrl || undefined,
-        items,
-      });
-      toast.success('Transfer created');
-      reset();
+      if (editId) await update.mutateAsync({ id: editId, input: body });
+      else await create.mutateAsync(body);
+      toast.success(editId ? 'Transfer updated' : 'Transfer created');
+      if (!editId) reset();
       onDone();
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not create transfer'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: ['fromBranchId', 'toBranchId', 'date', 'reference'],
+      });
+      if (!mapped)
+        toast.error(getApiErrorMessage(err, 'Could not save transfer'));
     }
   });
 
@@ -147,6 +230,24 @@ export function TransferForm({ onDone }: Props) {
 
   return (
     <form onSubmit={submit} className="ezht-modal-body">
+      {editId && editing && editing.status !== 'PENDING' ? (
+        <div
+          style={{
+            background: '#fff3cd',
+            border: '1px solid #ffeeba',
+            color: '#856404',
+            padding: '8px 12px',
+            borderRadius: 4,
+            marginBottom: 8,
+            fontSize: 13,
+          }}
+        >
+          This transfer is{' '}
+          {editing.status === 'IN_TRANSIT' ? 'Sent' : 'Completed'}. Saving will
+          reverse the previous stock movement and re-apply it for the selected
+          status.
+        </div>
+      ) : null}
       <div className="ezht-row">
         <div className="ezht-col3">
           <div className="ezht-form-group">
@@ -159,10 +260,18 @@ export function TransferForm({ onDone }: Props) {
             <label className="ezht-label" htmlFor="fromBranchId">
               From Warehouse<span className="ezht-req">*</span>
             </label>
-            <select id="fromBranchId" className="ezht-control" {...register('fromBranchId', { required: true })}>
+            <select
+              id="fromBranchId"
+              className="ezht-control aria-[invalid=true]:border-destructive"
+              aria-invalid={!!errors.fromBranchId}
+              {...register('fromBranchId', {
+                required: 'From Warehouse is required',
+              })}
+            >
               <option value="">Select warehouse</option>
               {branchOptions.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
+            <FieldError message={errors.fromBranchId?.message as string} />
           </div>
         </div>
         <div className="ezht-col3">
@@ -170,10 +279,18 @@ export function TransferForm({ onDone }: Props) {
             <label className="ezht-label" htmlFor="toBranchId">
               To Warehouse<span className="ezht-req">*</span>
             </label>
-            <select id="toBranchId" className="ezht-control" {...register('toBranchId', { required: true })}>
+            <select
+              id="toBranchId"
+              className="ezht-control aria-[invalid=true]:border-destructive"
+              aria-invalid={!!errors.toBranchId}
+              {...register('toBranchId', {
+                required: 'To Warehouse is required',
+              })}
+            >
               <option value="">Select warehouse</option>
               {branchOptions.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
+            <FieldError message={errors.toBranchId?.message as string} />
           </div>
         </div>
         <div className="ezht-col3">
@@ -215,6 +332,8 @@ export function TransferForm({ onDone }: Props) {
                 <th style={th}>Quantity</th>
                 <th style={th}>Rate</th>
                 <th style={th}>MRP</th>
+                <th style={th}>Pack MRP</th>
+                <th style={th}>HSN Code</th>
                 <th style={th}>Product Tax</th>
                 <th style={{ ...th, textAlign: 'right' }}>Subtotal</th>
                 <th style={th} />
@@ -224,26 +343,43 @@ export function TransferForm({ onDone }: Props) {
               {fields.map((f, i) => (
                 <tr key={f.id}>
                   <td style={cell}>
-                    <Controller
-                      control={control}
-                      name={`items.${i}.productId`}
-                      render={({ field }) => (
-                        <InfiniteSelect
-                          value={field.value}
-                          onChange={field.onChange}
-                          onSelect={(p) => {
-                            setValue(`items.${i}.productName`, p.name);
-                            if (p.price != null) setValue(`items.${i}.rate`, String(p.price));
-                          }}
-                          queryKey={['products']}
-                          path="/products"
-                          getOptionValue={(p) => p.id}
-                          getOptionLabel={(p) => p.name}
-                          selectedLabel={watch(`items.${i}.productName`)}
-                          placeholder="Select product…"
-                        />
-                      )}
+                    <BatchSearchSelect
+                      value={watch(`items.${i}.productName`) ?? ''}
+                      warehouseId={watch('fromBranchId') || undefined}
+                      placeholder="Search product / batch…"
+                      onPick={(r) => {
+                        setValue(`items.${i}.productId`, r.productId);
+                        setValue(`items.${i}.productName`, r.productName);
+                        setValue(`items.${i}.productCode`, r.productCode ?? '');
+                        setValue(`items.${i}.batchId`, r.batchId);
+                        setValue(
+                          `items.${i}.expiryDate`,
+                          r.expiryDate ? r.expiryDate.slice(0, 10) : '',
+                        );
+                        setValue(
+                          `items.${i}.productSerial`,
+                          r.serialNo ?? r.batchNo ?? '',
+                        );
+                        setValue(`items.${i}.rate`, String(r.cost ?? r.price ?? 0));
+                        setValue(`items.${i}.mrp`, String(r.mrp ?? 0));
+                        setValue(`items.${i}.hsnCode`, r.hsnCode ?? '');
+                        setValue(
+                          `items.${i}.packSize`,
+                          r.packSize != null ? String(r.packSize) : '',
+                        );
+                        setValue(`items.${i}.taxRate`, String(r.taxRate ?? 0));
+                        setValue(
+                          `items.${i}.availableQty`,
+                          String(r.quantity ?? 0),
+                        );
+                      }}
                     />
+                    {watch(`items.${i}.productCode`) ? (
+                      <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                        {watch(`items.${i}.productCode`)} · Avail:{' '}
+                        {watch(`items.${i}.availableQty`)}
+                      </div>
+                    ) : null}
                   </td>
                   <td style={cell}><input type="date" className="ezht-control" {...register(`items.${i}.expiryDate`)} /></td>
                   <td style={cell}><input className="ezht-control" {...register(`items.${i}.productSerial`)} /></td>
@@ -252,6 +388,8 @@ export function TransferForm({ onDone }: Props) {
                   <td style={cell}><input className="ezht-control" style={{ width: 70 }} type="number" step="any" {...register(`items.${i}.quantity`)} /></td>
                   <td style={cell}><input className="ezht-control" style={{ width: 80 }} type="number" step="any" {...register(`items.${i}.rate`)} /></td>
                   <td style={cell}><input className="ezht-control" style={{ width: 80 }} type="number" step="any" {...register(`items.${i}.mrp`)} /></td>
+                  <td style={cell}><input className="ezht-control" style={{ width: 80 }} type="number" step="any" {...register(`items.${i}.packMrp`)} /></td>
+                  <td style={cell}><input className="ezht-control" style={{ width: 80 }} {...register(`items.${i}.hsnCode`)} /></td>
                   <td style={cell}><input className="ezht-control" style={{ width: 60 }} type="number" step="any" {...register(`items.${i}.taxRate`)} /></td>
                   <td style={{ ...cell, textAlign: 'right' }}>
                     {lineSubtotal((watchedItems?.[i] ?? EMPTY_ROW) as LineRow).toFixed(2)}
@@ -277,6 +415,7 @@ export function TransferForm({ onDone }: Props) {
           <div className="ezht-form-group">
             <label className="ezht-label" htmlFor="status">Status</label>
             <select id="status" className="ezht-control" {...register('status')}>
+              <option value="COMPLETED">Completed</option>
               <option value="PENDING">Pending</option>
               <option value="IN_TRANSIT">Sent</option>
             </select>
@@ -308,8 +447,8 @@ export function TransferForm({ onDone }: Props) {
 
       <div className="ezht-modal-footer" style={{ paddingLeft: 0, paddingRight: 0 }}>
         <button type="button" className="ezht-btn ezht-btn-default" onClick={onDone}>Cancel</button>
-        <button type="submit" className="ezht-btn ezht-btn-primary" disabled={create.isPending}>
-          {create.isPending ? 'Saving…' : 'Add Transfer'}
+        <button type="submit" className="ezht-btn ezht-btn-primary" disabled={saving}>
+          {saving ? 'Saving…' : editId ? 'Update Transfer' : 'Add Transfer'}
         </button>
       </div>
     </form>

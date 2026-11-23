@@ -37,6 +37,18 @@ export class InsufficientStockException extends KaltrosException {
   }
 }
 
+/** 404 — a variant/option does not belong to this product (or tenant). */
+export class VariantNotFoundException extends KaltrosException {
+  constructor(variantId: string, productId: string) {
+    super(
+      'VARIANT_NOT_FOUND',
+      'Variant not found for this product',
+      { variantId, productId },
+      HttpStatus.NOT_FOUND,
+    );
+  }
+}
+
 /** 400 — a branch context is required for this stock operation. */
 export class BranchRequiredException extends KaltrosException {
   constructor() {

@@ -1,0 +1,31 @@
+meta {
+  name: Login (kalnostics)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{kalnosticsBaseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "identifier": "REPLACE_WITH_PHONE_EMAIL_OR_USERNAME",
+    "password": "REPLACE_WITH_PASSWORD"
+  }
+}
+
+script:post-response {
+  if (res.status === 200 || res.status === 201) {
+    bru.setEnvVar("token", res.body.data.accessToken);
+    bru.setEnvVar("refreshToken", res.body.data.refreshToken);
+  }
+}
+
+docs {
+  Optional helper. Logs in a business user and stores `token`. If you already have
+  a valid business JWT, skip this and paste it into the `token` env var instead.
+  The user must have a profile at `branchA` (default profile key `doctor`).
+}

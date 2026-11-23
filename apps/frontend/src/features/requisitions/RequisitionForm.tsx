@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -6,12 +6,14 @@ import { Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
+import { BatchSearchSelect } from '@/features/orders/BatchSearchSelect';
 import { AttachmentUpload } from '@/components/shared/AttachmentUpload';
 import { getApiErrorMessage, getTokenPayload } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
+import { FieldError } from '@/components/ui/field-error';
 import { useBranchOptions } from '@/features/_shared/branches';
 import { useDepartmentOptions } from '@/features/_shared/departments';
-import { useTaxRates } from '@/features/_shared/options';
+import { useBillers, useTaxRates } from '@/features/_shared/options';
 import { computeOrder } from '@/features/orders/totals';
 import {
   useRequisition,
@@ -20,13 +22,17 @@ import {
 } from './api';
 
 const selectCls =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
+  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm aria-[invalid=true]:border-destructive';
 const inputSm = 'h-9';
 
 interface LineRow {
   productId: string;
   productName?: string;
   productCode?: string;
+  /** Specific source batch chosen for this line (EZHT batch/option). */
+  batchId: string;
+  /** Available quantity in the chosen batch — used to cap the entered quantity. */
+  availableQty: string;
   quantity: string;
   unitPrice: string;
   discount: string;
@@ -36,15 +42,22 @@ interface LineRow {
 
 interface FormValues {
   fromBranchId: string;
+  toBranchId: string;
+  billerId: string;
   fromDepartmentId: string;
   toDepartmentId: string;
   reference: string;
   date: string;
   localPurchase: string;
   status: string;
-  orderDiscount: string;
-  orderTax: string;
-  shipping: string;
+  // EZHT referral block.
+  referralSourceType: string;
+  referralContactFname: string;
+  referralContactMname: string;
+  referralContactLname: string;
+  referralBusinessName: string;
+  referralBusinessAddress: string;
+  referralDoctorName: string;
   attachmentUrl: string;
   note: string;
   items: LineRow[];
@@ -54,6 +67,8 @@ const EMPTY_ROW: LineRow = {
   productId: '',
   productName: '',
   productCode: '',
+  batchId: '',
+  availableQty: '0',
   quantity: '1',
   unitPrice: '0',
   discount: '0',
@@ -64,15 +79,21 @@ const EMPTY_ROW: LineRow = {
 function defaults(): FormValues {
   return {
     fromBranchId: '',
+    toBranchId: '',
+    billerId: '',
     fromDepartmentId: '',
     toDepartmentId: '',
     reference: '',
     date: '',
     localPurchase: 'No',
     status: 'PENDING',
-    orderDiscount: '0',
-    orderTax: '0',
-    shipping: '0',
+    referralSourceType: '',
+    referralContactFname: '',
+    referralContactMname: '',
+    referralContactLname: '',
+    referralBusinessName: '',
+    referralBusinessAddress: '',
+    referralDoctorName: '',
     attachmentUrl: '',
     note: '',
     items: [{ ...EMPTY_ROW }],
@@ -86,16 +107,19 @@ interface Props {
 
 /**
  * Full-page requisition form — the EZHT add/edit requisition screen. A requisition
- * requests stock from a source (From) branch to the active (To) branch. The
- * destination is always the caller's active branch (§4.7 — never trust a client
- * branchId), shown read-only. Line grid + more-options + live totals mirror the
- * legacy layout; editing is only allowed while PENDING.
+ * requests stock from a source (From) branch to the destination (To) branch, and
+ * lines are chosen at the batch level (product + its source-branch purchase batch),
+ * so the chosen batch carries through to the transfer on conversion. Field set is
+ * trimmed to EZHT parity (no Supplier / Customer / Shipping / Order Tax / Order
+ * Discount — those are sale-only). Editing is only allowed while PENDING.
  */
 export function RequisitionForm({ editId }: Props) {
   const navigate = useNavigate();
   const { data: branches } = useBranchOptions();
   const { data: departments } = useDepartmentOptions();
   const { data: taxRates } = useTaxRates();
+  const { data: billers } = useBillers();
+  const [showReferral, setShowReferral] = useState(false);
 
   const { data: editing } = useRequisition(editId ?? undefined);
   const create = useCreateRequisition();
@@ -103,30 +127,52 @@ export function RequisitionForm({ editId }: Props) {
   const saving = create.isPending || update.isPending;
 
   const activeBranchId = getTokenPayload()?.active_branch_id ?? null;
-  const activeBranchName = useMemo(
-    () => (branches ?? []).find((b) => b.id === activeBranchId)?.name ?? null,
-    [branches, activeBranchId],
-  );
 
-  const { register, handleSubmit, control, reset, setValue } =
-    useForm<FormValues>({ defaultValues: defaults() });
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    setValue,
+    setError,
+    formState: { errors },
+  } = useForm<FormValues>({ defaultValues: defaults(), mode: 'onTouched' });
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
+
+  // Default the destination to the active branch on a fresh create.
+  useEffect(() => {
+    if (editId || !activeBranchId) return;
+    setValue('toBranchId', activeBranchId);
+  }, [editId, activeBranchId, setValue]);
 
   // Hydrate when editing.
   useEffect(() => {
     if (!editId || !editing) return;
+    if (
+      editing.referralSourceType ||
+      editing.referralDoctorName ||
+      editing.referralBusinessName
+    ) {
+      setShowReferral(true);
+    }
     reset({
       ...defaults(),
       fromBranchId: editing.fromBranchId ?? '',
+      toBranchId: editing.branchId ?? activeBranchId ?? '',
+      billerId: editing.billerId ?? '',
       fromDepartmentId: editing.fromDepartmentId ?? '',
       toDepartmentId: editing.toDepartmentId ?? '',
       reference: editing.reference ?? '',
       date: editing.date ? String(editing.date).slice(0, 10) : '',
       localPurchase: editing.localPurchase ? 'Yes' : 'No',
       status: editing.status ?? 'PENDING',
-      orderDiscount: String(editing.orderDiscountSpec ?? editing.orderDiscount ?? 0),
-      orderTax: String(editing.orderTax ?? 0),
-      shipping: String(editing.shipping ?? 0),
+      referralSourceType: editing.referralSourceType ?? '',
+      referralContactFname: editing.referralContactFname ?? '',
+      referralContactMname: editing.referralContactMname ?? '',
+      referralContactLname: editing.referralContactLname ?? '',
+      referralBusinessName: editing.referralBusinessName ?? '',
+      referralBusinessAddress: editing.referralBusinessAddress ?? '',
+      referralDoctorName: editing.referralDoctorName ?? '',
       attachmentUrl: editing.attachmentUrl ?? '',
       note: editing.note ?? '',
       items: (editing.items ?? []).map((i) => ({
@@ -134,6 +180,7 @@ export function RequisitionForm({ editId }: Props) {
         productId: String(i.productId ?? ''),
         productName: String(i.productName ?? ''),
         productCode: String(i.productCode ?? ''),
+        batchId: String(i.batchId ?? ''),
         quantity: String(i.quantity ?? 1),
         unitPrice: String(i.unitPrice ?? 0),
         discount: String(i.discountSpec ?? i.discount ?? 0),
@@ -155,40 +202,71 @@ export function RequisitionForm({ editId }: Props) {
           discount: l?.discount,
           taxRatePercent: Number(l?.taxRate || 0),
         })),
-        orderDiscount: live.orderDiscount,
-        orderTaxPercent: Number(live.orderTax || 0),
-        shipping: Number(live.shipping || 0),
       }),
-    [watchedItems, live.orderDiscount, live.orderTax, live.shipping],
+    [watchedItems],
   );
 
   const submit = handleSubmit(async (v) => {
-    const items = v.items
-      .filter((i) => i.productId)
-      .map((i) => ({
-        productId: i.productId,
-        quantity: Number(i.quantity || 0),
-        unitPrice: Number(i.unitPrice || 0),
-        discount: i.discount || undefined,
-        taxRate: Number(i.taxRate || 0),
-        taxRateId: i.taxRateId || undefined,
-      }));
-    if (items.length === 0) {
+    const rows = v.items.filter((i) => i.productId);
+    if (rows.length === 0) {
       toast.error('Add at least one product line.');
       return;
     }
+    // Quantity can't exceed the chosen batch's available quantity.
+    for (let idx = 0; idx < rows.length; idx++) {
+      const i = rows[idx]!;
+      if (
+        i.batchId &&
+        Number(i.availableQty) > 0 &&
+        Number(i.quantity) > Number(i.availableQty)
+      ) {
+        toast.error(
+          `Line ${idx + 1}: quantity exceeds available batch qty (${i.availableQty}).`,
+        );
+        return;
+      }
+    }
+
+    const items = rows.map((i) => ({
+      productId: i.productId,
+      batchId: i.batchId || undefined,
+      quantity: Number(i.quantity || 0),
+      unitPrice: Number(i.unitPrice || 0),
+      discount: i.discount || undefined,
+      taxRate: Number(i.taxRate || 0),
+      taxRateId: i.taxRateId || undefined,
+    }));
+
+    const billerName = (billers ?? []).find((b) => b.id === v.billerId)?.name;
+    const referral =
+      v.referralSourceType ||
+      v.referralContactFname ||
+      v.referralContactLname ||
+      v.referralBusinessName ||
+      v.referralDoctorName
+        ? {
+            sourceType: v.referralSourceType || undefined,
+            contactFname: v.referralContactFname || undefined,
+            contactMname: v.referralContactMname || undefined,
+            contactLname: v.referralContactLname || undefined,
+            businessName: v.referralBusinessName || undefined,
+            businessAddress: v.referralBusinessAddress || undefined,
+            doctorName: v.referralDoctorName || undefined,
+          }
+        : undefined;
 
     const body = {
       fromBranchId: v.fromBranchId || undefined,
+      toBranchId: v.toBranchId || undefined,
+      billerId: v.billerId || undefined,
+      billerName: billerName || undefined,
       fromDepartmentId: v.fromDepartmentId || undefined,
       toDepartmentId: v.toDepartmentId || undefined,
       reference: v.reference || undefined,
       date: v.date || undefined,
       localPurchase: v.localPurchase === 'Yes',
       status: v.status || undefined,
-      orderDiscount: v.orderDiscount || undefined,
-      orderTax: Number(v.orderTax || 0),
-      shipping: Number(v.shipping || 0),
+      referral,
       attachmentUrl: v.attachmentUrl || undefined,
       note: v.note || undefined,
       items,
@@ -200,7 +278,17 @@ export function RequisitionForm({ editId }: Props) {
       toast.success(editId ? 'Requisition updated' : 'Requisition created');
       navigate('/requisitions');
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save requisition'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: [
+          'fromBranchId',
+          'fromDepartmentId',
+          'toDepartmentId',
+          'date',
+          'reference',
+        ],
+      });
+      if (!mapped)
+        toast.error(getApiErrorMessage(err, 'Could not save requisition'));
     }
   });
 
@@ -225,28 +313,62 @@ export function RequisitionForm({ editId }: Props) {
         </Button>
       </div>
 
-      {/* ── Header ── */}
+      {/* ── Header (EZHT order: Date, Biller, From/To Warehouse, Reference, From/To Dept) ── */}
       <section className="grid grid-cols-2 gap-4 rounded-lg border p-4 md:grid-cols-3">
         <div className="space-y-1.5">
           <Label>Date</Label>
           <Input type="date" {...register('date')} />
         </div>
         <div className="space-y-1.5">
-          <Label>Reference</Label>
-          <Input placeholder="Auto if blank" {...register('reference')} />
+          <Label>Biller</Label>
+          <select className={selectCls} {...register('billerId')}>
+            <option value="">— select —</option>
+            {(billers ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="space-y-1.5">
-          <Label>From branch (source)</Label>
-          <select className={selectCls} {...register('fromBranchId')}>
+          <Label>From Warehouse (source)</Label>
+          <select
+            className={selectCls}
+            aria-invalid={!!errors.fromBranchId}
+            {...register('fromBranchId', {
+              required: 'From warehouse is required',
+            })}
+          >
             <option value="">— select —</option>
-            {(branches ?? [])
-              .filter((b) => b.id !== activeBranchId)
-              .map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
           </select>
+          <FieldError message={errors.fromBranchId?.message as string} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>To Warehouse (destination)</Label>
+          <select
+            className={selectCls}
+            aria-invalid={!!errors.toBranchId}
+            {...register('toBranchId', {
+              required: 'To warehouse is required',
+            })}
+          >
+            <option value="">— select —</option>
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+          <FieldError message={errors.toBranchId?.message as string} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Reference</Label>
+          <Input placeholder="Auto if blank" {...register('reference')} />
         </div>
         <div className="space-y-1.5">
           <Label>From department</Label>
@@ -257,15 +379,6 @@ export function RequisitionForm({ editId }: Props) {
                 {d.name}
               </option>
             ))}
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>To branch (destination)</Label>
-          {/* Destination is always the active branch (§4.7). */}
-          <select className={selectCls} value={activeBranchId ?? ''} disabled>
-            <option value={activeBranchId ?? ''}>
-              {activeBranchName ?? 'Active branch'}
-            </option>
           </select>
         </div>
         <div className="space-y-1.5">
@@ -295,7 +408,7 @@ export function RequisitionForm({ editId }: Props) {
         </div>
       </section>
 
-      {/* ── Order items ── */}
+      {/* ── Order items (batch-level product selection) ── */}
       <section className="space-y-2 rounded-lg border p-4">
         <div className="flex items-center justify-between">
           <Label className="text-base">Order items</Label>
@@ -324,31 +437,35 @@ export function RequisitionForm({ editId }: Props) {
             <tbody>
               {fields.map((f, i) => (
                 <tr key={f.id} className="border-b align-top">
-                  <td className="py-2 pr-2" style={{ minWidth: 220 }}>
-                    <Controller
-                      control={control}
-                      name={`items.${i}.productId`}
-                      render={({ field }) => (
-                        <InfiniteSelect
-                          value={field.value}
-                          onChange={field.onChange}
-                          onSelect={(p) => {
-                            setValue(`items.${i}.productName`, p.name);
-                            setValue(`items.${i}.productCode`, p.code ?? '');
-                            setValue(
-                              `items.${i}.unitPrice`,
-                              String(p.cost ?? 0),
-                            );
-                          }}
-                          queryKey={['products']}
-                          path="/products"
-                          getOptionValue={(p) => p.id}
-                          getOptionLabel={(p) => p.name}
-                          selectedLabel={watchedItems[i]?.productName}
-                          placeholder="Select product…"
-                        />
-                      )}
+                  <td className="py-2 pr-2" style={{ minWidth: 240 }}>
+                    <BatchSearchSelect
+                      value={watchedItems[i]?.productName ?? ''}
+                      warehouseId={live.fromBranchId || undefined}
+                      placeholder="Search product / batch…"
+                      onPick={(r) => {
+                        setValue(`items.${i}.productId`, r.productId);
+                        setValue(`items.${i}.productName`, r.productName);
+                        setValue(`items.${i}.productCode`, r.productCode ?? '');
+                        setValue(`items.${i}.batchId`, r.batchId);
+                        setValue(
+                          `items.${i}.unitPrice`,
+                          String(r.cost ?? r.price ?? 0),
+                        );
+                        setValue(`items.${i}.taxRateId`, r.taxRateId ?? '');
+                        setValue(`items.${i}.taxRate`, String(r.taxRate ?? 0));
+                        setValue(
+                          `items.${i}.availableQty`,
+                          String(r.quantity ?? 0),
+                        );
+                        if (!watchedItems[i]?.quantity)
+                          setValue(`items.${i}.quantity`, '1');
+                      }}
                     />
+                    {watchedItems[i]?.productCode ? (
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {watchedItems[i]?.productCode}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-1" style={{ width: 120 }}>
                     <Input
@@ -358,13 +475,18 @@ export function RequisitionForm({ editId }: Props) {
                       {...register(`items.${i}.unitPrice`)}
                     />
                   </td>
-                  <td className="px-1" style={{ width: 90 }}>
+                  <td className="px-1" style={{ width: 110 }}>
                     <Input
                       type="number"
                       step="any"
                       className={inputSm}
                       {...register(`items.${i}.quantity`)}
                     />
+                    {watchedItems[i]?.batchId ? (
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        Available: {watchedItems[i]?.availableQty ?? 0}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-1" style={{ width: 90 }}>
                     <Input
@@ -421,18 +543,6 @@ export function RequisitionForm({ editId }: Props) {
         <section className="space-y-3 rounded-lg border p-4">
           <Label className="text-base">More options</Label>
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Shipping</Label>
-              <Input type="number" step="any" {...register('shipping')} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Order tax %</Label>
-              <Input type="number" step="any" {...register('orderTax')} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Order discount</Label>
-              <Input placeholder="0 or 5%" {...register('orderDiscount')} />
-            </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Document</Label>
               <Controller
@@ -450,6 +560,60 @@ export function RequisitionForm({ editId }: Props) {
               <Label>Note</Label>
               <Input {...register('note')} />
             </div>
+
+            {/* ── Referral (EZHT referral block) ── */}
+            <div className="col-span-2 space-y-2 border-t pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowReferral((s) => !s)}
+              >
+                {showReferral ? 'Hide referral' : 'Add referral'}
+              </Button>
+              {showReferral && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Source type</Label>
+                    <select
+                      className={selectCls}
+                      {...register('referralSourceType')}
+                    >
+                      <option value="">— select —</option>
+                      <option value="doctor">Doctor</option>
+                      <option value="insurance">Insurance</option>
+                      <option value="personal">Personal</option>
+                      <option value="agency">Agency</option>
+                      <option value="hospital">Hospital</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Doctor name</Label>
+                    <Input {...register('referralDoctorName')} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Contact first name</Label>
+                    <Input {...register('referralContactFname')} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Contact middle name</Label>
+                    <Input {...register('referralContactMname')} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Contact last name</Label>
+                    <Input {...register('referralContactLname')} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Business name</Label>
+                    <Input {...register('referralBusinessName')} />
+                  </div>
+                  <div className="col-span-2 space-y-1.5">
+                    <Label>Business address</Label>
+                    <Input {...register('referralBusinessAddress')} />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
@@ -458,9 +622,7 @@ export function RequisitionForm({ editId }: Props) {
           <Row label="Items" value={totals.totalItems} />
           <Row label="Total" value={totals.subtotal} money />
           <Row label="Product discount" value={totals.productDiscount} money />
-          <Row label="Order discount" value={totals.orderDiscount} money />
           <Row label="Tax" value={totals.totalTax} money />
-          <Row label="Shipping" value={totals.shipping} money />
           <div className="mt-2 flex items-center justify-between border-t pt-2 text-base font-semibold">
             <span>Grand total</span>
             <span className="tabular-nums">{totals.grandTotal.toFixed(2)}</span>

@@ -94,6 +94,69 @@ export class KalnosticsHttpService {
     return envelope.data as T;
   }
 
+  /**
+   * POST `body` to `path` and return the raw response bytes as a `Buffer`. For
+   * kalnostics endpoints that stream a binary (e.g. a rendered `application/pdf`)
+   * instead of the JSON envelope. Forwards the caller's bearer token; on a
+   * non-2xx response it parses the JSON error envelope (if any) and raises
+   * `UpstreamException`.
+   */
+  async postBinary(path: string, body?: unknown): Promise<Buffer> {
+    const url = this.buildUrl(path);
+    const token = getBearerToken();
+
+    const headers: Record<string, string> = { Accept: 'application/pdf' };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      this.logger.error(`kalnostics POST ${url} failed: ${String(err)}`);
+      throw new UpstreamException('The kalnostics service did not respond.', {
+        method: 'POST',
+        url,
+        cause: String(err),
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+      let code = `HTTP_${response.status}`;
+      let message = `kalnostics POST ${path} → ${response.status}`;
+      try {
+        const env = (await response.json()) as KalnosticsEnvelope<unknown>;
+        code = env.error?.code ?? code;
+        message = env.error?.message ?? message;
+      } catch {
+        /* non-JSON error body — keep the status-based defaults */
+      }
+      throw new UpstreamException(message, {
+        method: 'POST',
+        url,
+        status: response.status,
+        code,
+      });
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
   private async requestEnvelope<T>(
     method: string,
     path: string,

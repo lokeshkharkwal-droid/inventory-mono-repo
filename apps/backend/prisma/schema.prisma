@@ -427,6 +427,16 @@ model InventoryWarehouseProduct {
   avgCost   Decimal @default(0) @map("avg_cost") @db.Decimal(18, 4)
   rack      String?
 
+  // ── Branch-level inventory state (set by quantity adjustments; migration 0044) ──
+  // The product is tenant-level, but each branch manages its own pricing/batch.
+  // These hold the "current" per-branch values surfaced in the branch-scoped list.
+  packSize     String?   @map("pack_size")
+  packQuantity Decimal?  @map("pack_quantity") @db.Decimal(18, 4)
+  unitMrp      Decimal?  @map("unit_mrp") @db.Decimal(18, 4)
+  packMrp      Decimal?  @map("pack_mrp") @db.Decimal(18, 4)
+  batchNo      String?   @map("batch_no")
+  expiryDate   DateTime? @map("expiry_date") @db.Date
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
@@ -467,6 +477,11 @@ model InventoryStockAdjustment {
   packMrp      Decimal?  @map("pack_mrp") @db.Decimal(18, 4)
   unitMrp      Decimal?  @map("unit_mrp") @db.Decimal(18, 4)
 
+  /// The product batch this adjustment targeted (the "Purchased Item" picked in
+  /// the Adjust Quantity modal). Its balance moves with the warehouse total so
+  /// SUM(open batch.quantity) == warehouse.quantity; null for untargeted adjustments.
+  batchId      String?   @map("batch_id")
+
   legacyAdjustmentId String? @map("legacy_adjustment_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
@@ -482,21 +497,56 @@ model InventoryStockAdjustment {
   @@map("inventory_stock_adjustments")
 }
 
-/// A drug-composition row of a product (EZHT "Drugs" modal: drug name + unit
-/// value + unit). Tenant-scoped.
+/// A drug-composition row of a product (EZHT "Drugs" modal / legacy
+/// `ez_product_relation`): a link to a master drug + unit value + unit.
+/// Tenant-scoped, soft-deletable (delete + re-activate parity). `name` is a
+/// denormalized snapshot of the master drug's name at link time; `drugId` is
+/// null for legacy free-text rows created before the master existed.
 model InventoryProductDrug {
   id        String  @id @default(uuid())
   tenantId  String  @map("tenant_id")
   productId String  @map("product_id")
+  drugId    String? @map("drug_id")
   name      String
   unitValue String? @map("unit_value")
   unit      String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
   product   InventoryProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  drug      InventoryDrug?   @relation(fields: [drugId], references: [id])
   @@index([tenantId])
   @@index([productId])
+  @@index([drugId])
+  @@index([deletedAt])
   @@map("inventory_product_drugs")
+}
+
+/// Tenant drug master (EZHT `pharmacy_drug`) — the catalogue the "Drugs" modal
+/// autocomplete picks from. Tenant-scoped, soft-delete aware.
+model InventoryDrug {
+  id                String  @id @default(uuid())
+  tenantId          String  @map("tenant_id")
+  name              String
+  dosage            String?
+  sideEffect        String? @map("side_effect")
+  indication        String?
+  contraIndication  String? @map("contra_indication")
+  formulation       String?
+  storageCondition  String? @map("storage_condition")
+  precaution        String?
+  safety            String?
+  therapeuticGroup  String? @map("therapeutic_group")
+  isActive          Boolean @default(true) @map("is_active")
+  legacyDrugId      String? @map("legacy_drug_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  productDrugs InventoryProductDrug[]
+  @@index([tenantId])
+  @@index([name])
+  @@index([deletedAt])
+  @@map("inventory_drugs")
 }
 
 /// Product batch / serial with expiry, per branch (legacy `ez_product_serials`).
@@ -511,19 +561,27 @@ model InventoryProductBatch {
   quantity   Decimal   @default(0) @db.Decimal(18, 4)
   cost       Decimal?  @db.Decimal(18, 4)
 
+  /// The purchase (header) whose receipt created this batch. Stable across purchase
+  /// edits (items are replaced but the purchase id is not), so a purchase edit can
+  /// reconcile exactly the batches it owns. Null for adjustment/backfill batches.
+  sourcePurchaseId String? @map("source_purchase_id")
+
   legacySerialId String? @map("legacy_serial_id")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  product InventoryProduct @relation(fields: [productId], references: [id])
+  product   InventoryProduct    @relation(fields: [productId], references: [id])
+  saleItems InventorySaleItem[]
 
   @@index([tenantId])
   @@index([branchId])
   @@index([productId])
   @@index([expiryDate])
   @@index([deletedAt])
+  @@index([tenantId, branchId, productId, deletedAt])
+  @@index([sourcePurchaseId])
   @@map("inventory_product_batches")
 }
 
@@ -790,6 +848,8 @@ model InventoryPurchasePayment {
   ccType   String? @map("cc_type")
   ccMonth  String? @map("cc_month")
   ccYear   String? @map("cc_year")
+  /// Optional uploaded proof/receipt (EZHT add-payment attachment).
+  attachmentUrl String? @map("attachment_url")
   /// Set when this row is one allocation of a bulk supplier payment.
   supplierPaymentId String? @map("supplier_payment_id")
 
@@ -851,6 +911,13 @@ model InventorySale {
   attachmentUrl    String?   @map("attachment_url")
   quoteId          String?   @map("quote_id")
   doctorName       String?   @map("doctor_name")
+  /// Order Tags free-text (EZHT `order_tags`) surfaced under More Options.
+  orderTags        String?   @map("order_tags")
+  /// External-referral link (opaque kalnostics id) + name snapshot for the sale
+  /// "Referral" field. The id is resolved by kalnostics; the name is stored so
+  /// documents/lists don't need a round-trip.
+  referralId       String?   @map("referral_id")
+  referralName     String?   @map("referral_name")
 
   legacySaleId String? @map("legacy_sale_id")
 
@@ -904,13 +971,19 @@ model InventorySaleItem {
   cgst         Decimal   @default(0) @db.Decimal(18, 4)
   sgst         Decimal   @default(0) @db.Decimal(18, 4)
 
+  /// The batch this line drew its stock from (one line = one batch). Nullable for
+  /// non-stock-tracked products and legacy rows created before batch-aware sales.
+  batchId String? @map("batch_id")
+
   createdAt DateTime @default(now()) @map("created_at")
 
-  sale InventorySale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale  InventorySale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  batch InventoryProductBatch? @relation(fields: [batchId], references: [id])
 
   @@index([tenantId])
   @@index([saleId])
   @@index([productId])
+  @@index([batchId])
   @@map("inventory_sale_items")
 }
 
@@ -965,6 +1038,8 @@ model InventoryTransfer {
   fromDepartment String?  @map("from_department")
   toDepartment   String?  @map("to_department")
   shipping       Decimal? @db.Decimal(18, 4)
+  total          Decimal? @db.Decimal(18, 4)
+  totalTax       Decimal? @map("total_tax") @db.Decimal(18, 4)
   grandTotal     Decimal? @map("grand_total") @db.Decimal(18, 4)
   attachmentUrl  String?  @map("attachment_url")
 
@@ -993,15 +1068,23 @@ model InventoryTransferItem {
   productName String  @map("product_name")
   productCode String? @map("product_code")
   quantity    Decimal @db.Decimal(18, 4)
+  /// EZHT `quantity_balance`: set = quantity at creation (partial-receive field).
+  quantityBalance Decimal? @map("quantity_balance") @db.Decimal(18, 4)
   cost        Decimal @default(0) @db.Decimal(18, 4)
 
   // EZ Health Track transfer item columns.
   expiryDate    DateTime? @map("expiry_date")
   productSerial String?   @map("product_serial")
+  /// The specific source-branch batch this line draws stock from (EZHT `option_id`
+  /// + `serial_no`). Null = legacy/product-level line (falls back to product stock).
+  batchId       String?   @map("batch_id")
+  batchNo       String?   @map("batch_no")
   packSize      String?   @map("pack_size")
   packQuantity  Decimal?  @map("pack_quantity") @db.Decimal(18, 4)
   rate          Decimal?  @db.Decimal(18, 4)
   mrp           Decimal?  @db.Decimal(18, 4)
+  packMrp       Decimal?  @map("pack_mrp") @db.Decimal(18, 4)
+  hsnCode       String?   @map("hsn_code")
   taxRate       Decimal?  @map("tax_rate") @db.Decimal(9, 4)
   taxAmount     Decimal?  @map("tax_amount") @db.Decimal(18, 4)
   subtotal      Decimal?  @db.Decimal(18, 4)
@@ -1013,6 +1096,7 @@ model InventoryTransferItem {
   @@index([tenantId])
   @@index([transferId])
   @@index([productId])
+  @@index([batchId])
   @@map("inventory_transfer_items")
 }
 
@@ -1043,6 +1127,22 @@ model InventoryRequisition {
   toDepartmentName   String? @map("to_department_name")
   /// Legacy "Local Purchase" Yes/No flag.
   localPurchase      Boolean @default(false) @map("local_purchase")
+  /// EZHT identity fields (id + snapshotted name): Biller / Supplier / Customer.
+  billerId     String? @map("biller_id")
+  billerName   String? @map("biller_name")
+  supplierId   String? @map("supplier_id")
+  supplierName String? @map("supplier_name")
+  customerId   String? @map("customer_id")
+  customerName String? @map("customer_name")
+  /// EZHT Referral block (legacy `ReferralForm[...]`).
+  referralSourceType      String? @map("referral_source_type")
+  referralContactFname    String? @map("referral_contact_fname")
+  referralContactMname    String? @map("referral_contact_mname")
+  referralContactLname    String? @map("referral_contact_lname")
+  referralBusinessName    String? @map("referral_business_name")
+  referralBusinessAddress String? @map("referral_business_address")
+  referralDoctorName      String? @map("referral_doctor_name")
+  referralSlnId           String? @map("referral_sln_id")
   /// Order-level money (mirrors sale/purchase headers).
   subtotal          Decimal @default(0) @db.Decimal(18, 4)
   productDiscount   Decimal @default(0) @map("product_discount") @db.Decimal(18, 4)
@@ -1090,6 +1190,13 @@ model InventoryRequisitionItem {
   // ── EZHT requisition-item parity ──
   productType  String?  @map("product_type")
   optionId     String?  @map("option_id")
+  /// The specific source-branch batch chosen on the requisition (EZHT `option_id`
+  /// + `serial_no`). Carried through to the transfer line on conversion. Null =
+  /// product-level request.
+  batchId      String?   @map("batch_id")
+  batchNo      String?   @map("batch_no")
+  serialNo     String?   @map("serial_no")
+  expiryDate   DateTime? @map("expiry_date")
   unitPrice    Decimal  @default(0) @map("unit_price") @db.Decimal(18, 4)
   netUnitPrice Decimal  @default(0) @map("net_unit_price") @db.Decimal(18, 4)
   realUnitPrice Decimal @default(0) @map("real_unit_price") @db.Decimal(18, 4)
@@ -1107,6 +1214,7 @@ model InventoryRequisitionItem {
   @@index([tenantId])
   @@index([requisitionId])
   @@index([productId])
+  @@index([batchId])
   @@map("inventory_requisition_items")
 }
 
@@ -1243,20 +1351,104 @@ model InventoryBiller {
   @@map("inventory_billers")
 }
 
-/// Per-tenant inventory settings singleton (business settings + numbering).
+/// Inventory settings — branch-scoped business settings + document numbering,
+/// ported to full EZHealthTrack (SMA) parity. One row per (tenantId, branchId):
+/// a `branchId = NULL` row is the tenant-level default (business-admin context)
+/// and the template a branch's first-access row is cloned from. Uniqueness is
+/// enforced in the DB via two partial unique indexes (migration 0059) because
+/// Postgres treats NULLs as distinct in a plain compound unique index.
 model InventorySetting {
   id                  String  @id @default(uuid())
-  tenantId            String  @unique @map("tenant_id")
+  tenantId            String  @map("tenant_id")
+  /// Branch this settings row applies to; NULL = tenant-level default.
+  branchId            String? @map("branch_id")
   defaultCurrencyCode String? @map("default_currency_code")
   /// Allow stock to go negative (legacy `overselling`).
   isOversellingAllowed Boolean @default(false) @map("is_overselling_allowed")
+  /// Block selling from an expired batch. Default off = expired batches sellable
+  /// (the sale form warns); flip on to hard-reject expired-batch sales.
+  isExpiredSaleBlocked Boolean @default(false) @map("is_expired_sale_blocked")
   rowsPerPage         Int     @default(20) @map("rows_per_page")
   decimalPlaces       Int     @default(2) @map("decimal_places")
-  /// Document numbering prefixes.
+
+  /// Document numbering prefixes (EZHT `*_prefix`).
   purchasePrefix      String  @default("PO") @map("purchase_prefix")
   salePrefix          String  @default("SALE") @map("sale_prefix")
   transferPrefix      String  @default("TR") @map("transfer_prefix")
   requisitionPrefix   String  @default("REQ") @map("requisition_prefix")
+  quotePrefix         String  @default("QT") @map("quote_prefix")
+  deliveryPrefix      String  @default("DO") @map("delivery_prefix")
+  paymentPrefix       String  @default("PAY") @map("payment_prefix")
+  transactionPrefix   String  @default("TXN") @map("transaction_prefix")
+  returnPrefix        String  @default("RT") @map("return_prefix")
+  expensePrefix       String  @default("EX") @map("expense_prefix")
+  incomePrefix        String  @default("IN") @map("income_prefix")
+  materialPrefix      String  @default("MAT") @map("material_prefix")
+  productPrefix       String  @default("PRD") @map("product_prefix")
+  /// Legacy EZHT reference number format (1 = date-based, 2 = sequential).
+  referenceFormat     String? @map("reference_format")
+
+  /// Default tax rates (EZHT `default_tax_rate` / `default_tax_rate2`).
+  defaultProductTaxRateId String? @map("default_product_tax_rate_id")
+  defaultOrderTaxRateId   String? @map("default_order_tax_rate_id")
+
+  /// Localization / number formatting (EZHT).
+  dateFormat            String?  @default("yyyy-mm-dd") @map("date_format")
+  timezone              String?  @default("Asia/Kolkata") @map("timezone")
+  localLanguage         String?  @map("local_language")
+  decimalSeparator      String?  @default(".") @map("decimal_separator")
+  thousandsSeparator    String?  @default(",") @map("thousands_separator")
+  quantityDecimals      Int      @default(2) @map("quantity_decimals")
+  currencySymbol        String?  @map("currency_symbol")
+  isCurrencySymbolShown Boolean  @default(true) @map("is_currency_symbol_shown")
+  /// South-Asian currency grouping (EZHT `sac`).
+  isSacEnabled          Boolean  @default(false) @map("is_sac_enabled")
+
+  /// Image / thumbnail sizing + watermark (EZHT `iwidth`/`iheight`/`twidth`/`theight`/`watermark`).
+  imageWidth         Int?    @map("image_width")
+  imageHeight        Int?    @map("image_height")
+  thumbnailWidth     Int?    @map("thumbnail_width")
+  thumbnailHeight    Int?    @map("thumbnail_height")
+  isWatermarkEnabled Boolean @default(false) @map("is_watermark_enabled")
+
+  /// Product & feature toggles (EZHT).
+  isProductSerialEnabled   Boolean @default(false) @map("is_product_serial_enabled")
+  isProductExpiryEnabled   Boolean @default(false) @map("is_product_expiry_enabled")
+  isProductDiscountEnabled Boolean @default(false) @map("is_product_discount_enabled")
+  isRacksEnabled           Boolean @default(false) @map("is_racks_enabled")
+  isAttributesEnabled      Boolean @default(false) @map("is_attributes_enabled")
+  /// Show all warehouse products incl. zero-stock (EZHT `display_all_products`).
+  isAllProductsDisplayed   Boolean @default(false) @map("is_all_products_displayed")
+  /// Auto-remove expired products (EZHT `remove_expired`).
+  isExpiredRemoved         Boolean @default(false) @map("is_expired_removed")
+  /// Reduce quotation sales (EZHT `quotation_sales_reducing`).
+  isQuotationSalesReducing Boolean @default(false) @map("is_quotation_sales_reducing")
+
+  /// Barcode settings (EZHT `auto_detect_barcode`/`barcode_separator`/`bc_fix`).
+  isBarcodeAutoDetected Boolean @default(false) @map("is_barcode_auto_detected")
+  barcodeSeparator      String? @map("barcode_separator")
+  barcodeFixCount       Int     @default(0) @map("barcode_fix_count")
+
+  /// Defaults (EZHT `default_warehouse`/`default_biller`/`default_supplier`).
+  defaultWarehouseId String? @map("default_warehouse_id")
+  defaultBillerId    String? @map("default_biller_id")
+  defaultSupplierId  String? @map("default_supplier_id")
+
+  /// Behaviour / limits (EZHT).
+  itemAdditionMethod        String?  @map("item_addition_method")
+  invoiceView               String?  @map("invoice_view")
+  discountLimitPercentage   Decimal? @map("discount_limit_percentage") @db.Decimal(8, 4)
+  discountLimitAmount       Decimal? @map("discount_limit_amount") @db.Decimal(25, 4)
+  /// Days after which a document can no longer be edited (EZHT `disable_editing`).
+  editingLockDays           Int      @default(0) @map("editing_lock_days")
+  /// Default focus on the order page (EZHT `set_focus`).
+  defaultOrderFocus         String?  @map("default_order_focus")
+  isPurchaseRoundingEnabled Boolean  @default(false) @map("is_purchase_rounding_enabled")
+  isSalesRoundingEnabled    Boolean  @default(false) @map("is_sales_rounding_enabled")
+  /// Page shown after a sale (EZHT `after_sale_page`).
+  afterSalePage             String?  @map("after_sale_page")
+  expiryAlertDays           Int      @default(0) @map("expiry_alert_days")
+
   /// Optional POS cashier PIN for sensitive till actions (plain — low-security till PIN).
   posPin              String? @map("pos_pin")
 
@@ -1272,6 +1464,8 @@ model InventorySetting {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@index([tenantId])
+  @@index([branchId])
   @@map("inventory_settings")
 }
 
@@ -1348,6 +1542,11 @@ model InventoryQuote {
   subtotal      Decimal  @default(0) @db.Decimal(18, 4)
   orderTax      Decimal  @default(0) @map("order_tax") @db.Decimal(18, 4)
   orderDiscount Decimal  @default(0) @map("order_discount") @db.Decimal(18, 4)
+  /// Original order-discount spec as entered ("5%" or "25") so edits round-trip.
+  orderDiscountSpec String? @map("order_discount_spec")
+  /// Order-level tax percentage as entered, so edits round-trip the rate (the
+  /// `orderTax` column stores the resolved amount).
+  orderTaxPercent Decimal? @map("order_tax_percent") @db.Decimal(8, 4)
   shipping      Decimal  @default(0) @db.Decimal(18, 4)
   grandTotal    Decimal  @default(0) @map("grand_total") @db.Decimal(18, 4)
   note          String?
@@ -1372,7 +1571,8 @@ model InventoryQuote {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  items InventoryQuoteItem[]
+  items         InventoryQuoteItem[]
+  statusHistory InventoryQuoteStatusHistory[]
 
   @@index([tenantId])
   @@index([branchId])
@@ -1386,14 +1586,19 @@ model InventoryQuoteItem {
   id          String  @id @default(uuid())
   tenantId    String  @map("tenant_id")
   quoteId     String  @map("quote_id")
-  productId   String  @map("product_id")
+  /// Null for a manual (off-catalogue) line — EZHT "add manual product".
+  productId   String? @map("product_id")
   productName String  @map("product_name")
   productCode String? @map("product_code")
+  /// Batch / serial number for the quoted units (EZHT item serial).
+  serialNo    String? @map("serial_no")
   quantity    Decimal @db.Decimal(18, 4)
   unitPrice   Decimal @map("unit_price") @db.Decimal(18, 4)
   taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(8, 4)
   taxAmount   Decimal @default(0) @map("tax_amount") @db.Decimal(18, 4)
   discount    Decimal @default(0) @db.Decimal(18, 4)
+  /// Original per-unit discount spec as entered ("10%" or "5") so edits round-trip.
+  discountSpec String? @map("discount_spec")
   subtotal    Decimal @db.Decimal(18, 4)
 
   // EZ Health Track "Add Quote" line parity.
@@ -1411,6 +1616,26 @@ model InventoryQuoteItem {
   @@index([quoteId])
   @@index([productId])
   @@map("inventory_quote_items")
+}
+
+/// Status-change trail for a quote (EZHT `comments_history` for quotes): records
+/// each approve/reject/convert transition with an optional comment and actor.
+model InventoryQuoteStatusHistory {
+  id            String  @id @default(uuid())
+  tenantId      String  @map("tenant_id")
+  quoteId       String  @map("quote_id")
+  status        String
+  comment       String?
+  createdBy     String? @map("created_by")
+  createdByName String? @map("created_by_name")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  quote InventoryQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([quoteId])
+  @@map("inventory_quote_status_history")
 }
 
 // ── Proformas (Phase 3) ──────────────────────────────────────────────────────────
@@ -1530,7 +1755,16 @@ model InventoryOrderConsumption {
   /// The kalnostics order code (e.g. `ORD-00001`) — sale reference + audit.
   orderCode         String? @map("order_code")
   saleId            String? @map("sale_id")
+  /// CONSUMED (auto deduction done) | PENDING_MANUAL (auto off, awaiting first
+  /// manual save) | ADJUSTED (a manual adjustment has been applied).
   status            String  @default("CONSUMED")
+  /// ORDER | TEST — the granularity at which this order's deduction ledger is kept
+  /// (fixed when the consumption row is first created; follows the tenant's
+  /// manual-adjustment mode at that time).
+  scope             String  @default("ORDER")
+  /// Whether stock was auto-deducted at order creation. false = deduction deferred
+  /// to the first manual adjustment save.
+  isAutoDeducted    Boolean @default(true) @map("is_auto_deducted")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -1538,6 +1772,74 @@ model InventoryOrderConsumption {
   @@index([branchId])
   @@index([saleId])
   @@map("inventory_order_consumptions")
+}
+
+/// Authoritative per-scope, per-product "currently deducted" state for a kalnostics
+/// order's inventory consumption. One row per (order, scope, lab test, product):
+/// for ORDER scope `labTestSourceId` is the '' sentinel; for TEST scope it is the
+/// master `LabTest.id`. Both auto-consumption and manual adjustment converge on
+/// `currentQty` here — a save applies `delta = finalQty − currentQty`, so stock is
+/// never double-deducted and repeated saves converge. `plannedQty` is the proforma
+/// math for reference.
+model InventoryConsumptionLine {
+  id                String  @id @default(uuid())
+  tenantId          String  @map("tenant_id")
+  branchId          String  @map("branch_id")
+  scope             String
+  kalnosticsOrderId String  @map("kalnostics_order_id")
+  labTestSourceId   String  @default("") @map("lab_test_source_id")
+  productId         String  @map("product_id")
+  productName       String  @map("product_name")
+  productCode       String? @map("product_code")
+  plannedQty        Decimal @default(0) @map("planned_qty") @db.Decimal(18, 4)
+  currentQty        Decimal @default(0) @map("current_qty") @db.Decimal(18, 4)
+  unitPrice         Decimal @default(0) @map("unit_price") @db.Decimal(18, 4)
+  taxRate           Decimal @default(0) @map("tax_rate") @db.Decimal(8, 4)
+  consumptionId     String  @map("consumption_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([kalnosticsOrderId, scope, labTestSourceId, productId], name: "consumption_line_scope_key")
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([consumptionId])
+  @@index([kalnosticsOrderId])
+  @@index([productId])
+  @@map("inventory_consumption_lines")
+}
+
+/// Immutable audit row: one per product whose deducted quantity changed on a manual
+/// adjustment save. Records planned/previous/final/difference + who/when/why, for a
+/// complete adjustment history.
+model InventoryConsumptionAdjustment {
+  id                String  @id @default(uuid())
+  tenantId          String  @map("tenant_id")
+  branchId          String  @map("branch_id")
+  consumptionId     String  @map("consumption_id")
+  scope             String
+  kalnosticsOrderId String  @map("kalnostics_order_id")
+  labTestSourceId   String  @default("") @map("lab_test_source_id")
+  productId         String  @map("product_id")
+  productName       String  @map("product_name")
+  plannedQty        Decimal @default(0) @map("planned_qty") @db.Decimal(18, 4)
+  previousQty       Decimal @default(0) @map("previous_qty") @db.Decimal(18, 4)
+  finalQty          Decimal @default(0) @map("final_qty") @db.Decimal(18, 4)
+  /// The signed stock delta applied by this save (`finalQty − previousQty`).
+  difference        Decimal @default(0) @db.Decimal(18, 4)
+  reason            String?
+  note              String?
+  createdBy         String? @map("created_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([consumptionId])
+  @@index([kalnosticsOrderId])
+  @@index([productId])
+  @@map("inventory_consumption_adjustments")
 }
 
 // ── Materials (Phase 3) ──────────────────────────────────────────────────────────
@@ -1836,6 +2138,25 @@ model InventoryPurchaseReturn {
   note       String?
   createdBy  String?  @map("created_by")
 
+  // ── EZHT return-purchase parity ──
+  supplierId        String?  @map("supplier_id")
+  surcharge         Decimal  @default(0) @db.Decimal(18, 4)
+  productTax        Decimal  @default(0) @map("product_tax") @db.Decimal(18, 4)
+  orderDiscount     Decimal  @default(0) @map("order_discount") @db.Decimal(18, 4)
+  orderDiscountSpec String?  @map("order_discount_spec")
+  orderTax          Decimal  @default(0) @map("order_tax") @db.Decimal(18, 4)
+  orderTaxId        String?  @map("order_tax_id")
+  totalTax          Decimal  @default(0) @map("total_tax") @db.Decimal(18, 4)
+  roundoff          Decimal  @default(0) @db.Decimal(18, 4)
+  grandTotal        Decimal  @default(0) @map("grand_total") @db.Decimal(18, 4)
+  igst              Decimal  @default(0) @db.Decimal(18, 4)
+  cgst              Decimal  @default(0) @db.Decimal(18, 4)
+  sgst              Decimal  @default(0) @db.Decimal(18, 4)
+  taxMethod         String?  @map("tax_method")
+  gstNumber         String?  @map("gst_number")
+  gstState          String?  @map("gst_state")
+  attachmentUrl     String?  @map("attachment_url")
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
@@ -1861,6 +2182,22 @@ model InventoryPurchaseReturnItem {
   cost        Decimal @db.Decimal(18, 4)
   subtotal    Decimal @db.Decimal(18, 4)
 
+  // ── EZHT return-item parity ──
+  purchaseItemId String?   @map("purchase_item_id")
+  netUnitCost    Decimal   @default(0) @map("net_unit_cost") @db.Decimal(18, 4)
+  taxRate        Decimal   @default(0) @map("tax_rate") @db.Decimal(8, 4)
+  taxAmount      Decimal   @default(0) @map("tax_amount") @db.Decimal(18, 4)
+  discount       Decimal   @default(0) @db.Decimal(18, 4)
+  discountSpec   String?   @map("discount_spec")
+  mrp            Decimal?  @db.Decimal(18, 4)
+  batchNo        String?   @map("batch_no")
+  expiryDate     DateTime? @map("expiry_date")
+  packSize       Decimal?  @map("pack_size") @db.Decimal(18, 4)
+  hsnCode        String?   @map("hsn_code")
+  igst           Decimal   @default(0) @db.Decimal(18, 4)
+  cgst           Decimal   @default(0) @db.Decimal(18, 4)
+  sgst           Decimal   @default(0) @db.Decimal(18, 4)
+
   createdAt DateTime @default(now()) @map("created_at")
 
   return InventoryPurchaseReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
@@ -1884,17 +2221,67 @@ model InventorySaleReturn {
   note         String?
   createdBy    String?  @map("created_by")
 
+  // ── EZHT return-sale parity (list columns + detail modal + payments) ──
+  /// Originating sale reference snapshot (EZHT list "Sale Reference").
+  saleReference String?  @map("sale_reference")
+  /// Customer name snapshot (EZHT list "Customer").
+  customer      String?
+  /// Return surcharge (EZHT `surcharge`) — SUBTRACTED from the grand total.
+  surcharge     Decimal  @default(0) @db.Decimal(18, 4)
+  productTax    Decimal  @default(0) @map("product_tax") @db.Decimal(18, 4)
+  orderDiscount Decimal  @default(0) @map("order_discount") @db.Decimal(18, 4)
+  orderTax      Decimal  @default(0) @map("order_tax") @db.Decimal(18, 4)
+  totalTax      Decimal  @default(0) @map("total_tax") @db.Decimal(18, 4)
+  /// EZHT: grand_total = total + total_tax − surcharge − order_discount.
+  grandTotal    Decimal  @default(0) @map("grand_total") @db.Decimal(18, 4)
+  paid          Decimal  @default(0) @db.Decimal(18, 4)
+  paymentStatus String   @default("PENDING") @map("payment_status")
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  items InventorySaleReturnItem[]
+  items    InventorySaleReturnItem[]
+  payments InventorySaleReturnPayment[]
 
   @@index([tenantId])
   @@index([branchId])
   @@index([saleId])
   @@index([deletedAt])
   @@map("inventory_sale_returns")
+}
+
+/// A payment recorded against a sale return (legacy: return payments live on the
+/// same `sale_payments` table, keyed by the returned sale). Mirrors
+/// {@link InventorySalePayment}. EZHT blocks adding a payment once a fully-paid
+/// return has `paid == grand_total`.
+model InventorySaleReturnPayment {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  returnId  String  @map("return_id")
+  amount    Decimal @db.Decimal(18, 4)
+  method    String  @default("CASH")
+  reference String?
+  date      DateTime
+  note      String?
+  createdBy String? @map("created_by")
+
+  chequeNo   String? @map("cheque_no")
+  ccNo       String? @map("cc_no")
+  ccHolder   String? @map("cc_holder")
+  ccType     String? @map("cc_type")
+  ccMonth    String? @map("cc_month")
+  ccYear     String? @map("cc_year")
+  giftCardNo String? @map("gift_card_no")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  return InventorySaleReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([returnId])
+  @@map("inventory_sale_return_payments")
 }
 
 /// A sale-return line.
@@ -1908,6 +2295,8 @@ model InventorySaleReturnItem {
   quantity    Decimal @db.Decimal(18, 4)
   price       Decimal @db.Decimal(18, 4)
   subtotal    Decimal @db.Decimal(18, 4)
+  /// Batch/serial snapshot of the returned line (EZHT view_return "Serial No").
+  serialNo    String? @map("serial_no")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -1925,10 +2314,16 @@ model InventorySaleDelivery {
   tenantId   String   @map("tenant_id")
   branchId   String?  @map("branch_id")
   saleId     String   @map("sale_id")
+  /// Delivery-order reference (EZHT `do_reference_no`).
   reference  String
-  /// PENDING | DISPATCHED | DELIVERED.
+  /// PENDING | DISPATCHED | DELIVERED. Retained for back-compat; EZHT has no
+  /// delivery status workflow, so the UI no longer surfaces it.
   status     String   @default("PENDING")
   trackingNo String?  @map("tracking_no")
+  /// EZHT `sale_reference_no` — the originating sale's reference (snapshot).
+  saleReferenceNo String? @map("sale_reference_no")
+  /// EZHT `customer` — customer name snapshot shown on the list/document.
+  customer   String?
   deliveredTo String? @map("delivered_to")
   address    String?
   date       DateTime

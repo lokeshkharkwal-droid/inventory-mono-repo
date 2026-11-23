@@ -25,6 +25,14 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /** Typed API error carrying the backend's machine-readable `error.code`. */
 export class ApiError extends Error {
   public readonly errorCode: string | null;
+  /**
+   * Raw validation messages from the backend (NestJS `ValidationPipe` returns a
+   * `message: string[]` whose entries are prefixed with the offending property,
+   * e.g. `"name should not be empty"`). Kept un-joined so forms can map each
+   * message back to its field. Falls back to `[statusText]` for single-message
+   * errors.
+   */
+  public readonly messages: string[];
 
   constructor(
     public readonly status: number,
@@ -32,10 +40,12 @@ export class ApiError extends Error {
     public readonly method: string,
     public readonly path: string,
     errorCode: string | null = null,
+    messages: string[] = [],
   ) {
     super(`${method} ${path} → ${status} ${statusText}`);
     this.name = 'ApiError';
     this.errorCode = errorCode;
+    this.messages = messages.length ? messages : statusText ? [statusText] : [];
   }
 }
 
@@ -257,6 +267,21 @@ function extractServerMessage(body: unknown): string | null {
   return null;
 }
 
+/** Raw validation messages (un-joined) from the backend error envelope. */
+function extractServerMessages(body: unknown): string[] {
+  if (typeof body === 'object' && body !== null && 'error' in body) {
+    const err = (body as { error?: unknown }).error;
+    if (typeof err === 'object' && err !== null && 'message' in err) {
+      const message = (err as { message?: unknown }).message;
+      if (Array.isArray(message)) {
+        return message.filter((m): m is string => typeof m === 'string');
+      }
+      if (typeof message === 'string') return [message];
+    }
+  }
+  return [];
+}
+
 /** Best human-readable message from a caught error, for toasts. */
 export function getApiErrorMessage(
   err: unknown,
@@ -280,7 +305,8 @@ function toApiError(error: AxiosError): ApiError {
     error.message ||
     'Network Error';
   const errorCode = extractServerCode(error.response?.data);
-  return new ApiError(status, statusText, method, path, errorCode);
+  const messages = extractServerMessages(error.response?.data);
+  return new ApiError(status, statusText, method, path, errorCode, messages);
 }
 
 // ─── Login + silent refresh (against kalnostics-new) ──────────────────────────

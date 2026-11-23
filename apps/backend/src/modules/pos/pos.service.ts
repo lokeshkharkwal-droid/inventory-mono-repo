@@ -45,9 +45,10 @@ export class PosService {
    */
   async verifyPin(
     tenantId: string,
+    branchId: string | null,
     pin: string,
   ): Promise<{ valid: boolean; configured: boolean }> {
-    const posPin = await this.settingsService.getPosPin(tenantId);
+    const posPin = await this.settingsService.getPosPin(tenantId, branchId);
     const configured = !!posPin;
     return { configured, valid: !configured || posPin === pin };
   }
@@ -274,9 +275,9 @@ export class PosService {
   }
 
   // ── Product lookup ───────────────────────────────────────────────────────────
-  /** Fast product lookup for the POS grid (by code/name). */
-  async lookup(tenantId: string, search?: string) {
-    const result = await this.productService.findAll(tenantId, {
+  /** Fast product lookup for the POS grid (by code/name), scoped to the branch. */
+  async lookup(tenantId: string, branchId: string | null, search?: string) {
+    const result = await this.productService.findAll(tenantId, branchId, {
       page: 1,
       limit: 50,
       search,

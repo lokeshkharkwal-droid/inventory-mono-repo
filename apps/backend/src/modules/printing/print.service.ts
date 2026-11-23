@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { SaleService } from '../sale/sale.service';
+import { SaleReturnService } from '../sale/sale-return.service';
 import { PurchaseService } from '../purchase/purchase.service';
 import { ProductService } from '../product/product.service';
 import { QuoteService } from '../quote/quote.service';
@@ -9,6 +10,7 @@ import { RequisitionService } from '../requisition/requisition.service';
 import { TransferService } from '../transfer/transfer.service';
 import { MaterialService } from '../material/material.service';
 import { BarcodeService } from './barcode.service';
+import { KalnosticsBranchClient } from '../../integration/clients/kalnostics-branch.client';
 import { KalnosticsCommsClient } from '../integration/kalnostics-comms.client';
 import {
   BarcodeSheetDto,
@@ -56,6 +58,7 @@ function docShell(title: string, body: string): string {
 export class PrintService {
   constructor(
     private readonly saleService: SaleService,
+    private readonly saleReturnService: SaleReturnService,
     private readonly purchaseService: PurchaseService,
     private readonly productService: ProductService,
     private readonly quoteService: QuoteService,
@@ -64,8 +67,20 @@ export class PrintService {
     private readonly transferService: TransferService,
     private readonly materialService: MaterialService,
     private readonly barcode: BarcodeService,
+    private readonly branchClient: KalnosticsBranchClient,
     private readonly comms: KalnosticsCommsClient,
   ) {}
+
+  /** Resolve a branch display name best-effort (falls back to the id, then ''). */
+  private async branchName(id: string | null): Promise<string> {
+    if (!id) return '';
+    try {
+      const branch = await this.branchClient.findById(id);
+      return (branch as { name?: string }).name ?? id;
+    } catch {
+      return id;
+    }
+  }
 
   /** Build the printable HTML for a sale/purchase/quote/proforma by type. */
   private documentHtml(
@@ -76,12 +91,18 @@ export class PrintService {
     switch (type) {
       case 'sale':
         return this.saleInvoice(id, tenantId);
+      case 'sale_return':
+        return this.saleReturn(id, tenantId);
       case 'purchase':
         return this.purchaseOrder(id, tenantId);
       case 'quote':
         return this.quote(id, tenantId);
       case 'proforma':
         return this.proforma(id, tenantId);
+      case 'requisition':
+        return this.requisition(id, tenantId);
+      case 'transfer':
+        return this.transfer(id, tenantId);
     }
   }
 
@@ -97,29 +118,58 @@ export class PrintService {
     dto: EmailDocumentDto,
   ): Promise<{ sent: true }> {
     const html = await this.documentHtml(dto.type, dto.id, tenantId);
-    const label =
-      dto.type === 'sale'
-        ? 'Invoice'
-        : dto.type === 'purchase'
-          ? 'Purchase order'
-          : dto.type === 'quote'
-            ? 'Quotation'
-            : 'Proforma invoice';
-    const subject = dto.subject ?? `${label} from your supplier`;
+    const labels: Record<EmailDocumentDto['type'], string> = {
+      sale: 'Invoice',
+      sale_return: 'Sale return',
+      purchase: 'Purchase order',
+      quote: 'Quotation',
+      proforma: 'Proforma invoice',
+      requisition: 'Requisition',
+      transfer: 'Stock transfer',
+    };
+    const label = labels[dto.type];
+    // Internal movement docs aren't "from a supplier" — default to the plain label.
+    const internalDoc = dto.type === 'requisition' || dto.type === 'transfer';
+    const subject =
+      dto.subject ?? (internalDoc ? label : `${label} from your supplier`);
     const body =
       dto.message ?? `Please find your ${label.toLowerCase()} attached.`;
+    const attachments = [
+      {
+        name: `${dto.type}-${dto.id}.html`,
+        type: 'text/html',
+        data: Buffer.from(html, 'utf8').toString('base64'),
+      },
+    ];
+    const split = (s?: string) =>
+      (s ?? '')
+        .split(',')
+        .map((a) => a.trim())
+        .filter(Boolean);
+    const cc = split(dto.cc);
+    const bcc = split(dto.bcc);
+
+    // Primary send: the main recipient + any CC (all visible on one message).
     await this.comms.sendEmail(bearerToken, {
       subject,
       body,
-      recipients: [{ toAddress: dto.to }],
-      attachments: [
-        {
-          name: `${dto.type}-${dto.id}.html`,
-          type: 'text/html',
-          data: Buffer.from(html, 'utf8').toString('base64'),
-        },
+      recipients: [
+        { toAddress: dto.to },
+        ...cc.map((toAddress) => ({ toAddress })),
       ],
+      attachments,
     });
+
+    // BCC: the gateway can't hide recipients, so each BCC gets its own copy —
+    // which keeps them hidden from each other and from the main/CC recipients.
+    for (const toAddress of bcc) {
+      await this.comms.sendEmail(bearerToken, {
+        subject,
+        body,
+        recipients: [{ toAddress }],
+        attachments,
+      });
+    }
     return { sent: true };
   }
 
@@ -153,27 +203,99 @@ export class PrintService {
     return docShell(`${title} ${doc.reference}`, body);
   }
 
-  /** Simple qty-only movement document (requisitions, transfers). */
-  private qtyDoc(
-    title: string,
-    doc: {
-      reference: string;
-      date: Date;
-      items: { productName: string; quantity: Prisma.Decimal | number }[];
-    },
-  ): string {
-    const rows = doc.items
+  /**
+   * A full stock-movement document (requisition / transfer), EZHT `view.php` parity:
+   * header + from/to branch & department, a Code128 barcode + QR of the reference,
+   * a per-line table (product+code, batch/serial, expiry, qty, and — when priced —
+   * unit price, discount, tax, subtotal) and a totals block. Used for in-app Print
+   * and as the emailed attachment.
+   */
+  private async movementDoc(opts: {
+    title: string;
+    reference: string;
+    date: Date;
+    status: string;
+    fromName: string;
+    toName: string;
+    fromDept?: string | null;
+    toDept?: string | null;
+    biller?: string | null;
+    items: {
+      productName: string;
+      productCode?: string | null;
+      batchNo?: string | null;
+      serialNo?: string | null;
+      expiryDate?: Date | null;
+      quantity: Prisma.Decimal | number;
+      unitPrice?: Prisma.Decimal | number | null;
+      discount?: Prisma.Decimal | number | null;
+      taxAmount?: Prisma.Decimal | number | null;
+      subtotal?: Prisma.Decimal | number | null;
+    }[];
+    totals: [string, Prisma.Decimal | number | null][];
+    note?: string | null;
+  }): Promise<string> {
+    const barcodeSvg = this.barcode.code128Svg(opts.reference);
+    const qr = await this.barcode.qrDataUrl(opts.reference);
+    const priced = opts.items.some((i) => i.unitPrice != null);
+    const rows = opts.items
       .map(
-        (i) =>
-          `<tr><td>${esc(i.productName)}</td><td class="right">${money(i.quantity)}</td></tr>`,
+        (i, idx) => `<tr>
+          <td>${idx + 1}</td>
+          <td>${esc(i.productName)}${i.productCode ? ` <span class="muted">(${esc(i.productCode)})</span>` : ''}</td>
+          <td>${esc(i.batchNo ?? i.serialNo ?? '—')}</td>
+          <td>${i.expiryDate ? d(i.expiryDate) : '—'}</td>
+          <td class="right">${money(i.quantity)}</td>
+          ${
+            priced
+              ? `<td class="right">${money(i.unitPrice)}</td>
+                 <td class="right">${money(i.discount)}</td>
+                 <td class="right">${money(i.taxAmount)}</td>
+                 <td class="right">${money(i.subtotal)}</td>`
+              : ''
+          }
+        </tr>`,
       )
       .join('');
+    const totalsList = opts.totals.filter(([, v]) => v != null);
+    const totalsRows = totalsList
+      .map(([label, v], i) => {
+        const last = i === totalsList.length - 1;
+        const cell = (s: string) => (last ? `<b>${s}</b>` : s);
+        return `<tr><td>${cell(esc(label))}</td><td class="right">${cell(money(v))}</td></tr>`;
+      })
+      .join('');
     const body = `
-      <h1>${esc(title)}</h1>
-      <div class="muted">${esc(doc.reference)} · ${d(doc.date)}</div>
-      <table><thead><tr><th>Item</th><th class="right">Qty</th></tr></thead>
-      <tbody>${rows}</tbody></table>`;
-    return docShell(`${title} ${doc.reference}`, body);
+      <table style="border:none;margin:0"><tr>
+        <td style="border:none;padding:0;vertical-align:top">
+          <h1>${esc(opts.title)} ${esc(opts.reference)}</h1>
+          <div class="muted">Date: ${d(opts.date)} · Status: ${esc(opts.status)}</div>
+        </td>
+        <td style="border:none;padding:0;text-align:right;vertical-align:top">
+          ${barcodeSvg}<br/><img src="${qr}" alt="QR" style="height:72px" />
+        </td>
+      </tr></table>
+      <table style="margin-top:8px"><tr>
+        <td style="border:none;width:50%;vertical-align:top">
+          <div class="muted"><b>From</b></div><div>${esc(opts.fromName || '—')}</div>
+          ${opts.fromDept ? `<div class="muted">${esc(opts.fromDept)}</div>` : ''}
+          ${opts.biller ? `<div class="muted">Biller: ${esc(opts.biller)}</div>` : ''}
+        </td>
+        <td style="border:none;width:50%;vertical-align:top">
+          <div class="muted"><b>To</b></div><div>${esc(opts.toName || '—')}</div>
+          ${opts.toDept ? `<div class="muted">${esc(opts.toDept)}</div>` : ''}
+        </td>
+      </tr></table>
+      <table>
+        <thead><tr>
+          <th>#</th><th>Product</th><th>Batch/Serial</th><th>Expiry</th><th class="right">Qty</th>
+          ${priced ? '<th class="right">Unit Price</th><th class="right">Discount</th><th class="right">Tax</th><th class="right">Subtotal</th>' : ''}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${totalsRows ? `<table class="totals">${totalsRows}</table>` : ''}
+      ${opts.note ? `<p class="muted" style="margin-top:12px">Note: ${esc(opts.note)}</p>` : ''}`;
+    return docShell(`${opts.title} ${opts.reference}`, body);
   }
 
   /** Quotation print. */
@@ -188,16 +310,99 @@ export class PrintService {
     return this.lineDoc('Proforma Invoice', p);
   }
 
-  /** Requisition print. */
+  /** Requisition print (EZHT `requisitions/view` layout). */
   async requisition(id: string, tenantId: string): Promise<string> {
     const r = await this.requisitionService.findById(id, tenantId);
-    return this.qtyDoc('Requisition', r);
+    const [fromName, toName] = await Promise.all([
+      this.branchName(r.fromBranchId),
+      this.branchName(r.branchId),
+    ]);
+    return this.movementDoc({
+      title: 'Requisition',
+      reference: r.reference,
+      date: r.date,
+      status: r.status,
+      fromName,
+      toName,
+      fromDept: r.fromDepartmentName,
+      toDept: r.toDepartmentName,
+      biller: r.billerName,
+      items: r.items.map((it) => ({
+        productName: it.productName,
+        productCode: it.productCode,
+        batchNo: it.batchNo,
+        serialNo: it.serialNo,
+        expiryDate: it.expiryDate,
+        quantity: it.quantity,
+        unitPrice: it.netUnitPrice,
+        discount: it.discount,
+        taxAmount: it.taxAmount,
+        subtotal: it.subtotal,
+      })),
+      totals: [
+        ['Subtotal', r.subtotal],
+        ['Product discount', r.productDiscount],
+        ['Order discount', r.orderDiscount],
+        ['Tax', r.totalTax],
+        ['Shipping', r.shipping],
+        ['Grand total', r.grandTotal],
+      ],
+      note: r.note,
+    });
   }
 
-  /** Transfer note print. */
+  /** Transfer note print (EZHT `transfers/view` layout). */
   async transfer(id: string, tenantId: string): Promise<string> {
     const t = await this.transferService.findById(id, tenantId);
-    return this.qtyDoc('Stock Transfer', t);
+    const [fromName, toName] = await Promise.all([
+      this.branchName(t.fromBranchId),
+      this.branchName(t.toBranchId),
+    ]);
+    return this.movementDoc({
+      title: 'Stock Transfer',
+      reference: t.reference,
+      date: t.date,
+      status: t.status,
+      fromName,
+      toName,
+      fromDept: t.fromDepartment,
+      toDept: t.toDepartment,
+      items: t.items.map((it) => ({
+        productName: it.productName,
+        productCode: it.productCode,
+        batchNo: it.batchNo,
+        serialNo: it.productSerial,
+        expiryDate: it.expiryDate,
+        quantity: it.quantity,
+        unitPrice: it.rate,
+        discount: null,
+        taxAmount: it.taxAmount,
+        subtotal: it.subtotal,
+      })),
+      totals: [
+        ['Total', t.total],
+        ['Product tax', t.totalTax],
+        ['Shipping', t.shipping],
+        ['Grand total', t.grandTotal],
+      ],
+      note: t.note,
+    });
+  }
+
+  /** Sale-return note print (items + grand total). */
+  async saleReturn(id: string, tenantId: string): Promise<string> {
+    const r = await this.saleReturnService.findById(id, tenantId);
+    return this.lineDoc('Sale Return', {
+      reference: r.reference,
+      date: r.date,
+      grandTotal: r.grandTotal,
+      items: r.items.map((i) => ({
+        productName: i.productName,
+        quantity: i.quantity,
+        unitPrice: i.price,
+        subtotal: i.subtotal,
+      })),
+    });
   }
 
   /** Material detail print. */
@@ -283,24 +488,104 @@ export class PrintService {
     return docShell(`Receipt ${s.reference}`, body);
   }
 
-  /** A purchase-order document for the supplier. */
+  /**
+   * A purchase-order document for the supplier (EZHT `purchases/pdf`). Mirrors the
+   * legacy content: supplier + warehouse details, per-line pack columns (batch,
+   * expiry, pack size/qty, rate, MRP, discount, tax), the full totals breakdown
+   * (product/order discount, GST split or order tax, shipping, roundoff, grand
+   * total) and the payment history with the outstanding balance.
+   */
   async purchaseOrder(id: string, tenantId: string): Promise<string> {
-    const p = await this.purchaseService.findById(id, tenantId);
+    const p = await this.purchaseService.getDetail(id, tenantId);
+    const packSize = (i: { packSize: Prisma.Decimal | number | null }) =>
+      Number(i.packSize) || 1;
     const rows = p.items
+      .map((i) => {
+        const size = packSize(i);
+        return `<tr>
+          <td>${esc(i.productName)}${i.productCode ? ` (${esc(i.productCode)})` : ''}</td>
+          <td>${esc(i.batchNo ?? '—')}</td>
+          <td>${i.expiryDate ? d(i.expiryDate) : '—'}</td>
+          <td class="right">${i.packSize != null ? money(i.packSize) : '—'}</td>
+          <td class="right">${i.packQuantity != null ? money(i.packQuantity) : '—'}</td>
+          <td class="right">${i.freePackQuantity != null ? money(i.freePackQuantity) : '—'}</td>
+          <td class="right">${money(Number(i.cost) * size)}</td>
+          <td class="right">${i.mrp != null ? money(Number(i.mrp) * size) : '—'}</td>
+          <td class="right">${money(i.discount)}</td>
+          <td class="right">${money(i.taxAmount)}</td>
+          <td class="right">${money(i.subtotal)}</td>
+        </tr>`;
+      })
+      .join('');
+    const sup = p.supplier as {
+      name?: string;
+      companyName?: string | null;
+      phone?: string | null;
+      email?: string | null;
+      address?: string | null;
+      gstNo?: string | null;
+    } | null;
+    const supplierBlock = `
+      <div><b>${esc(sup?.name ?? '')}</b></div>
+      ${sup?.companyName ? `<div>${esc(sup.companyName)}</div>` : ''}
+      ${sup?.address ? `<div class="muted">${esc(sup.address)}</div>` : ''}
+      ${sup?.phone ? `<div class="muted">Phone: ${esc(sup.phone)}</div>` : ''}
+      ${sup?.email ? `<div class="muted">Email: ${esc(sup.email)}</div>` : ''}
+      ${sup?.gstNo ? `<div class="muted">GST: ${esc(sup.gstNo)}</div>` : ''}`;
+    const gstRows =
+      p.taxMethod === 'igst'
+        ? `<tr><td>IGST</td><td class="right">${money(p.igst)}</td></tr>`
+        : `<tr><td>CGST</td><td class="right">${money(p.cgst)}</td></tr>
+           <tr><td>SGST</td><td class="right">${money(p.sgst)}</td></tr>`;
+    const balance = Number(p.grandTotal) - Number(p.paid);
+    const paymentRows = (p.payments ?? [])
       .map(
-        (i) =>
-          `<tr><td>${esc(i.productName)}</td><td class="right">${money(i.quantity)}</td><td class="right">${money(i.cost)}</td><td class="right">${money(i.subtotal)}</td></tr>`,
+        (pay) =>
+          `<tr><td>${d(pay.date)}</td><td>${esc(pay.reference ?? '—')}</td><td>${esc(pay.method)}</td><td class="right">${money(pay.amount)}</td></tr>`,
       )
       .join('');
     const body = `
-      <h1>Purchase order ${esc(p.reference)}</h1>
-      <div class="muted">Date: ${d(p.date)} · Supplier: ${esc(p.supplier?.name ?? '')}</div>
-      <table><thead><tr><th>Product</th><th class="right">Qty</th><th class="right">Cost</th><th class="right">Subtotal</th></tr></thead><tbody>${rows}</tbody></table>
+      <h1>Purchase Order ${esc(p.reference)}</h1>
+      <div class="muted">Date: ${d(p.date)} · Status: ${esc(p.status)} · Payment: ${esc(p.paymentStatus)}</div>
+      <table style="margin-top:12px"><tr>
+        <td style="vertical-align:top;border:none;padding:0 16px 0 0;width:50%">
+          <div class="muted"><b>Supplier</b></div>${supplierBlock}
+        </td>
+        <td style="vertical-align:top;border:none;padding:0;width:50%">
+          <div class="muted"><b>Warehouse</b></div>
+          <div>${esc(p.warehouse?.name ?? '—')}</div>
+          ${p.gstNumber ? `<div class="muted">GST: ${esc(p.gstNumber)}</div>` : ''}
+        </td>
+      </tr></table>
+      <table>
+        <thead><tr>
+          <th>Product</th><th>Batch</th><th>Expiry</th>
+          <th class="right">Pack Size</th><th class="right">Pack Qty</th><th class="right">Free</th>
+          <th class="right">Rate</th><th class="right">MRP</th><th class="right">Discount</th>
+          <th class="right">Tax</th><th class="right">Subtotal</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
       <table class="totals">
         <tr><td>Subtotal</td><td class="right">${money(p.subtotal)}</td></tr>
-        <tr><td>Tax</td><td class="right">${money(p.orderTax)}</td></tr>
+        <tr><td>Product discount</td><td class="right">${money(p.productDiscount)}</td></tr>
+        <tr><td>Order discount</td><td class="right">${money(p.orderDiscount)}</td></tr>
+        ${gstRows}
+        <tr><td>Order tax</td><td class="right">${money(p.orderTax)}</td></tr>
+        <tr><td>Shipping</td><td class="right">${money(p.shipping)}</td></tr>
+        <tr><td>Roundoff</td><td class="right">${money(p.roundoff)}</td></tr>
         <tr><td><b>Grand total</b></td><td class="right"><b>${money(p.grandTotal)}</b></td></tr>
-      </table>`;
+        <tr><td>Paid</td><td class="right">${money(p.paid)}</td></tr>
+        <tr><td>Balance</td><td class="right">${money(balance)}</td></tr>
+      </table>
+      ${
+        paymentRows
+          ? `<h3 style="margin-top:16px">Payments</h3>
+             <table><thead><tr><th>Date</th><th>Reference</th><th>Paid By</th><th class="right">Amount</th></tr></thead>
+             <tbody>${paymentRows}</tbody></table>`
+          : ''
+      }
+      ${p.note ? `<p class="muted" style="margin-top:12px">Note: ${esc(p.note)}</p>` : ''}`;
     return docShell(`PO ${p.reference}`, body);
   }
 
@@ -309,13 +594,18 @@ export class PrintService {
    * each on its own page (legacy Purchases/Sales "combine_pdf").
    */
   async combine(tenantId: string, dto: CombinePrintDto): Promise<string> {
-    const title = dto.type === 'purchase' ? 'Purchase Orders' : 'Invoices';
+    const titles: Record<CombinePrintDto['type'], string> = {
+      purchase: 'Purchase Orders',
+      sale: 'Invoices',
+      quote: 'Quotations',
+      proforma: 'Proforma Invoices',
+      requisition: 'Requisitions',
+      transfer: 'Stock Transfers',
+    };
+    const title = titles[dto.type];
     const sections: string[] = [];
     for (const id of dto.ids) {
-      const html =
-        dto.type === 'purchase'
-          ? await this.purchaseOrder(id, tenantId)
-          : await this.saleInvoice(id, tenantId);
+      const html = await this.documentHtml(dto.type, id, tenantId);
       // Extract the <body> contents of each single-document render.
       const match = /<body>([\s\S]*)<\/body>/i.exec(html);
       sections.push(match?.[1] ?? html);

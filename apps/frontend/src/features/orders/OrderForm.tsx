@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -8,7 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InfiniteSelect } from '@/components/shared/InfiniteSelect';
 import { AttachmentUpload } from '@/components/shared/AttachmentUpload';
-import { getApiErrorMessage } from '@/lib/http';
+import { getApiErrorMessage, request } from '@/lib/http';
+import { applyApiFieldErrors } from '@/lib/form-errors';
+import { FieldError } from '@/components/ui/field-error';
 import { useBranchOptions } from '@/features/_shared/branches';
 import { useBillers, useTaxRates } from '@/features/_shared/options';
 import { computeOrder } from './totals';
@@ -22,9 +24,16 @@ import {
   useCreatePurchase,
   useUpdatePurchase,
 } from '@/features/purchases/api';
+import { useQuote } from '@/features/quotes/api';
+import { BatchSearchSelect } from './BatchSearchSelect';
+import { AddReferralDialog } from './AddReferralDialog';
+import {
+  ViewCustomerDialog,
+  AddCustomerDialog,
+} from '@/features/customers/ViewCustomerDialog';
 
 const selectCls =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
+  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm aria-[invalid=true]:border-destructive';
 const inputSm = 'h-9';
 
 type Mode = 'sale' | 'purchase';
@@ -42,6 +51,8 @@ interface LineRow {
   taxInclusive: boolean;
   hsnCode: string;
   batchNo: string;
+  /** The chosen batch's id (sales only) — the server decrements exactly this batch. */
+  batchId: string;
   partNo: string;
   expiryDate: string;
   packSize: string;
@@ -68,6 +79,9 @@ interface FormValues {
   interState: boolean;
   note: string;
   staffNote: string;
+  orderTags: string;
+  referralId: string;
+  referralName: string;
   attachmentUrl: string;
   editNote: string;
   isBloodDonation: boolean;
@@ -96,6 +110,7 @@ const EMPTY_ROW: LineRow = {
   taxInclusive: false,
   hsnCode: '',
   batchNo: '',
+  batchId: '',
   partNo: '',
   expiryDate: '',
   packSize: '',
@@ -122,6 +137,9 @@ function defaults(): FormValues {
     interState: false,
     note: '',
     staffNote: '',
+    orderTags: '',
+    referralId: '',
+    referralName: '',
     attachmentUrl: '',
     editNote: '',
     isBloodDonation: false,
@@ -141,6 +159,12 @@ interface Props {
   mode: Mode;
   /** When set, edit this document instead of creating a new one. */
   editId?: string | null;
+  /**
+   * When set (and not editing), prefill a NEW sale/purchase from this quote and,
+   * on save, mark the quote CONVERTED linking it to the created document
+   * (EZHT "Create Invoice / Create Purchase" from a quotation).
+   */
+  fromQuoteId?: string | null;
 }
 
 /**
@@ -149,9 +173,10 @@ interface Props {
  * purchases pick a Supplier and add stock (RECEIVED). Line grid, more-options,
  * live totals and a payment block mirror the legacy layout.
  */
-export function OrderForm({ mode, editId }: Props) {
+export function OrderForm({ mode, editId, fromQuoteId }: Props) {
   const isSale = mode === 'sale';
   const navigate = useNavigate();
+  const prefillQuote = useQuote(!editId && fromQuoteId ? fromQuoteId : undefined);
   const { data: branches } = useBranchOptions();
   const { data: billers } = useBillers();
   const { data: taxRates } = useTaxRates();
@@ -170,9 +195,34 @@ export function OrderForm({ mode, editId }: Props) {
     createPurchase.isPending ||
     updatePurchase.isPending;
 
-  const { register, handleSubmit, control, reset, setValue } =
-    useForm<FormValues>({ defaultValues: defaults() });
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    setValue,
+    setError,
+    formState: { errors },
+  } = useForm<FormValues>({ defaultValues: defaults(), mode: 'onTouched' });
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
+
+  // Add-Sale inline dialogs (Referral / Patient) + a label cache so a freshly
+  // added patient shows in the Customer select without a round-trip.
+  const [addReferralOpen, setAddReferralOpen] = useState(false);
+  const [viewCustomerOpen, setViewCustomerOpen] = useState(false);
+  const [addCustomerOpen, setAddCustomerOpen] = useState(false);
+  const [pickedCustomerLabel, setPickedCustomerLabel] = useState('');
+
+  // Default Date to NOW (date + time) for a NEW sale (EZHT preselects current
+  // datetime). Only runs once, for creates — edits hydrate their own date.
+  useEffect(() => {
+    if (editId || !isSale) return;
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setValue('date', local);
+  }, [editId, isSale, setValue]);
 
   // Hydrate when editing.
   useEffect(() => {
@@ -190,7 +240,7 @@ export function OrderForm({ mode, editId }: Props) {
       warehouseId: (d.branchId as string) ?? '',
       billerId: (d.billerId as string) ?? '',
       reference: (d.reference as string) ?? '',
-      date: d.date ? String(d.date).slice(0, 10) : '',
+      date: d.date ? String(d.date).slice(0, isSale ? 16 : 10) : '',
       status: (d.status as string) ?? '',
       orderDiscount: String(d.orderDiscountSpec ?? d.orderDiscount ?? 0),
       orderTax: String(d.orderTax ?? 0),
@@ -201,33 +251,95 @@ export function OrderForm({ mode, editId }: Props) {
       interState: d.taxMethod === 'igst',
       note: (d.note as string) ?? '',
       staffNote: (d.staffNote as string) ?? '',
+      orderTags: (d.orderTags as string) ?? '',
+      referralId: (d.referralId as string) ?? '',
+      referralName: (d.referralName as string) ?? '',
       attachmentUrl: (d.attachmentUrl as string) ?? '',
       isBloodDonation: Boolean(d.isBloodDonation),
       donorName: (d.donorName as string) ?? '',
-      items: ((d.items as Record<string, unknown>[]) ?? []).map((i) => ({
-        ...EMPTY_ROW,
-        productId: String(i.productId ?? ''),
-        productName: String(i.productName ?? ''),
-        productCode: String(i.productCode ?? ''),
-        optionId: String(i.optionId ?? ''),
-        quantity: String(i.quantity ?? 1),
-        unitPrice: String(isSale ? (i.price ?? 0) : (i.cost ?? 0)),
-        discount: String(i.discountSpec ?? i.discount ?? 0),
-        taxRate: String(i.taxRate ?? 0),
-        taxInclusive: i.taxMethod === '1',
-        hsnCode: String(i.hsnCode ?? ''),
-        batchNo: String((isSale ? i.serialNo : i.batchNo) ?? ''),
-        partNo: String(i.partNo ?? ''),
-        expiryDate: i.expiryDate ? String(i.expiryDate).slice(0, 10) : '',
-        packSize: i.packSize != null ? String(i.packSize) : '',
-        packQuantity: i.packQuantity != null ? String(i.packQuantity) : '',
-        mrp: i.mrp != null ? String(i.mrp) : '',
-        freePackQuantity:
-          i.freePackQuantity != null ? String(i.freePackQuantity) : '',
-        invExposure: i.invExposure != null ? String(i.invExposure) : '',
-      })),
+      items: ((d.items as Record<string, unknown>[]) ?? []).map((i) => {
+        // Purchase Rate/MRP columns show PACK values — reconstruct from the stored
+        // per-unit cost/mrp × pack size; derive packQuantity from quantity when a
+        // legacy row has none so the derived total quantity round-trips.
+        const packSize = i.packSize != null ? Number(i.packSize) : 1;
+        const size = packSize || 1;
+        const qty = Number(i.quantity ?? 0);
+        return {
+          ...EMPTY_ROW,
+          productId: String(i.productId ?? ''),
+          productName: String(i.productName ?? ''),
+          productCode: String(i.productCode ?? ''),
+          optionId: String(i.optionId ?? ''),
+          quantity: String(qty || 1),
+          unitPrice: String(
+            isSale ? (i.price ?? 0) : Number(i.cost ?? 0) * size,
+          ),
+          discount: String(i.discountSpec ?? i.discount ?? 0),
+          taxRate: String(i.taxRate ?? 0),
+          taxInclusive: i.taxMethod === '1',
+          hsnCode: String(i.hsnCode ?? ''),
+          batchNo: String((isSale ? i.serialNo : i.batchNo) ?? ''),
+          batchId: String(i.batchId ?? ''),
+          partNo: String(i.partNo ?? ''),
+          expiryDate: i.expiryDate ? String(i.expiryDate).slice(0, 10) : '',
+          packSize: i.packSize != null ? String(i.packSize) : '',
+          packQuantity:
+            i.packQuantity != null
+              ? String(i.packQuantity)
+              : isSale
+                ? ''
+                : String(qty / size),
+          mrp: isSale
+            ? i.mrp != null
+              ? String(i.mrp)
+              : ''
+            : String(Number(i.mrp ?? 0) * size),
+          freePackQuantity:
+            i.freePackQuantity != null ? String(i.freePackQuantity) : '',
+          invExposure: i.invExposure != null ? String(i.invExposure) : '',
+        };
+      }),
     });
   }, [editId, editing, isSale, reset]);
+
+  // Prefill a NEW document from a quote (convert flow). Maps the quote's party,
+  // lines (discount spec preserved), order discount, shipping and GST so the user
+  // can review before saving — EZHT opens the add-form prefilled, not auto-create.
+  useEffect(() => {
+    if (editId || !fromQuoteId || !prefillQuote.data) return;
+    const q = prefillQuote.data;
+    const party = isSale ? q.customerId : q.supplierId;
+    reset({
+      ...defaults(),
+      partyId: party ?? '',
+      warehouseId: q.warehouseId ?? '',
+      orderDiscount: q.orderDiscountSpec ?? String(q.orderDiscount ?? 0),
+      orderTax: String(q.orderTaxPercent ?? 0),
+      shipping: String(q.shipping ?? 0),
+      gstNumber: q.gstNumber ?? '',
+      gstState: q.gstState ?? '',
+      note: `From quote ${q.reference}`,
+      // Manual (off-catalogue) quote lines have no catalogue product → skip them;
+      // a sale/purchase line needs a real product.
+      items:
+        q.items.filter((i) => i.productId).length > 0
+          ? q.items
+              .filter((i) => i.productId)
+              .map((i) => ({
+                ...EMPTY_ROW,
+                productId: i.productId ?? '',
+                productName: i.productName,
+                productCode: i.productCode ?? '',
+                quantity: String(i.quantity ?? 1),
+                unitPrice: String(i.unitPrice ?? 0),
+                discount: i.discountSpec ?? String(i.discount ?? 0),
+                taxRate: String(i.taxRate ?? 0),
+                packSize: i.packSize ?? '',
+                packQuantity: i.packQuantity != null ? String(i.packQuantity) : '',
+              }))
+          : [{ ...EMPTY_ROW }],
+    });
+  }, [editId, fromQuoteId, prefillQuote.data, isSale, reset]);
 
   // useWatch re-renders reliably on nested field-array edits (plain watch() does
   // not), so the live per-line subtotals + order summary stay in sync.
@@ -236,12 +348,24 @@ export function OrderForm({ mode, editId }: Props) {
   const paymentStatus = live.paymentStatus ?? 'due';
   const paidBy = live.paidBy ?? 'CASH';
 
+  // EZHT purchase "pack" model: the editable Rate/MRP columns hold PACK values and
+  // the line quantity is derived from packs (packQuantity × packSize). The money
+  // engine + stock remain per-unit, so we derive the per-unit cost and the total
+  // unit quantity here. Sales stay exactly as entered (per-unit, explicit Qty).
+  const packSizeOf = (l: Partial<LineRow>) => Number(l.packSize) || 1;
+  const unitCostOf = (l: Partial<LineRow>) =>
+    isSale ? Number(l.unitPrice) || 0 : (Number(l.unitPrice) || 0) / packSizeOf(l);
+  const lineQtyOf = (l: Partial<LineRow>) =>
+    isSale
+      ? Number(l.quantity) || 0
+      : (Number(l.packQuantity) || 0) * packSizeOf(l);
+
   const totals = useMemo(
     () =>
       computeOrder({
         lines: watchedItems.map((l) => ({
-          quantity: Number(l.quantity || 0),
-          unitPrice: Number(l.unitPrice || 0),
+          quantity: lineQtyOf(l),
+          unitPrice: unitCostOf(l),
           discount: l.discount,
           taxRatePercent: Number(l.taxRate || 0),
           taxInclusive: l.taxInclusive,
@@ -251,41 +375,50 @@ export function OrderForm({ mode, editId }: Props) {
         shipping: Number(live.shipping || 0),
         interState: live.interState,
       }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [watchedItems, live.orderDiscount, live.orderTax, live.shipping, live.interState],
   );
 
   const submit = handleSubmit(async (v) => {
     const items = v.items
       .filter((i) => i.productId)
-      .map((i) => ({
-        productId: i.productId,
-        optionId: i.optionId || undefined,
-        quantity: Number(i.quantity || 0),
-        [isSale ? 'price' : 'cost']: Number(i.unitPrice || 0),
-        discount: i.discount || undefined,
-        taxRate: Number(i.taxRate || 0),
-        taxRateId: i.taxRateId || undefined,
-        taxInclusive: i.taxInclusive || undefined,
-        hsnCode: i.hsnCode || undefined,
-        ...(isSale
-          ? {
-              serialNo: i.batchNo || undefined,
-              invExposure: i.invExposure ? Number(i.invExposure) : undefined,
-            }
-          : { batchNo: i.batchNo || undefined }),
-        expiryDate: i.expiryDate || undefined,
-        packSize: i.packSize ? Number(i.packSize) : undefined,
-        packQuantity: i.packQuantity ? Number(i.packQuantity) : undefined,
-        ...(isSale
-          ? {}
-          : {
-              mrp: i.mrp ? Number(i.mrp) : undefined,
-              freePackQuantity: i.freePackQuantity
-                ? Number(i.freePackQuantity)
-                : undefined,
-              partNo: i.partNo || undefined,
-            }),
-      }));
+      .map((i) => {
+        const base = {
+          productId: i.productId,
+          optionId: i.optionId || undefined,
+          discount: i.discount || undefined,
+          taxRate: Number(i.taxRate || 0),
+          taxRateId: i.taxRateId || undefined,
+          taxInclusive: i.taxInclusive || undefined,
+          hsnCode: i.hsnCode || undefined,
+          expiryDate: i.expiryDate || undefined,
+          packSize: i.packSize ? Number(i.packSize) : undefined,
+          packQuantity: i.packQuantity ? Number(i.packQuantity) : undefined,
+        };
+        if (isSale) {
+          return {
+            ...base,
+            quantity: Number(i.quantity || 0),
+            price: Number(i.unitPrice || 0),
+            batchId: i.batchId || undefined,
+            serialNo: i.batchNo || undefined,
+            invExposure: i.invExposure ? Number(i.invExposure) : undefined,
+          };
+        }
+        // Purchase: Rate = pack cost, MRP = pack MRP → derive the per-unit values
+        // the backend stores; quantity = packs × pack size (EZHT).
+        return {
+          ...base,
+          quantity: lineQtyOf(i),
+          cost: unitCostOf(i),
+          mrp: i.mrp ? Number(i.mrp) / packSizeOf(i) : undefined,
+          freePackQuantity: i.freePackQuantity
+            ? Number(i.freePackQuantity)
+            : undefined,
+          partNo: i.partNo || undefined,
+          batchNo: i.batchNo || undefined,
+        };
+      });
 
     if (items.length === 0) {
       toast.error('Add at least one product line.');
@@ -323,6 +456,20 @@ export function OrderForm({ mode, editId }: Props) {
       payment,
     };
 
+    // After creating a doc from a quote, mark the quote CONVERTED + link it.
+    const markQuoteConverted = async (convertedToId: string) => {
+      if (editId || !fromQuoteId) return;
+      try {
+        await request('POST', `/quotes/${fromQuoteId}/mark-converted`, {
+          body: { convertedToId },
+        });
+      } catch {
+        toast.warning(
+          'Document created, but the quote could not be marked converted.',
+        );
+      }
+    };
+
     try {
       if (isSale) {
         const body = {
@@ -330,9 +477,17 @@ export function OrderForm({ mode, editId }: Props) {
           customerId: v.partyId,
           billerId: v.billerId || undefined,
           staffNote: v.staffNote || undefined,
+          orderTags: v.orderTags || undefined,
+          referralId: v.referralId || undefined,
+          referralName: v.referralName || undefined,
+          ...(fromQuoteId && !editId ? { quoteId: fromQuoteId } : {}),
         };
-        if (editId) await updateSale.mutateAsync({ id: editId, input: body });
-        else await createSale.mutateAsync(body);
+        if (editId) {
+          await updateSale.mutateAsync({ id: editId, input: body });
+        } else {
+          const created = (await createSale.mutateAsync(body)) as { id: string };
+          await markQuoteConverted(created.id);
+        }
         toast.success(editId ? 'Sale updated' : 'Sale created');
         navigate('/sales');
       } else {
@@ -343,14 +498,22 @@ export function OrderForm({ mode, editId }: Props) {
           isBloodDonation: v.isBloodDonation || undefined,
           donorName: v.isBloodDonation ? v.donorName || undefined : undefined,
         };
-        if (editId)
+        if (editId) {
           await updatePurchase.mutateAsync({ id: editId, input: body });
-        else await createPurchase.mutateAsync(body);
+        } else {
+          const created = (await createPurchase.mutateAsync(body)) as {
+            id: string;
+          };
+          await markQuoteConverted(created.id);
+        }
         toast.success(editId ? 'Purchase updated' : 'Purchase created');
         navigate('/purchases');
       }
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Could not save'));
+      const mapped = applyApiFieldErrors(err, setError, {
+        fields: ['partyId', 'warehouseId', 'date', 'billerId', 'status'],
+      });
+      if (!mapped) toast.error(getApiErrorMessage(err, 'Could not save'));
     }
   });
 
@@ -369,7 +532,6 @@ export function OrderForm({ mode, editId }: Props) {
     ? ['CASH', 'CARD', 'CHEQUE', 'GIFT_CARD', 'BANK_TRANSFER']
     : ['CASH', 'CARD', 'CHEQUE', 'BANK_TRANSFER'];
 
-  const priceLabel = isSale ? 'Unit price' : 'Rate';
 
   return (
     <form onSubmit={submit} className="space-y-6 pb-16">
@@ -396,7 +558,10 @@ export function OrderForm({ mode, editId }: Props) {
       <section className="grid grid-cols-2 gap-4 rounded-lg border p-4 md:grid-cols-3">
         <div className="space-y-1.5">
           <Label>Date</Label>
-          <Input type="date" {...register('date')} />
+          <Input
+            type={isSale ? 'datetime-local' : 'date'}
+            {...register('date')}
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Reference</Label>
@@ -418,7 +583,9 @@ export function OrderForm({ mode, editId }: Props) {
           <Controller
             control={control}
             name="partyId"
-            rules={{ required: true }}
+            rules={{
+              required: `${isSale ? 'Customer' : 'Supplier'} is required`,
+            }}
             render={({ field }) => (
               <InfiniteSelect
                 value={field.value}
@@ -429,16 +596,78 @@ export function OrderForm({ mode, editId }: Props) {
                 getOptionLabel={(c) => c.name}
                 selectedLabel={
                   isSale
-                    ? (editing as { customer?: { name?: string } })?.customer
-                        ?.name
+                    ? pickedCustomerLabel ||
+                      (editing as { customer?: { name?: string } })?.customer
+                        ?.name ||
+                      prefillQuote.data?.party?.name
                     : (editing as { supplier?: { name?: string } })?.supplier
-                        ?.name
+                        ?.name ?? prefillQuote.data?.party?.name
                 }
                 placeholder={`Select ${isSale ? 'customer' : 'supplier'}…`}
               />
             )}
           />
+          <FieldError message={errors.partyId?.message as string} />
+          {isSale && (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-xs"
+                onClick={() => setViewCustomerOpen(true)}
+              >
+                View patient
+              </Button>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-xs"
+                onClick={() => setAddCustomerOpen(true)}
+              >
+                + Add patient
+              </Button>
+            </div>
+          )}
         </div>
+        {isSale && (
+          <div className="space-y-1.5">
+            <Label>Referral</Label>
+            <Controller
+              control={control}
+              name="referralId"
+              render={({ field }) => (
+                <InfiniteSelect
+                  value={field.value}
+                  onChange={(id) => {
+                    field.onChange(id);
+                    if (!id) setValue('referralName', '');
+                  }}
+                  onSelect={(r) =>
+                    setValue('referralName', (r as { name: string }).name)
+                  }
+                  queryKey={['integration-referrals']}
+                  path="/integration/referrals"
+                  getOptionValue={(r) => r.id}
+                  getOptionLabel={(r) => r.name}
+                  selectedLabel={live.referralName || undefined}
+                  placeholder="Select referral…"
+                  clearable
+                />
+              )}
+            />
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
+              onClick={() => setAddReferralOpen(true)}
+            >
+              + Add referral
+            </Button>
+          </div>
+        )}
         {isSale && (
           <div className="space-y-1.5">
             <Label>Biller</Label>
@@ -481,20 +710,30 @@ export function OrderForm({ mode, editId }: Props) {
           <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="py-2 pr-2">Product</th>
-                <th className="px-1">{isSale ? 'Batch' : 'Product Serial'}</th>
-                {!isSale && <th className="px-1">Supplier Part No</th>}
-                <th className="px-1">Expiry</th>
-                {!isSale && <th className="px-1">Pack Size</th>}
-                {!isSale && <th className="px-1">Pack Quantity</th>}
-                {!isSale && <th className="px-1">Free Pack Quantity</th>}
-                {!isSale && <th className="px-1">MRP</th>}
-                <th className="px-1">Qty</th>
-                <th className="px-1">{priceLabel}</th>
-                <th className="px-1">Disc</th>
-                <th className="px-1">Tax</th>
-                <th className="px-1">HSN</th>
-                {isSale && <th className="px-1">Exposure</th>}
+                <th className="py-2 pr-2">Product Name</th>
+                {isSale ? (
+                  <>
+                    <th className="px-1">Batch Number</th>
+                    <th className="px-1">Expiry</th>
+                    <th className="px-1">HSN Code</th>
+                    <th className="px-1">Pack Quantity</th>
+                    <th className="px-1">Quantity</th>
+                    <th className="px-1">Discount</th>
+                    <th className="px-1">Tax</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="px-1">Batch</th>
+                    <th className="px-1">Expiry Date</th>
+                    <th className="px-1">Pack Size</th>
+                    <th className="px-1">Pack Quantity</th>
+                    <th className="px-1">Free Pack Quantity</th>
+                    <th className="px-1">Rate</th>
+                    <th className="px-1">MRP</th>
+                    <th className="px-1">Discount</th>
+                    <th className="px-1 text-right">Product Tax</th>
+                  </>
+                )}
                 <th className="px-1 text-right">Subtotal</th>
                 <th />
               </tr>
@@ -502,148 +741,240 @@ export function OrderForm({ mode, editId }: Props) {
             <tbody>
               {fields.map((f, i) => (
                 <tr key={f.id} className="border-b align-top">
-                  <td className="py-2 pr-2" style={{ minWidth: 200 }}>
-                    <Controller
-                      control={control}
-                      name={`items.${i}.productId`}
-                      render={({ field }) => (
-                        <InfiniteSelect
-                          value={field.value}
-                          onChange={field.onChange}
-                          onSelect={(p) => {
-                            setValue(`items.${i}.productName`, p.name);
-                            setValue(`items.${i}.productCode`, p.code ?? '');
+                  <td className="py-2 pr-2" style={{ minWidth: 220 }}>
+                    {isSale ? (
+                      // EZHT single batch-row autocomplete: picking a row fills the
+                      // whole line (product + batch + expiry + hsn + pack + price)
+                      // with that batch locked.
+                      <BatchSearchSelect
+                        value={watchedItems[i]?.productName ?? ''}
+                        warehouseId={live.warehouseId || undefined}
+                        onPick={(r) => {
+                          setValue(`items.${i}.productId`, r.productId);
+                          setValue(`items.${i}.productName`, r.productName);
+                          setValue(`items.${i}.productCode`, r.productCode ?? '');
+                          setValue(`items.${i}.optionId`, r.optionId ?? '');
+                          setValue(`items.${i}.batchId`, r.batchId);
+                          setValue(
+                            `items.${i}.batchNo`,
+                            r.serialNo ?? r.batchNo ?? '',
+                          );
+                          setValue(
+                            `items.${i}.expiryDate`,
+                            r.expiryDate ? r.expiryDate.slice(0, 10) : '',
+                          );
+                          setValue(`items.${i}.hsnCode`, r.hsnCode ?? '');
+                          setValue(
+                            `items.${i}.packSize`,
+                            r.packSize != null ? String(r.packSize) : '',
+                          );
+                          setValue(`items.${i}.packQuantity`, '1');
+                          setValue(`items.${i}.quantity`, '1');
+                          setValue(`items.${i}.unitPrice`, String(r.price ?? 0));
+                          setValue(
+                            `items.${i}.mrp`,
+                            r.mrp != null ? String(r.mrp) : '',
+                          );
+                          setValue(`items.${i}.taxRateId`, r.taxRateId ?? '');
+                          setValue(`items.${i}.taxRate`, String(r.taxRate ?? 0));
+                          setValue(`items.${i}.taxInclusive`, r.isTaxIncluded);
+                        }}
+                      />
+                    ) : (
+                      <Controller
+                        control={control}
+                        name={`items.${i}.productId`}
+                        render={({ field }) => (
+                          <InfiniteSelect
+                            value={field.value}
+                            onChange={field.onChange}
+                            onSelect={(p) => {
+                              setValue(`items.${i}.productName`, p.name);
+                              setValue(`items.${i}.productCode`, p.code ?? '');
+                              setValue(`items.${i}.optionId`, '');
+                              // EZHT purchase auto-fill: Rate = Pack Cost, MRP =
+                              // Pack MRP, Pack Size from the product, Pack Qty = 1,
+                              // and the line tax rate from the product's default tax.
+                              const ps = Number(p.packSize) || 1;
+                              setValue(
+                                `items.${i}.packSize`,
+                                p.packSize != null ? String(p.packSize) : '',
+                              );
+                              setValue(`items.${i}.packQuantity`, '1');
+                              setValue(
+                                `items.${i}.unitPrice`,
+                                String(
+                                  p.packCost ??
+                                    (p.cost != null ? p.cost * ps : 0),
+                                ),
+                              );
+                              setValue(
+                                `items.${i}.mrp`,
+                                String(
+                                  p.packMrp ??
+                                    (p.price != null ? p.price * ps : 0),
+                                ),
+                              );
+                              setValue(`items.${i}.taxRateId`, p.taxRateId ?? '');
+                              setValue(
+                                `items.${i}.taxRate`,
+                                String(p.taxRatePercent ?? 0),
+                              );
+                            }}
+                            queryKey={['products']}
+                            path="/products"
+                            getOptionValue={(p) => p.id}
+                            getOptionLabel={(p) => p.name}
+                            selectedLabel={watchedItems[i]?.productName}
+                            placeholder="Select product…"
+                          />
+                        )}
+                      />
+                    )}
+                  </td>
+
+                  {isSale ? (
+                    <>
+                      <td className="px-1" style={{ width: 120 }}>
+                        <Input
+                          className={inputSm}
+                          readOnly
+                          placeholder="—"
+                          {...register(`items.${i}.batchNo`)}
+                        />
+                      </td>
+                      <td className="px-1">
+                        <Input
+                          type="date"
+                          className={inputSm}
+                          readOnly
+                          {...register(`items.${i}.expiryDate`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 90 }}>
+                        <Input
+                          className={inputSm}
+                          {...register(`items.${i}.hsnCode`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 90 }}>
+                        <Input
+                          type="number"
+                          step="any"
+                          className={inputSm}
+                          {...register(`items.${i}.packQuantity`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 80 }}>
+                        <Input
+                          type="number"
+                          step="any"
+                          className={inputSm}
+                          {...register(`items.${i}.quantity`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 80 }}>
+                        <Input
+                          className={inputSm}
+                          placeholder="0 or 5%"
+                          {...register(`items.${i}.discount`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 130 }}>
+                        <select
+                          className={`${selectCls} h-9`}
+                          value={watchedItems[i]?.taxRateId ?? ''}
+                          onChange={(e) => {
+                            const tr = (taxRates ?? []).find(
+                              (t) => t.id === e.target.value,
+                            );
+                            setValue(`items.${i}.taxRateId`, e.target.value);
                             setValue(
-                              `items.${i}.unitPrice`,
-                              String(isSale ? (p.price ?? 0) : (p.cost ?? 0)),
+                              `items.${i}.taxRate`,
+                              tr ? String(tr.rate) : '0',
                             );
                           }}
-                          queryKey={['products']}
-                          path="/products"
-                          getOptionValue={(p) => p.id}
-                          getOptionLabel={(p) => p.name}
-                          selectedLabel={watchedItems[i]?.productName}
-                          placeholder="Select product…"
+                        >
+                          <option value="">No tax</option>
+                          {(taxRates ?? []).map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name} ({t.rate}%)
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-1" style={{ width: 120 }}>
+                        <Input
+                          className={inputSm}
+                          {...register(`items.${i}.batchNo`)}
                         />
-                      )}
-                    />
-                  </td>
-                  <td className="px-1">
-                    <Input className={inputSm} {...register(`items.${i}.batchNo`)} />
-                  </td>
-                  {!isSale && (
-                    <td className="px-1" style={{ width: 120 }}>
-                      <Input
-                        className={inputSm}
-                        {...register(`items.${i}.partNo`)}
-                      />
-                    </td>
+                      </td>
+                      <td className="px-1">
+                        <Input
+                          type="date"
+                          className={inputSm}
+                          {...register(`items.${i}.expiryDate`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 90 }}>
+                        <Input
+                          type="number"
+                          step="any"
+                          className={inputSm}
+                          {...register(`items.${i}.packSize`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 90 }}>
+                        <Input
+                          type="number"
+                          step="any"
+                          className={inputSm}
+                          {...register(`items.${i}.packQuantity`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 90 }}>
+                        <Input
+                          type="number"
+                          step="any"
+                          className={inputSm}
+                          {...register(`items.${i}.freePackQuantity`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 100 }}>
+                        <Input
+                          type="number"
+                          step="any"
+                          className={inputSm}
+                          {...register(`items.${i}.unitPrice`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 100 }}>
+                        <Input
+                          type="number"
+                          step="any"
+                          className={inputSm}
+                          {...register(`items.${i}.mrp`)}
+                        />
+                      </td>
+                      <td className="px-1" style={{ width: 80 }}>
+                        <Input
+                          className={inputSm}
+                          placeholder="0 or 5%"
+                          {...register(`items.${i}.discount`)}
+                        />
+                      </td>
+                      <td className="px-1 text-right tabular-nums text-muted-foreground">
+                        {Number(watchedItems[i]?.taxRate || 0) > 0
+                          ? `(${Number(watchedItems[i]?.taxRate || 0)}%) `
+                          : ''}
+                        {(totals.lines[i]?.taxAmount ?? 0).toFixed(2)}
+                      </td>
+                    </>
                   )}
-                  <td className="px-1">
-                    <Input
-                      type="date"
-                      className={inputSm}
-                      {...register(`items.${i}.expiryDate`)}
-                    />
-                  </td>
-                  {!isSale && (
-                    <td className="px-1" style={{ width: 90 }}>
-                      <Input
-                        className={inputSm}
-                        {...register(`items.${i}.packSize`)}
-                      />
-                    </td>
-                  )}
-                  {!isSale && (
-                    <td className="px-1" style={{ width: 90 }}>
-                      <Input
-                        type="number"
-                        step="any"
-                        className={inputSm}
-                        {...register(`items.${i}.packQuantity`)}
-                      />
-                    </td>
-                  )}
-                  {!isSale && (
-                    <td className="px-1" style={{ width: 90 }}>
-                      <Input
-                        type="number"
-                        step="any"
-                        className={inputSm}
-                        {...register(`items.${i}.freePackQuantity`)}
-                      />
-                    </td>
-                  )}
-                  {!isSale && (
-                    <td className="px-1" style={{ width: 90 }}>
-                      <Input
-                        type="number"
-                        step="any"
-                        className={inputSm}
-                        {...register(`items.${i}.mrp`)}
-                      />
-                    </td>
-                  )}
-                  <td className="px-1" style={{ width: 80 }}>
-                    <Input
-                      type="number"
-                      step="any"
-                      className={inputSm}
-                      {...register(`items.${i}.quantity`)}
-                    />
-                  </td>
-                  <td className="px-1" style={{ width: 100 }}>
-                    <Input
-                      type="number"
-                      step="any"
-                      className={inputSm}
-                      {...register(`items.${i}.unitPrice`)}
-                    />
-                  </td>
-                  <td className="px-1" style={{ width: 80 }}>
-                    <Input
-                      className={inputSm}
-                      placeholder="0 or 5%"
-                      {...register(`items.${i}.discount`)}
-                    />
-                  </td>
-                  <td className="px-1" style={{ width: 130 }}>
-                    <select
-                      className={`${selectCls} h-9`}
-                      value={watchedItems[i]?.taxRateId ?? ''}
-                      onChange={(e) => {
-                        const tr = (taxRates ?? []).find(
-                          (t) => t.id === e.target.value,
-                        );
-                        setValue(`items.${i}.taxRateId`, e.target.value);
-                        setValue(
-                          `items.${i}.taxRate`,
-                          tr ? String(tr.rate) : '0',
-                        );
-                      }}
-                    >
-                      <option value="">No tax</option>
-                      {(taxRates ?? []).map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} ({t.rate}%)
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-1" style={{ width: 90 }}>
-                    <Input className={inputSm} {...register(`items.${i}.hsnCode`)} />
-                  </td>
-                  {isSale && (
-                    <td className="px-1" style={{ width: 90 }}>
-                      <Input
-                        type="number"
-                        step="1"
-                        min="0"
-                        className={inputSm}
-                        {...register(`items.${i}.invExposure`)}
-                      />
-                    </td>
-                  )}
+
                   <td className="px-1 text-right tabular-nums">
                     {(totals.lines[i]?.subtotal ?? 0).toFixed(2)}
                   </td>
@@ -673,26 +1004,43 @@ export function OrderForm({ mode, editId }: Props) {
               <Label>Shipping</Label>
               <Input type="number" step="any" {...register('shipping')} />
             </div>
-            <div className="space-y-1.5">
-              <Label>Order tax %</Label>
-              <Input type="number" step="any" {...register('orderTax')} />
-            </div>
+            {isSale && (
+              <div className="space-y-1.5">
+                <Label>Order tax %</Label>
+                <Input type="number" step="any" {...register('orderTax')} />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>Order discount</Label>
               <Input placeholder="0 or 5%" {...register('orderDiscount')} />
             </div>
-            <div className="space-y-1.5">
-              <Label>Payment term (days)</Label>
-              <Input type="number" {...register('paymentTerm')} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>GST number</Label>
-              <Input {...register('gstNumber')} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>GST state</Label>
-              <Input {...register('gstState')} />
-            </div>
+            {isSale && (
+              <div className="space-y-1.5">
+                <Label>Payment term (days)</Label>
+                <Input type="number" {...register('paymentTerm')} />
+              </div>
+            )}
+            {isSale && (
+              <div className="space-y-1.5">
+                <Label>GST number</Label>
+                <Input {...register('gstNumber')} />
+              </div>
+            )}
+            {isSale && (
+              <div className="space-y-1.5">
+                <Label>GST state</Label>
+                <Input {...register('gstState')} />
+              </div>
+            )}
+            {isSale && (
+              <div className="col-span-2 space-y-1.5">
+                <Label>Order tags</Label>
+                <Input
+                  placeholder="Comma-separated tags"
+                  {...register('orderTags')}
+                />
+              </div>
+            )}
             <label className="col-span-2 flex items-center gap-2 text-sm">
               <input type="checkbox" {...register('interState')} />
               Inter-state (IGST); unchecked = CGST + SGST
@@ -824,6 +1172,32 @@ export function OrderForm({ mode, editId }: Props) {
           </div>
         </section>
       </div>
+
+      {isSale && (
+        <>
+          <AddReferralDialog
+            open={addReferralOpen}
+            onOpenChange={setAddReferralOpen}
+            onCreated={(r) => {
+              setValue('referralId', r.id);
+              setValue('referralName', r.name);
+            }}
+          />
+          <ViewCustomerDialog
+            customerId={live.partyId || null}
+            open={viewCustomerOpen}
+            onOpenChange={setViewCustomerOpen}
+          />
+          <AddCustomerDialog
+            open={addCustomerOpen}
+            onOpenChange={setAddCustomerOpen}
+            onCreated={(c) => {
+              setValue('partyId', c.id);
+              setPickedCustomerLabel(c.name);
+            }}
+          />
+        </>
+      )}
     </form>
   );
 }

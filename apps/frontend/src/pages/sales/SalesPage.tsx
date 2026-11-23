@@ -1,19 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Plus, Upload, Download, Trash2 } from 'lucide-react';
+import { Plus, Upload, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DataTable, type Column } from '@/components/shared/DataTable';
-import { PrintButton } from '@/components/shared/PrintButton';
-import { EmailDocumentButton } from '@/components/shared/EmailDocumentButton';
 import { ImportDialog } from '@/components/shared/ImportDialog';
 import { exportCsv } from '@/lib/csv';
-import {
-  useInfiniteSales,
-  useDeleteSale,
-  type SaleListRow,
-} from '@/features/sales/api';
+import { SalesActionsMenu } from '@/features/sales/SalesActionsMenu';
+import { useInfiniteSales, type SaleListRow } from '@/features/sales/api';
 
 const selectCls =
   'flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm';
@@ -59,7 +54,7 @@ export function SalesPage({ posOnly }: Props) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [importOpen, setImportOpen] = useState(false);
-  const del = useDeleteSale();
+  const [pageSize, setPageSize] = useState(20);
 
   const extra = useMemo(
     () => ({
@@ -72,7 +67,7 @@ export function SalesPage({ posOnly }: Props) {
     [status, paymentStatus, startDate, endDate, posOnly],
   );
   const { rows, isLoading, hasMore, isFetchingMore, fetchMore } =
-    useInfiniteSales({ search, extra });
+    useInfiniteSales({ search, extra, limit: pageSize });
 
   const totals = useMemo(
     () => ({
@@ -82,26 +77,18 @@ export function SalesPage({ posOnly }: Props) {
     [rows],
   );
 
-  const remove = (id: string) => {
-    if (!confirm('Delete this sale?')) return;
-    del.mutate(id, {
-      onSuccess: () => toast.success('Sale deleted'),
-      onError: () => toast.error('Could not delete sale'),
-    });
-  };
-
   const columns: Column<SaleListRow>[] = [
-    { key: 'reference', header: 'Reference' },
     {
       key: 'date',
       header: 'Date',
-      render: (r) => new Date(r.date).toLocaleDateString(),
+      render: (r) => new Date(r.date).toLocaleString(),
     },
+    { key: 'reference', header: 'Reference' },
     { key: 'customer', header: 'Customer', render: (r) => r.customer?.name ?? '—' },
-    { key: 'status', header: 'Status' },
+    { key: 'status', header: 'Sales Status' },
     {
       key: 'grandTotal',
-      header: 'Grand total',
+      header: 'Grand Total',
       render: (r) => r.grandTotal.toFixed(2),
     },
     { key: 'paid', header: 'Paid', render: (r) => r.paid.toFixed(2) },
@@ -110,35 +97,14 @@ export function SalesPage({ posOnly }: Props) {
       header: 'Balance',
       render: (r) => (r.grandTotal - r.paid).toFixed(2),
     },
-    { key: 'paymentStatus', header: 'Payment' },
+    { key: 'paymentStatus', header: 'Payment Status' },
     {
       key: 'actions',
-      header: '',
+      header: 'Actions',
       className: 'text-right w-px whitespace-nowrap',
       render: (r) => (
-        <div className="flex justify-end gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate(`/sales/edit/${r.id}`)}
-          >
-            Edit
-          </Button>
-          <PrintButton path={`/print/sale/${r.id}`} title="Print invoice" />
-          <PrintButton
-            path={`/print/sale/${r.id}/receipt`}
-            title="Print receipt"
-            variant="outline"
-          />
-          <EmailDocumentButton type="sale" id={r.id} title="Email invoice" />
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Delete"
-            onClick={() => remove(r.id)}
-          >
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
+        <div className="flex justify-end">
+          <SalesActionsMenu sale={r} />
         </div>
       ),
     },
@@ -232,6 +198,21 @@ export function SalesPage({ posOnly }: Props) {
           onChange={(e) => setEndDate(e.target.value)}
           className="w-auto"
         />
+        <div className="ml-auto flex items-center gap-1 text-sm text-muted-foreground">
+          <span>Show</span>
+          <select
+            className={selectCls}
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+          >
+            {[10, 25, 50, 100].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <span>entries</span>
+        </div>
       </div>
 
       <DataTable

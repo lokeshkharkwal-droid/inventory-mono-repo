@@ -1,0 +1,39 @@
+meta {
+  name: 20 Create proforma (Reagent=Single, Bandage=Combined)
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{inventoryBaseUrl}}/proformas
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "Bruno E2E Proforma {{runSfx}}",
+    "items": [
+      { "productId": "{{reagentId}}", "quantity": 1, "unitPrice": 20, "quantityMethod": 1 },
+      { "productId": "{{bandageId}}", "quantity": 1, "unitPrice": 15, "quantityMethod": 2 }
+    ]
+  }
+}
+
+script:post-response {
+  if (res.body.data) bru.setEnvVar("proformaId", res.body.data.id);
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.id: isString
+}
+
+docs {
+  quantityMethod 1 = Single (deduct configuredQty x number of mapped tests);
+  quantityMethod 2 = Combined (deduct configuredQty once per order).
+}

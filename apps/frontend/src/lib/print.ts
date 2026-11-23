@@ -6,7 +6,49 @@
  * token — so we fetch the HTML with the authenticated client and write it into
  * a blank window, then trigger the browser's print dialog.
  */
-import { request } from './http';
+import { api, request } from './http';
+
+/** Pull a readable message out of a failed blob (PDF) request. */
+async function extractBlobErrorMessage(err: unknown): Promise<string> {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await data.text()) as {
+        error?: { message?: string };
+      };
+      if (parsed.error?.message) return parsed.error.message;
+    } catch {
+      /* non-JSON body — fall through */
+    }
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return 'Could not generate the PDF.';
+}
+
+/**
+ * Fetch a server-generated PDF (GET, binary) through the authed client and open
+ * it in a new tab. Throws a readable error (incl. "no template configured")
+ * extracted from the backend's JSON error body, or a popup-blocked message.
+ */
+export async function openPdfBlob(path: string, label: string): Promise<void> {
+  let blob: Blob;
+  try {
+    const res = await api.request<Blob>({
+      method: 'GET',
+      url: path,
+      responseType: 'blob',
+    });
+    blob = res.data;
+  } catch (err) {
+    throw new Error(await extractBlobErrorMessage(err));
+  }
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  if (!win) {
+    throw new Error(`Pop-up blocked — allow pop-ups to view the ${label}.`);
+  }
+}
 
 /** Write an HTML document into a new window and fire the print dialog. */
 function printHtml(html: string): boolean {
@@ -52,6 +94,46 @@ export async function openPrintDocumentPost(
   body: unknown,
 ): Promise<boolean> {
   const html = await request<string>('POST', path, { body });
+  return printHtml(html);
+}
+
+/**
+ * Combine several documents of one type into a single multi-page PDF (EZHT
+ * "Combine to PDF"). Posts the selected ids to `/print/combine` and prints the
+ * merged HTML. `type` ∈ sale|purchase|quote|proforma|requisition|transfer.
+ */
+export async function openCombinedPdf(
+  type: string,
+  ids: string[],
+): Promise<boolean> {
+  return openPrintDocumentPost('/print/combine', { type, ids });
+}
+
+/**
+ * EZHT "Export to PDF" for a list: render the selected rows as a printable
+ * summary table (date / reference / … / total / status) client-side and print.
+ */
+export function printRowsAsPdf(
+  title: string,
+  headers: string[],
+  rows: Array<Array<string | number>>,
+): boolean {
+  const esc = (s: unknown) =>
+    String(s ?? '').replace(
+      /[&<>]/g,
+      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c,
+    );
+  const thead = `<tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>`;
+  const tbody = rows
+    .map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`)
+    .join('');
+  const html =
+    `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>` +
+    `<style>body{font-family:Arial,sans-serif;font-size:12px;padding:16px}` +
+    `h2{margin:0 0 12px}table{width:100%;border-collapse:collapse}` +
+    `th,td{border:1px solid #999;padding:4px 6px;text-align:left}th{background:#f0f0f0}</style>` +
+    `</head><body><h2>${esc(title)}</h2>` +
+    `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table></body></html>`;
   return printHtml(html);
 }
 
